@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Nanto.Testing/Nanto.Testing.csproj" />
+  </ItemGroup>
+</Project>

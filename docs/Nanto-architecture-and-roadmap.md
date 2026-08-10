@@ -176,7 +176,7 @@ public interface INantoWindow
 }
 ```
 
-Platform escape hatches must be explicit and optional:
+Platform escape hatches must be explicit and optional. The following is a possible future Windows-specific contract, not a Phase 1 API; F-002 defers it until a concrete consumer exists:
 
 ```csharp
 public interface IWindowsWindowHandle
@@ -283,7 +283,7 @@ The frontend and core normally live in one application installation, but the Web
 | `Nanto.Hosting.Apple` | Apple lifecycle and WKWebView host, split later if necessary |
 | `Nanto.Hosting.Linux` | GTK and WebKitGTK host |
 | `Nanto.Cli` | `dotnet nanto new/dev/build/doctor` orchestration |
-| `Nanto.Testing` | Protocol harness, fake host, lifecycle and plugin test utilities |
+| `Nanto.Testing` | Future public testing package; Phase 1 keeps fake host, dispatcher, recorder, and failure scripting in non-packable repository support |
 | `Nanto.Plugin.*` | First-party native capabilities |
 | `@nanto/core` | Minimal browser-side protocol runtime |
 | `@nanto/app` | Generated application-specific TypeScript API |
@@ -539,13 +539,13 @@ The completed feasibility work established these requirements for Nanto:
 - atomic cache creation and safe retention across application upgrades;
 - no extraction on every launch when the asset version is already present.
 
-Every application declares a stable, globally unique `ApplicationId`, normally in reverse-DNS form such as `com.ghidello.myapp`. Nanto canonicalizes that identity and derives a collision-resistant filesystem key; display name, assembly name, executable name, and installation directory are not identities. Changing `ApplicationId` deliberately creates a new storage boundary.
+Every application declares a stable, globally unique `ApplicationId`, normally in reverse-DNS form such as `com.ghidello.myapp`. Nanto trims and canonicalizes it to lowercase invariant, limits each ASCII segment to 63 characters and the complete identifier to 253 characters, and derives a collision-resistant filesystem key. Display name, assembly name, executable name, and installation directory are not identities. Changing `ApplicationId` deliberately creates a new storage boundary.
 
-The Windows cache schema is `%LOCALAPPDATA%\Nanto\applications\<application-key>\assets-v1\<bundle-sha256>`. The bundle key hashes the normalized asset manifest and contents rather than the application release number, so releases with identical assets reuse one immutable `content` directory. Mutable siblings record completeness, last use, and an explicit lease. The stable WebView2 UDF lives under the same application boundary at `profiles\default\webview2-udf`, outside release and bundle directories, so browser storage survives application upgrades.
+The Windows cache schema is `%LOCALAPPDATA%\Nanto\applications\<application-key>\assets-v1\<bundle-sha256>`. The bundle key hashes the normalized asset manifest and contents rather than the application release number, so releases with identical assets reuse one immutable `content` directory. Bundle siblings record completeness and an explicit lease. The stable WebView2 UDF lives under the same application boundary at `profiles\default\webview2-udf`, outside release and bundle directories, so browser storage survives application upgrades.
 
-`%LOCALAPPDATA%\Nanto\applications\<application-key>` is the default application data root, not an unchangeable location. A deployment may place a small versioned `nanto.runtime.json` beside the application and set `dataRoot`; an explicit `--data-root` process argument takes precedence for diagnostics and enterprise launch scripts. Relative configured paths resolve from the application directory, never the current working directory, and the resolved application root contains the same `assets-v1`, `profiles`, and maintenance layout. The selected root is normalized and write-probed before asset extraction or WebView2 startup, and failure reports the exact source and path without silently falling back elsewhere.
+Phase 1 always uses `%LOCALAPPDATA%\Nanto\applications\<application-key>` as its application data root. The root is write-probed before asset extraction or WebView2 startup, and failure reports the exact path without silently falling back elsewhere. Adjacent runtime configuration, command-line storage overrides, environment overrides, and enterprise storage policy are deferred until deployment requirements justify the additional configuration surface.
 
-Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A short per-application cross-process maintenance lock serializes lease acquisition with cleanup. Cleanup runs best-effort at most daily, skips the current or leased bundles, and atomically retires only complete bundles whose explicit UTC `last-used` timestamp is older than 30 days. Missing, invalid, or future timestamps are retained. Abandoned staging directories may be removed after 24 hours. A previously installed release whose dormant cache was removed can re-extract its embedded assets on its next launch.
+Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A short per-application cross-process maintenance lock serializes lease acquisition, validation, quarantine, and publication. A corrupt bundle belonging to the current application is atomically quarantined and reconstructed; an application-identity mismatch fails without modification. Phase 1 does not automatically delete old valid bundles, abandoned staging directories, or quarantined bundles. Age-based retention and cleanup remain future distribution work.
 
 ### 6.9 Critical Native AOT risk: COM
 
@@ -601,7 +601,7 @@ Not every event exists on every platform. Platform hosts map native events and d
 
 Windows and tray icons are peer application surfaces. This supports applications that close their last visible window but remain active in the tray.
 
-Suggested shutdown policies:
+The complete multi-surface model is Phase 6 work. Its suggested future shutdown policies are:
 
 ```csharp
 public enum ShutdownMode
@@ -614,10 +614,13 @@ public enum ShutdownMode
 
 Owned dialogs and auxiliary windows do not automatically become shutdown-defining surfaces.
 
+Phase 1 exposes only `OnPrimaryWindowClosed` and `Explicit`, together with one nullable `PrimaryWindow`. It does not expose `OnLastSurfaceClosed` or a public window collection.
+
 ### 7.3 Thread affinity
 
 - Each platform host captures its UI dispatcher/executor.
 - All window and WebView mutation happens through that dispatcher.
+- Public application/window state and property getters publish immutable snapshots that are safe to read from any thread; observation never requires dispatcher round-trips.
 - Debug builds throw immediately when a UI-thread-only API is used incorrectly.
 - The command dispatcher may execute ordinary commands away from the UI thread, but injects a portable UI dispatcher for operations that affect windows.
 - Registries use immutable or copy-on-write snapshots for thread-safe observation; mutation remains UI-thread-owned.
@@ -1176,11 +1179,11 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-033 | Keep the runtime, generated ESM client, and frontend integration contract framework- and bundler-neutral. | React/Vite can provide the first polished template without restricting Angular, Vue, Svelte, Solid, vanilla TypeScript, or future SPA toolchains. |
 | D-034 | Resolve SPA document routes with a generated asset manifest and an explicit navigation policy; never treat every missing resource as `index.html`. | Preserves static asset correctness and security while allowing clean URLs; exact assets remain mapped directly and only top-level same-origin document routes may fall back. |
 | D-035 | Resolve O-001 with a narrow Nanto-owned source-generated WebView2 COM projection derived from the pinned official header. | Feasibility results establish Native AOT, trimming, callbacks, ABI layout, messaging, and teardown without a UI framework or built-in COM interop; deterministic regeneration verification prevents unnoticed projection drift. |
-| D-036 | Resolve O-002 with the internal `https://app.nanto.invalid` origin and application-scoped, content-addressed asset caches with shared process leases and 30-day last-use retention. | Secure-origin behavior is proven; stable application identity prevents cross-application collisions, immutable bundles support concurrent releases, and leases prevent deletion while any instance is using a bundle. |
+| D-036 | Resolve O-002 with the internal `https://app.nanto.invalid` origin and application-scoped, content-addressed asset caches with shared process leases. | Secure-origin behavior is proven; stable application identity prevents cross-application collisions, immutable bundles support concurrent releases, and leases prevent deletion while any instance is using a bundle. Automated age-based retention is deferred. |
 | D-037 | Resolve O-003 by supporting Windows 10 22H2/build 19045 or newer on x64 for the initial product. | Completed feasibility and standalone deployment results establish the x64 path. Arm64 joins macOS and Linux as a future platform commitment rather than a Phase 1 gate. |
 | D-038 | Resolve O-012 by making embedded, versioned extraction the default production asset deployment; retain directory mapping for development and externally managed assets. | Feasibility results establish single-file-compatible embedding, atomic extraction, secure virtual-host mapping, and content-hash cache reuse on Windows 10. |
 | D-039 | Resolve O-006 by supporting explicit framework-dependent and self-contained CoreCLR compatibility publishes while keeping Native AOT the default. | Users with non-AOT dependencies need a deliberate fallback, but deployment ownership differs by environment. All modes use the same AOT-compatible host contracts and no mode is selected through silent publish fallback. |
-| D-040 | Allow the application data root to be selected by an adjacent versioned `nanto.runtime.json` or an overriding `--data-root` argument. | `%LOCALAPPDATA%` remains the safe default, while enterprise policy and diagnostics may require an approved writable local path without rebuilding the application. |
+| D-040 | Use only `%LOCALAPPDATA%\Nanto\applications\<application-key>` as the Phase 1 application data root. | A single deterministic location keeps the initial host and test protocol small. Configurable roots remain a future deployment feature rather than an undocumented override. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1208,6 +1211,18 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | O-013 | Exact `Nanto.Hosting.Aspire` resource API and whether templates offer an `--aspire` option | Phase 3 developer-experience prototype |
 | O-014 | Exact browser telemetry package, default instrumentations, sampling, and relay wire format | Phase 3 telemetry prototype; account for experimental browser instrumentation status |
 
+### 13.4 Work explicitly deferred from Phase 1
+
+| ID | Deferred work | Reconsider when |
+| --- | --- | --- |
+| F-001 | Public multi-window collection, `OnLastSurfaceClosed`, peer-surface ownership, and related shutdown policies. Phase 1 exposes only `PrimaryWindow`; the Windows host may keep an internal registry. | Phase 6 multi-window and tray work. |
+| F-002 | Public borrowed native-window-handle access such as `IWindowsWindowHandle`. | A plugin or integration has a concrete `HWND` consumer and its ownership/lifetime contract can be tested. |
+| F-003 | Publishing `Nanto.Testing` as a supported product package. Phase 1 keeps the utilities in a non-packable repository-local support assembly. | After the first host implementation proves the fake, dispatcher, recorder, and failure-plan shapes useful to external consumers. |
+| F-004 | Adjacent `nanto.runtime.json`, `--data-root`, environment overrides, and enterprise-configurable application storage. | Phase 5 distribution work or an earlier concrete deployment requirement. |
+| F-005 | Automatic age-based removal of old asset bundles, abandoned staging directories, and quarantined bundles, including retention customization. | Phase 5 distribution work, after real upgrade and rollback behavior supplies safe retention evidence. |
+| F-006 | Multiple WebView2 runtime lanes in the integration protocol. Phase 1 uses Evergreen only and carries no redundant runtime-lane field. | A Fixed Version or other runtime lane becomes an active product or compatibility gate. |
+| F-007 | Running the exhaustive framework-dependent behavioral/failure matrix again under self-contained CoreCLR and Native AOT. Phase 1 uses focused deployment smoke suites for those modes. | Mode-specific failures, release evidence, or risk justify the additional execution time and duplicate coverage. |
+
 ---
 
 ## 14. Implementation roadmap
@@ -1231,13 +1246,13 @@ Deliverables:
 
 - `Nanto.Core` lifecycle and host contracts;
 - `Nanto.Hosting.Windows` application host, UI dispatcher, message pump, window registry, and WebView host;
-- curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and the `IntegrationInterop` byte-for-byte regeneration gate;
+- curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and a byte-for-byte regeneration project included in the unattended `Integration` gate;
 - explicit application/window state machines;
 - reverse-order cleanup stack for partial initialization;
 - DPI-correct sizing and multi-monitor behavior;
 - navigation policy and production asset provider;
 - structured logging and resource ledger;
-- fake host for lifecycle unit tests.
+- non-packable repository-local fake host and dispatcher support for lifecycle unit tests.
 
 Exit criteria:
 
@@ -1443,12 +1458,12 @@ CI should cover:
 
 Historical feasibility work has passed and is evidence, not a production dependency. Continue with [`phase1-plan.md`](phase1-plan.md) in vertical milestone order:
 
-1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with default and explicit integration configurations controlling which projects build and run.
-2. Create the portable Core, Windows host, Testing, and fast-test projects without adding UI frameworks or broad hosting infrastructure.
-3. Implement and exhaustively test the portable lifecycle state machines, cancellation-first shutdown, cleanup aggregation, application identity, and immutable registry snapshots.
+1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with safe `Debug`/`Release` configurations and one unattended `Integration` configuration.
+2. Create the portable Core and Windows host projects, non-packable repository Testing support, and fast-test projects without adding UI frameworks or broad hosting infrastructure.
+3. Implement and exhaustively test the portable lifecycle state machines, cancellation-first shutdown, cleanup aggregation, application identity, safely published primary-window snapshots, and internal registry ownership.
 4. Add the dedicated STA dispatcher and raw Win32 x64 host, numbering and fault-injecting every native acquisition as it is introduced.
 5. Bring the proven generated WebView2 COM projection, static-loader AOT path, secure origin, embedded versioned cache, routing policy, and teardown ownership into production code through hidden integration tests.
-6. Keep visible-window, Native AOT, self-contained CoreCLR, interop-generation, and long-running tests in explicit projects inside `Nanto.slnx`; select them only through their documented integration configurations. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
+6. Keep Native AOT, self-contained CoreCLR, and interop-generation tests in explicit projects selected together by `Integration`. Keep visible-window and long-running tests in explicit solution-member projects invoked only by direct project commands. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
 
 ---
 

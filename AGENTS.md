@@ -72,8 +72,13 @@ For applicable changes, verify:
 - Development orchestration leaves no child processes or locked files behind.
 - Two instances sharing the same application/profile UDF either pass the documented multi-instance lifecycle test or trigger an explicit support-policy decision; do not silently test only separate UDFs.
 
-When the repository gains canonical build, test, format, and publish commands, record them here rather than guessing or inventing alternatives.
-
 ## Canonical commands
 
-This documentation-and-configuration baseline intentionally has no solution or projects, so it has no build or test commands yet. Record canonical commands here when the corresponding Phase 1 projects are introduced; use the explicit contracts in Nanto's documentation rather than inferring behavior from external source.
+Milestone 1 has introduced the canonical solution and its default project graph. Use:
+
+```powershell
+dotnet build
+dotnet test
+```
+
+Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, and the three fast test projects. The `Integration` configuration and its explicit support and integration projects have not been introduced yet; do not treat `dotnet test -c Integration` as a phase gate until that graph exists.

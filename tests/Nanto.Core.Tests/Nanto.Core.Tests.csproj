@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
+  </ItemGroup>
+</Project>

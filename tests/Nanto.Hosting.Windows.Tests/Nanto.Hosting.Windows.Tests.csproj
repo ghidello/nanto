@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
+    <ProjectReference Include="../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/Nanto.Hosting.Windows/obj/project.assets.json"
+          Link="Nanto.Hosting.Windows.project.assets.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

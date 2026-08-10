@@ -7,8 +7,9 @@ Phase 1 creates Nanto's production framework foundations as a clean implementati
 Work will use small vertical commits and structurally separated test projects:
 
 - `dotnet test` runs only production fast tests.
-- Hidden framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, interop-generation, visible, and long-running lanes are selected through explicit `Nanto.slnx` solution configurations.
-- Phase 1 will not use test profiles, traits, filters, or environment variables to change a project's test inventory.
+- All unattended framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop-generation tests run through the single `Integration` solution configuration.
+- Visible and long-running tests remain explicit projects inside `Nanto.slnx` and run only through direct project commands.
+- Traits may describe tests and filters may help local diagnosis, but canonical gates run complete projects. Test profiles and environment variables do not select tests or build modes.
 
 The integration strategy remains hybrid: pure tests for most behavior, hidden production-path WebView2 tests for unattended execution, and a small isolated visible-window project.
 
@@ -20,7 +21,7 @@ This is the single canonical solution and contains every production, testing, su
 
 - `Nanto.Core`
 - `Nanto.Hosting.Windows`
-- `Nanto.Testing`
+- `Nanto.Testing` repository test support
 - `Nanto.Core.Tests`
 - `Nanto.Hosting.Windows.Tests`
 - `Nanto.Testing.Tests`
@@ -34,35 +35,27 @@ dotnet test
 
 build production code and run fast tests without creating WebView2 processes or windows.
 
-The solution defines these mutually exclusive test-lane configurations:
+The solution defines three configurations:
 
 | Solution configuration | Selected projects and behavior |
 | --- | --- |
-| `Debug` / `Release` | Production libraries and the three fast test projects only. No TestApp or WebView2 process can start. |
-| `Integration` | Production libraries, fast tests, TestProtocol, TestApp, IntegrationTestKit, and HiddenIntegrationTests. This is the unattended CoreCLR WebView2 lane. |
-| `IntegrationSelfContained` | Production libraries, fast tests, TestProtocol, TestApp, IntegrationTestKit, and CoreClrSelfContainedIntegrationTests. This is the unattended self-contained CoreCLR deployment lane. |
-| `IntegrationAot` | Production libraries, fast tests, TestProtocol, TestApp, IntegrationTestKit, and AotIntegrationTests. Its test project publishes TestApp as Release Native AOT. |
-| `IntegrationInterop` | Production libraries, fast tests, WebView2InteropGen, and InteropGeneration.IntegrationTests. It verifies committed interop without creating a window or WebView2 process. |
-| `IntegrationVisible` | Production libraries, fast tests, support projects, and VisibleIntegrationTests. It intentionally affects the interactive desktop. |
-| `IntegrationLongRunning` | Production libraries, fast tests, support projects, and LongRunningIntegrationTests. It intentionally consumes extended machine time. |
+| `Debug` / `Release` | The two production libraries, repository-local Nanto.Testing support, and the three fast test projects only. No TestApp or WebView2 process can start. |
+| `Integration` | Everything in `Debug`, plus TestProtocol, TestApp, IntegrationTestKit, WebView2InteropGen, and all four unattended integration projects: interop generation, framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT. |
 
-The `Integration*` solution configurations map their selected SDK projects to the ordinary `Debug` project configuration; they are lane selectors, not alternative compiler optimization modes. The AOT project's publish target explicitly publishes TestApp with Release settings. No solution configuration selects more than one integration-test project, and there is deliberately no “all lanes” configuration.
+`Integration` maps its selected SDK projects to the ordinary `Debug` project configuration; it is a project-selection boundary, not an alternative compiler optimization mode. Each integration project fixes its own runtime and deployment model. The AOT project explicitly publishes TestApp with Release settings.
 
 Canonical selection therefore remains visible at the command line:
 
 ```powershell
 dotnet test                       # fast tests only
-dotnet test -c Integration        # fast + hidden WebView2
-dotnet test -c IntegrationSelfContained
-dotnet test -c IntegrationAot     # fast + Native AOT WebView2
-dotnet test -c IntegrationInterop # deterministic interop verification
-dotnet test -c IntegrationVisible # explicit desktop interaction
-dotnet test -c IntegrationLongRunning
+dotnet test -c Integration        # fast + every unattended integration project
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj
 ```
 
 ### Explicit Phase 1 integration projects
 
-These projects are members of `Nanto.slnx`, remain visible in the IDE, and are selected only by their matching solution configuration:
+These projects are members of `Nanto.slnx` and remain visible in the IDE:
 
 - `Nanto.Hosting.Windows.HiddenIntegrationTests`
 - `Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests`
@@ -71,7 +64,7 @@ These projects are members of `Nanto.slnx`, remain visible in the IDE, and are s
 - `Nanto.Hosting.Windows.VisibleIntegrationTests`
 - `Nanto.Hosting.Windows.LongRunningIntegrationTests`
 
-Their support projects—TestProtocol, TestApp, IntegrationTestKit, and the offline WebView2InteropGen tool—are also solution members. Default configurations exclude all support, tooling, and integration projects from build and test. Selecting an integration configuration includes only the required support graph and its one test project.
+Their support projects—TestProtocol, TestApp, IntegrationTestKit, and the offline WebView2InteropGen tool—are also solution members. `Debug` and `Release` exclude all support, tooling, and integration projects. `Integration` includes the complete unattended graph but excludes VisibleIntegrationTests and LongRunningIntegrationTests; those two projects run only when named directly.
 
 ## Architecture and contracts
 
@@ -79,7 +72,7 @@ Create:
 
 - `Nanto.Core`: portable lifecycle, application, window, dispatcher, asset, and failure contracts.
 - `Nanto.Hosting.Windows`: STA host, Win32 window, WebView2, assets, navigation, DPI, logging, and teardown.
-- `Nanto.Testing`: deterministic fake host/window, manual dispatcher, lifecycle recorder, and portable failure scripting.
+- `Nanto.Testing`: non-packable repository test support containing the deterministic fake host/window, manual dispatcher, lifecycle recorder, and portable failure scripting. It is not a Phase 1 product package.
 
 Initial portable API:
 
@@ -91,9 +84,8 @@ Initial portable API:
 - `ShutdownMode`: primary-window, last-surface, or explicit shutdown.
 - `INantoWindow`: state, title, bounds, activation, close, and renderer-failure notification.
 - `IUiDispatcher`: access check and asynchronous invocation without synchronous UI waits.
-- `INantoApplicationHost`: state, dispatcher, immutable window snapshot, lifecycle events, single-use run, and idempotent stop.
+- `INantoApplicationHost`: state, dispatcher, primary-window snapshot, lifecycle events, single-use run, and idempotent stop.
 - `IWebAssetProvider`: prepares an immutable versioned asset lease.
-- Optional `IWindowsWindowHandle` in the Windows assembly.
 
 Phase 1 supports one primary window. Multi-window and tray behavior remain later phases.
 
@@ -107,10 +99,10 @@ Use the following exact project layout:
 | --- | --- | --- |
 | `src/Nanto.Core/Nanto.Core.csproj` | `net10.0` | Portable contracts and implementations; references `Microsoft.Extensions.Logging.Abstractions` 10.0.10; sets `IsAotCompatible=true`. |
 | `src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj` | `net10.0-windows10.0.19041.0` | References Core, pinned WebView2 SDK assets, CsWin32, and logging abstractions; supports `win-x64`; enables unsafe code, trimming analysis, `DisableRuntimeMarshalling`, and CsWin32 build-task generation. Product policy requires Windows 10 22H2/build 19045 or newer even though the Windows SDK contract version remains 19041. |
-| `src/Nanto.Testing/Nanto.Testing.csproj` | `net10.0` | References Core only; contains deterministic fakes, recording, and failure scripting without Windows or test-framework types. |
+| `tests/Nanto.Testing/Nanto.Testing.csproj` | `net10.0` | Non-packable repository support library; references Core only and contains deterministic fakes, recording, and failure scripting without Windows or test-framework types. |
 | `tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj` | `net10.0` | References Core and the standard repository test packages. |
 | `tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj` | `net10.0-windows10.0.19041.0` | References Core and Windows hosting; contains no real window or WebView creation. |
-| `tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj` | `net10.0` | References Core and Testing. |
+| `tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj` | `net10.0` | References Core and the repository-local Testing support library. |
 | `tests/Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj` | `net10.0` | Integration-only versioned request/report DTOs, scenario names, and serialized checkpoint names; references no production or test-framework assembly and is not a test project. |
 | `tests/Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj` | `net10.0-windows10.0.19041.0` executable | References Core, Windows hosting, and TestProtocol; external process used by every native integration project; publishable as CoreCLR or Native AOT. |
 | `tests/Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj` | `net10.0-windows10.0.19041.0` | References TestProtocol; contains the process runner, artifact handling, job-object containment, and integration assertions; it is not a test project. |
@@ -120,7 +112,7 @@ Use the following exact project layout:
 
 Pin `Microsoft.Web.WebView2` at `1.0.4129.50`, `Microsoft.Windows.CsWin32` at `0.3.298`, and `Microsoft.Extensions.Logging.Abstractions` at `10.0.10` in central package management. Upgrade WebView2 and CsWin32 only through an explicit dependency review that includes interop regeneration, ABI verification, AOT/trim diagnostics, loader verification, and real-host integration tests. Do not add `Microsoft.Extensions.Hosting`, a DI container, OpenTelemetry SDK, or a UI framework in Phase 1.
 
-The solution contains the complete project graph. Its `Debug` and `Release` configurations build the three production projects and three fast test projects only; each `Integration*` configuration adds its required support or tooling projects and exactly one integration-test project.
+The solution contains the complete project graph. Its `Debug` and `Release` configurations build the two production projects, repository-local Testing support, and three fast test projects only. `Integration` adds every native support/tooling project and all unattended integration-test projects while excluding visible and long-running tests.
 
 TestApp declares the `win-x64` runtime identifier and supports exactly three explicit build modes: `CoreClrFrameworkDependent`, `CoreClrSelfContained`, and `NativeAot`. Ordinary builds default to `CoreClrFrameworkDependent`; production tooling defaults to `NativeAot`. Selecting CoreCLR is deliberate and never occurs as a silent fallback after an AOT failure. Arm64 is outside Phase 1 and requires a future platform gate rather than conditional code in the initial host.
 
@@ -147,7 +139,7 @@ Mode behavior is fixed:
 
 All modes compile the same production projects, generated COM projection, lifecycle, security, serialization, asset, and teardown code. CoreCLR is a compatibility/development deployment choice, not permission to introduce framework code that fails AOT analysis. Nanto production assemblies remain `IsAotCompatible` and the Native AOT lane stays green.
 
-The `Integration` solution configuration runs framework-dependent CoreCLR TestApp. `IntegrationSelfContained` publishes once to `artifacts/phase1/publish/coreclr-self-contained/win-x64`; `IntegrationAot` publishes once to `artifacts/phase1/publish/native-aot/win-x64`. Each integration project fixes `NantoBuildMode` in MSBuild; no trait, environment variable, profile, or test argument changes its build mode or inventory.
+Within the `Integration` solution configuration, HiddenIntegrationTests runs framework-dependent CoreCLR TestApp, CoreClrSelfContainedIntegrationTests publishes once to `artifacts/phase1/publish/coreclr-self-contained/win-x64`, and AotIntegrationTests publishes once to `artifacts/phase1/publish/native-aot/win-x64`. Each project fixes `NantoBuildMode` in MSBuild; no trait, filter, environment variable, profile, or test argument changes its build mode.
 
 Every production publish sets `CopyOutputSymbolsToPublishDirectory=false` while leaving symbol generation enabled. The integration build copies the resulting managed or native PDB from its mode-specific tree into `artifacts/phase1/symbols/<mode>/win-x64`, records size and SHA-256, and rejects PDBs in the deployable publish directory. If Native AOT places a linker PDB in publish output, the publish target moves it to the symbol artifact before validating deployment; it never deletes the only diagnostic copy or disables symbols.
 
@@ -176,7 +168,7 @@ tests/
     └── InteropGenerationTests.cs
 ```
 
-The generator and its integration test are members of `Nanto.slnx` but excluded from `Debug` and `Release`. Ordinary `dotnet build` and `dotnet test` consume only committed `WebView2Interop.g.cs`; `dotnet test -c IntegrationInterop` selects deterministic regeneration and comparison. The verification lane is safe for unattended CI because it creates no native window, browser process, or desktop interaction.
+The generator and its integration test are members of `Nanto.slnx` but excluded from `Debug` and `Release`. Ordinary `dotnet build` and `dotnet test` consume only committed `WebView2Interop.g.cs`; `dotnet test -c Integration` includes deterministic regeneration and comparison. A developer may run the interop-generation project directly for a narrow check. The project is safe for unattended CI because it creates no native window, browser process, or desktop interaction.
 
 #### Authoritative inputs
 
@@ -275,10 +267,10 @@ The target first generates both files into `eng/Nanto.WebView2InteropGen/obj/upd
 
 #### Verification integration test
 
-The canonical verification command is:
+The narrow verification command is:
 
 ```powershell
-dotnet test -c IntegrationInterop
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
 ```
 
 The test project references the generator and the pinned WebView2 package for build-time inputs only. Its project file evaluates three absolute paths and emits them as test-assembly metadata: the repository root, the restored WebView2 package root, and the verification output directory. `InteropGenerationTests.cs` reads that metadata; it never guesses the checkout depth, walks the NuGet cache, or reconstructs an `obj` path from `AppContext.BaseDirectory`.
@@ -358,7 +350,6 @@ public enum WindowState
 public enum ShutdownMode
 {
     OnPrimaryWindowClosed,
-    OnLastSurfaceClosed,
     Explicit,
 }
 
@@ -368,11 +359,7 @@ public readonly record struct WindowId
 
     public WindowId(Guid value)
     {
-        if (value == Guid.Empty)
-        {
-            throw new ArgumentOutOfRangeException(nameof(value), value, "A window ID cannot be empty.");
-        }
-
+        ArgumentOutOfRangeException.ThrowIfEqual(value, Guid.Empty);
         Value = value;
     }
 
@@ -411,7 +398,7 @@ public readonly record struct WindowBounds
 }
 ```
 
-`WindowBounds` uses DIPs. Construction and mutation reject non-finite values and non-positive width or height with `ArgumentOutOfRangeException`; negative X/Y values are valid for monitors left of or above the primary monitor. `WindowId.Create` must never return `Guid.Empty`. The CLR can still produce default values for both structs; `default(WindowId)` and `default(WindowBounds)` are invalid sentinels and every public boundary must reject them.
+`WindowBounds` uses DIPs. Construction and mutation reject non-finite values and non-positive width or height with `ArgumentOutOfRangeException`; negative X/Y values are valid for monitors left of or above the primary monitor. The portable type imposes no arbitrary maximum on finite coordinates or dimensions. At each platform boundary, Nanto performs checked DIP-to-native conversion using the applicable DPI and rejects any rounded value that cannot be represented by the native coordinate type before calling the platform API. `WindowId.Create` must never return `Guid.Empty`. The CLR can still produce default values for both structs; `default(WindowId)` and `default(WindowBounds)` are invalid sentinels and every public boundary must reject them.
 
 Use these option shapes:
 
@@ -438,7 +425,7 @@ public sealed record NantoApplicationOptions
 
 Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; and `ShutdownTimeout` must be positive and no greater than five minutes. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
 
-`ApplicationId` is canonicalized case-insensitively and must contain at least two dot-separated ASCII segments made from letters, digits, and interior hyphens. It is a persistent storage and security boundary, not a display label. Nanto derives `<application-key>` from the final readable segment plus the first 128 bits of SHA-256 over the canonical UTF-8 identifier, stores the complete identity in cache metadata, and refuses a metadata mismatch. Renaming an executable, assembly, or product display name does not change this identity; changing `ApplicationId` intentionally starts with a new cache and WebView2 profile.
+`ApplicationId` is trimmed, canonicalized to lowercase invariant, and must contain at least two dot-separated ASCII segments. Each segment is 1–63 characters, the complete identifier is at most 253 characters, and segments contain only letters, digits, and interior hyphens. It is a persistent storage and security boundary, not a display label. Nanto derives `<application-key>` from the final readable segment plus the first 128 bits of SHA-256 over the canonical UTF-8 identifier, stores the complete canonical identity in cache metadata, and refuses a metadata mismatch. Renaming an executable, assembly, or product display name does not change this identity; changing `ApplicationId` intentionally starts with a new cache and WebView2 profile.
 
 Use these portable failure and event types:
 
@@ -460,77 +447,43 @@ public enum RendererFailureKind
 
 public sealed class ApplicationStateChangedEventArgs : EventArgs
 {
-    public ApplicationState OldState { get; }
-    public ApplicationState NewState { get; }
-    public DateTimeOffset OccurredAt { get; }
-    public Exception? Failure { get; }
-
-    public ApplicationStateChangedEventArgs(ApplicationState oldState, ApplicationState newState, DateTimeOffset occurredAt, Exception? failure)
-    {
-        OldState = oldState;
-        NewState = newState;
-        OccurredAt = occurredAt;
-        Failure = failure;
-    }
+    public required ApplicationState OldState { get; init; }
+    public required ApplicationState NewState { get; init; }
+    public required DateTimeOffset OccurredAt { get; init; }
+    public Exception? Failure { get; init; }
 }
 
 public sealed class WindowStateChangedEventArgs : EventArgs
 {
-    public WindowState OldState { get; }
-    public WindowState NewState { get; }
-    public DateTimeOffset OccurredAt { get; }
-    public Exception? Failure { get; }
-
-    public WindowStateChangedEventArgs(WindowState oldState, WindowState newState, DateTimeOffset occurredAt, Exception? failure)
-    {
-        OldState = oldState;
-        NewState = newState;
-        OccurredAt = occurredAt;
-        Failure = failure;
-    }
+    public required WindowState OldState { get; init; }
+    public required WindowState NewState { get; init; }
+    public required DateTimeOffset OccurredAt { get; init; }
+    public Exception? Failure { get; init; }
 }
 
 public sealed class RendererFailedEventArgs : EventArgs
 {
-    public RendererFailureKind Kind { get; }
-    public string Description { get; }
-    public bool WillAttemptRecovery { get; }
-    public DateTimeOffset OccurredAt { get; }
-
-    public RendererFailedEventArgs(RendererFailureKind kind, string description, bool willAttemptRecovery, DateTimeOffset occurredAt)
-    {
-        Kind = kind;
-        Description = description;
-        WillAttemptRecovery = willAttemptRecovery;
-        OccurredAt = occurredAt;
-    }
+    public required RendererFailureKind Kind { get; init; }
+    public required string Description { get; init; }
+    public required bool WillAttemptRecovery { get; init; }
+    public required DateTimeOffset OccurredAt { get; init; }
 }
 
 public sealed class NantoHostException : Exception
 {
-    public NantoFailureStage Stage { get; }
-    public string Operation { get; }
-    public int? NativeErrorCode { get; }
-    public IReadOnlyList<Exception> CleanupExceptions { get; }
+    public required NantoFailureStage Stage { get; init; }
+    public required string Operation { get; init; }
+    public int? NativeErrorCode { get; init; }
+    public IReadOnlyList<Exception> CleanupExceptions { get; init; } = [];
 
-    public NantoHostException(
-        string message,
-        NantoFailureStage stage,
-        string operation,
-        Exception primaryFailure,
-        int? nativeErrorCode = null,
-        IEnumerable<Exception>? cleanupExceptions = null)
+    public NantoHostException(string message, Exception primaryFailure)
         : base(message, primaryFailure)
     {
-        Stage = stage;
-        Operation = operation;
-        NativeErrorCode = nativeErrorCode;
-        CleanupExceptions = Array.AsReadOnly(cleanupExceptions?.ToArray() ?? Array.Empty<Exception>());
     }
 }
 ```
 
-All timestamps are UTC `DateTimeOffset` values. Portable lifecycle implementations receive a `TimeProvider` through an internal constructor seam; production uses `TimeProvider.System`, while `Nanto.Testing` supplies deterministic time. Public constructors validate non-empty descriptions and operation names, UTC-compatible timestamps, and non-null primary failures and copy all exception collections before exposing them.
+All timestamps are UTC `DateTimeOffset` values. Portable lifecycle implementations receive a `TimeProvider` through an internal constructor seam; production uses `TimeProvider.System`, while `Nanto.Testing` supplies deterministic time. Required init accessors validate non-empty descriptions and operation names and UTC-compatible timestamps. `NantoHostException` validates its message and non-null primary failure in its constructor and defensively copies any cleanup-exception collection in its init accessor before exposing it.
 
 ### Portable interfaces
 
@@ -565,7 +518,7 @@ public interface INantoApplicationHost : IAsyncDisposable
 {
     ApplicationState State { get; }
     IUiDispatcher Dispatcher { get; }
-    IReadOnlyList<INantoWindow> Windows { get; }
+    INantoWindow? PrimaryWindow { get; }
     event EventHandler<ApplicationStateChangedEventArgs>? StateChanged;
     Task RunAsync(NantoApplicationOptions options, CancellationToken cancellationToken = default);
     ValueTask StopAsync(CancellationToken cancellationToken = default);
@@ -576,7 +529,17 @@ public interface IWebAssetProvider
     ValueTask<IWebAssetLease> PrepareAsync(WebAssetPreparationContext context, CancellationToken cancellationToken = default);
 }
 
-public readonly record struct WebAssetPreparationContext(string ApplicationId, string ApplicationStorageKey);
+public sealed class WebAssetPreparationContext
+{
+    public string ApplicationId { get; }
+    public string ApplicationStorageKey { get; }
+
+    internal WebAssetPreparationContext(string applicationId, string applicationStorageKey)
+    {
+        ApplicationId = applicationId;
+        ApplicationStorageKey = applicationStorageKey;
+    }
+}
 
 public interface IWebAssetLease : IDisposable
 {
@@ -586,15 +549,15 @@ public interface IWebAssetLease : IDisposable
 }
 ```
 
-The host constructs `WebAssetPreparationContext` only after validating and canonicalizing `NantoApplicationOptions.ApplicationId`; providers must not independently derive a different application key. A directory provider may ignore the storage key, while the versioned provider uses it beneath the platform cache root.
+The host is the only component that can construct `WebAssetPreparationContext`, after validating and canonicalizing `NantoApplicationOptions.ApplicationId`. Provider implementations can read the public properties but cannot create inconsistent contexts or independently derive a different application key. A directory provider may ignore the storage key, while the versioned provider uses it beneath the platform cache root.
 
 State-change event arguments contain old state, new state, timestamp, and an optional failure object. Events are raised synchronously on the UI thread after the state field changes. Event handlers are diagnostic notifications: an exception from one handler is logged and does not prevent later handlers or teardown.
 
 `RendererFailedEventArgs` contains a portable `RendererFailureKind`, a diagnostic description, whether recovery will be attempted, and the occurrence timestamp. It exposes no WebView2 enum or COM value.
 
-`IWindowsWindowHandle.Hwnd` is `nint`, is valid only until the window enters `Closed`, and is documented as borrowed: consumers must never destroy or release it.
+`WindowsApplicationHost` is the public sealed implementation of `INantoApplicationHost` and has a public parameterless constructor. Construction stores no native resources and starts no thread; the dedicated UI thread and dispatcher are created by the first and only `RunAsync` call. Before that point, reading `Dispatcher` throws `InvalidOperationException`. After shutdown it returns the same dispatcher instance in its disposed state. `PrimaryWindow` is null before creation and after teardown and otherwise returns the current window reference through a safely published snapshot.
 
-`WindowsApplicationHost` is the public sealed implementation of `INantoApplicationHost` and has a public parameterless constructor. Construction stores no native resources and starts no thread; the dedicated UI thread and dispatcher are created by the first and only `RunAsync` call. Before that point, reading `Dispatcher` throws `InvalidOperationException`. After shutdown it returns the same dispatcher instance in its disposed state. `Windows` is always readable and returns an immutable snapshot: empty before startup, the current window during execution, and empty after teardown.
+`INantoApplicationHost.State`, `PrimaryWindow`, and every `INantoWindow` property are safe to read from any thread. Implementations publish immutable snapshots with explicit memory visibility; callers never dispatch merely to inspect state. Mutating methods remain asynchronous and marshal to the owning dispatcher internally. Lifecycle and renderer events are raised synchronously on the UI thread as specified above.
 
 The built-in asset providers use these construction entry points:
 
@@ -605,7 +568,7 @@ Neither provider acquires a lease or mutates the filesystem in its constructor o
 
 ### Portable testing toolkit
 
-`Nanto.Testing` is a public, test-framework-neutral package. It references `Nanto.Core` only and contains no xUnit, assertion-library, Windows, filesystem, real-thread, or wall-clock dependency. It provides:
+`Nanto.Testing` is a non-packable, repository-local, test-framework-neutral support assembly. It references `Nanto.Core` only and contains no xUnit, assertion-library, Windows, filesystem, real-thread, or wall-clock dependency. It provides:
 
 - `ManualUiDispatcher`, which queues work until `RunNextAsync` or `DrainAsync` is called; while draining it temporarily installs its own synchronization context, callbacks observe dispatcher access, nested calls execute inline, posted continuations return to its queue, and the caller's prior context is restored afterward.
 - `FakeNantoApplicationHost`, which uses the production portable lifecycle state machine and exposes deterministic gates for creation, activation, failure, stop, and close.
@@ -656,10 +619,11 @@ Any transition not listed above throws `InvalidOperationException` in tests and 
 - `RunAsync` is single-use and returns only after `Closed`. A second invocation throws `InvalidOperationException`.
 - `RunAsync` after `DisposeAsync` throws `ObjectDisposedException`. An already-canceled run token still starts the UI lifecycle, transitions from `Creating` to `Closing`, completes deterministic cleanup, and reaches `Closed` without creating a window or WebView.
 - Cancellation of the `RunAsync` token requests orderly shutdown; it does not abandon cleanup. `RunAsync` completes normally if shutdown succeeds.
-- `StopAsync` before `RunAsync` is a completed no-op. Once `RunAsync` has atomically claimed the host, `StopAsync` and `CloseAsync` are idempotent and safe concurrently. Their cancellation tokens cancel only the caller's wait; teardown continues in the background and remains observable through `RunAsync`. `StopAsync` after `Closed` completes immediately.
+- `StopAsync` before `RunAsync` is a completed no-op. Once `RunAsync` has atomically claimed the host, every `StopAsync` call requests application shutdown exactly once. Its cancellation token cancels only that caller's wait, including when the token was already canceled; the shutdown request is still recorded, teardown continues, and completion remains observable through `RunAsync`. `StopAsync` after `Closed` completes immediately.
+- `INantoWindow.CloseAsync` independently requests that window's close exactly once. Its cancellation token likewise cancels only the caller's wait, including when already canceled. A primary-window close and an application stop may race safely and converge on the same idempotent window and application teardown paths.
 - `DisposeAsync` before `RunAsync` marks the host disposed without starting a UI thread or raising lifecycle events; `State` remains `NotStarted`. During execution it requests stop and waits without cancellation until teardown reaches `Closed`. After closure and on repeated or concurrent calls it completes immediately.
 - Startup/runtime/teardown failure is represented by `NantoHostException`, retaining the first failure and any later cleanup failures. The host still attempts to reach `Closed` before `RunAsync` throws.
-- With `OnPrimaryWindowClosed` or `OnLastSurfaceClosed`, closing the single primary window requests application shutdown. With `Explicit`, the application message loop remains active with zero windows until `StopAsync` or cancellation.
+- With `OnPrimaryWindowClosed`, closing the primary window requests application shutdown. With `Explicit`, the application message loop remains active with no primary window until `StopAsync` or cancellation.
 - No new window or WebView operation may begin after its lifetime enters `Closing`.
 
 ### Asset provider contract
@@ -692,61 +656,35 @@ for each entry ordered by normalized URL path using ordinal comparison:
 
 The hash therefore depends on normalized public paths and content, not JSON formatting, manifest property order, assembly resource names, or application release version. Persisted `manifest.json` records schema version, canonical application identity, bundle hash, and the sorted path/length/hash entries. `complete` contains the bundle hash followed by a newline.
 
-Publication writes only beneath a unique `staging` child, rejects reparse points in every existing path component, flushes and closes all content and metadata, writes `complete` last, and atomically renames the staging directory to `<bundle-sha256>`. A concurrent winner is reusable only after full validation. Validation requires the expected application identity and bundle hash, the exact declared file set with no additional content files, matching lengths and hashes, a matching completion marker, regular non-reparse-point files, and paths that remain beneath the bundle root. Any existing incomplete, corrupt, or identity-mismatched destination fails startup with `InvalidDataException`; startup never edits or silently repairs it.
+Publication writes only beneath a unique `staging` child, rejects reparse points in every existing path component, flushes and closes all content and metadata, writes `complete` last, and atomically renames the staging directory to `<bundle-sha256>`. A concurrent winner is reusable only after full validation. Validation requires the expected application identity and bundle hash, the exact declared file set with no additional content files, matching lengths and hashes, a matching completion marker, regular non-reparse-point files, and paths that remain beneath the bundle root. An identity mismatch fails without modification; other incomplete or corrupt destinations follow the locked quarantine-and-reconstruct policy below.
 
 The versioned provider uses this application-scoped schema:
 
 ```text
 %LOCALAPPDATA%\Nanto\applications\<application-key>\
+├── application.json
 ├── assets-v1\
 │   ├── <bundle-sha256>\
 │   │   ├── content\...
 │   │   ├── manifest.json
 │   │   ├── complete
-│   │   ├── last-used.json
 │   │   └── lease.lock
-│   └── staging\
-├── profiles\default\webview2-udf\
-└── cache-maintenance.json
+│   ├── staging\
+│   └── quarantine\
+└── profiles\default\webview2-udf\
 ```
 
-The base shown above is the default application data root. Phase 1 also supports a small deployment-time `nanto.runtime.json` beside the application and a `--data-root` operational override. For Native AOT and self-contained CoreCLR, the application directory contains the executable; for framework-dependent CoreCLR, it is `AppContext.BaseDirectory`, containing the application DLL and runtime configuration files. Resolution never uses the process current directory.
+Phase 1 always uses the application-specific root shown above. It has no adjacent `nanto.runtime.json`, `--data-root` argument, environment-variable override, or public storage-location option. Before publishing assets, the host creates the application root if permitted, writes and deletes a uniquely named probe file, creates and probes the UDF parent, and reports the exact failing path and Win32/.NET error. WebView2 requires a writable UDF even when all SPA assets are embedded.
 
-The versioned configuration schema begins with only the storage extension point:
-
-```json
-{
-  "schemaVersion": 1,
-  "dataRoot": "D:\\ApprovedAppData\\MyApp"
-}
-```
-
-Resolution precedence is:
-
-1. `--data-root <path>` consumed by Nanto's bootstrap argument parser;
-2. `dataRoot` in adjacent `nanto.runtime.json`;
-3. `%LOCALAPPDATA%\Nanto\applications\<application-key>`.
-
-The selected value replaces the complete application-specific root, so its immediate children are `assets-v1`, `profiles`, and `cache-maintenance.json`; Nanto does not append another application key. Maintenance metadata stores the canonical `ApplicationId` and rejects an existing root belonging to another application.
-
-An absolute configured path is canonically normalized. A relative path resolves against the application directory. Nanto performs no environment-variable, tilde, shell, or command substitution. Empty paths, embedded NULs, malformed JSON, duplicate JSON properties, unsupported schema versions, unknown properties, and configuration files larger than 64 KiB fail before asset extraction or WebView2 creation. The file is UTF-8 JSON and uses a source-generated `System.Text.Json` context.
-
-The command-line override exists for diagnostics, controlled launch scripts, and recovery from a broken adjacent configuration. It follows the same absolute/relative path rules and is removed from arguments exposed to application code. A repeated `--data-root`, missing value, or conflicting spelling is an error. Logging records the selected source and normalized path, never the complete configuration document.
-
-Before publishing assets, the host creates the selected root if permitted, writes and deletes a uniquely named probe file, creates and probes the UDF parent, and reports the exact failing path and Win32/.NET error. It never falls back from a configured root to `%LOCALAPPDATA%`, because doing so would evade deployment policy and split application state. WebView2 still requires a writable UDF when all SPA assets are embedded.
+`application.json` is atomically created with a versioned schema and the complete canonical `ApplicationId`. An existing identity mismatch fails startup and is never quarantined, overwritten, or treated as cache corruption. This protects against an implementation error or hash collision crossing application storage boundaries.
 
 `<bundle-sha256>` covers the normalized manifest and every declared asset, not the application release version. Bundle content is immutable after atomic publication. Releases with identical frontend content reuse the same bundle, while different releases may keep different bundles concurrently. The stable UDF is application/profile-scoped rather than release-scoped so browser storage survives an upgrade.
 
 Every prepared versioned lease holds a read handle to `lease.lock` with sharing that permits other readers but denies deletion. Multiple processes using the same bundle therefore coexist; the bundle remains protected until the last process releases its handle. The Windows window owns the lease and disposes it only after removing WebView mappings and closing the controller. Windows releases the handle after abnormal process termination.
 
-A per-application cross-process maintenance lock serializes the brief lease-acquisition and cleanup decisions. After acquiring its lease, each successful `PrepareAsync` atomically records an explicit UTC timestamp in `last-used.json`. Best-effort cleanup runs at most once per day, never blocks successful startup on a deletion failure, and may retire a bundle only when all of these are true:
+A per-application cross-process maintenance lock serializes lease acquisition, destination validation, quarantine, and publication. A valid complete destination is reused. An incomplete or corrupt destination whose metadata belongs to the current application is atomically renamed to a unique child of `assets-v1\quarantine` before a new staging publication begins; it is never edited or deleted in place. If quarantine or reconstruction fails, startup reports the exact path and error. Identity mismatch always fails without modifying the destination.
 
-- it is not the bundle selected by the current preparation;
-- its timestamp is valid, is not in the future, and is older than 30 days;
-- no process holds its lease; and
-- it is atomically renamed out of the active cache while the maintenance lock prevents a new lease acquisition.
-
-Missing or invalid usage metadata is retained. Abandoned staging directories older than 24 hours may be removed under the same maintenance lock. An old executable can re-extract a retired embedded bundle on its next launch. Phase 1 fixes these safe defaults internally; public retention customization can be added later if real deployment evidence requires it.
+Phase 1 does not automatically remove old valid bundles, abandoned staging directories, or quarantined bundles. Automatic retention, age-based cleanup, configurable data roots, and enterprise storage policy are deferred and recorded in the architecture roadmap. The immutable bundle layout and leases keep future cleanup possible without changing the asset-provider contract.
 
 #### Request and navigation normalization
 
@@ -799,7 +737,7 @@ WindowsApplicationHost
 
 Every native/COM operation is wrapped at a narrow boundary that includes operation name and HRESULT or Win32 error in `NantoHostException`. Do not catch and ignore broad exceptions during teardown.
 
-The default window presenter calls `ShowWindow` only when `WindowOptions.StartVisible` is true. TestApp selects an internal `SuppressedWindowPresenter` for a `Hidden` request through an `InternalsVisibleTo` test seam; it executes and records the presentation step but deliberately omits `ShowWindow`, activation, and foreground changes. It does not change window styles, controller type, bounds, navigation, or teardown. The hidden path therefore creates the same ordinary `WS_OVERLAPPEDWINDOW` and normal WebView2 controller as production.
+The production presenter calls `ShowWindow`, activation, and foreground APIs only when `WindowOptions.StartVisible` is true. Hidden TestApp scenarios set `StartVisible=false` and use that same presenter, ordinary `WS_OVERLAPPEDWINDOW`, normal WebView2 controller, bounds, navigation, and teardown path. There is no test-only presenter or `InternalsVisibleTo` presentation seam.
 
 ### Renderer recovery
 
@@ -819,67 +757,42 @@ The internal debug ledger tracks application hosts, UI threads, windows, native 
 
 Define `Phase1AcquisitionCheckpoint` and the failure-injector interface as internal members of `Nanto.Hosting.Windows`. The production default injector never fails. Grant `InternalsVisibleTo` only to TestApp so it can install an injector and map TestProtocol's serialized checkpoint name to the internal enum; IntegrationTestKit never references the production assembly. Unknown or incorrectly cased checkpoint names are rejected before the host starts. Tests inject immediately after the named acquisition succeeds.
 
-Required checkpoints, in creation order:
+Every implementation change that introduces an owned acquisition adds a named checkpoint in creation order and its corresponding failure-path assertion in the same commit. The expected areas include UI-thread/COM setup, dispatcher and Win32 registration, `HWND`, asset lease, WebView2 environment/controller/control, settings, subscriptions and filters, virtual-host mapping, and initial navigation. The definitive enum names and count evolve with the implementation rather than being frozen before the ownership graph exists.
 
-1. `UiThreadStarted`
-2. `ComInitialized`
-3. `DispatcherCreated`
-4. `WindowClassRegistered`
-5. `WindowRegistered`
-6. `HwndCreated`
-7. `AssetLeasePrepared`
-8. `WebViewEnvironmentCreated`
-9. `BrowserProcessExitedSubscribed`
-10. `ControllerCreated`
-11. `CoreWebViewAcquired`
-12. `SettingsAcquired`
-13. `SettingsConfigured`
-14. `NavigationStartingSubscribed`
-15. `SourceChangedSubscribed`
-16. `ContentLoadingSubscribed`
-17. `ProcessFailedSubscribed`
-18. `NavigationCompletedSubscribed`
-19. `InternalReadinessSubscribed`
-20. `WebResourceRequestedSubscribed`
-21. `WebResourceFilterRegistered`
-22. `VirtualHostMapped`
-23. `InitialNavigationStarted`
-
-The failure matrix runs one external process per checkpoint and asserts that all earlier acquisitions are released in exact reverse order. Checkpoints that do not apply to a scenario must be reported as not reached rather than silently passing.
+The failure matrix enumerates the implemented checkpoints, runs one external process per applicable checkpoint, and asserts that all earlier acquisitions are released in exact reverse ownership order. A checkpoint without an executable failure scenario fails coverage; a checkpoint that genuinely does not apply to a scenario is reported as not reached rather than silently passing.
 
 ### Integration harness protocol
 
 TestApp accepts only:
 
 ```text
---request <absolute-json-path> --report <absolute-json-path> [--data-root <path>]
+--request <absolute-json-path> --report <absolute-json-path>
 ```
 
-TestProtocol owns the source-generated JSON context and versioned DTOs used by both TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), runtime lane (`Evergreen` only in Phase 1), optional case-sensitive failure-checkpoint name, iteration count, expected runtime-configuration source, UDF, cache, and artifact paths. `--data-root` exercises the production bootstrap override and changes storage location, never test inventory.
+TestProtocol owns the source-generated JSON context and versioned DTOs used by both TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), canonical test `ApplicationId`, optional case-sensitive failure-checkpoint name, iteration count, and artifact directory. TestApp derives the production cache and UDF paths from the fixed default application root; the request cannot override them. TestApp always uses the installed Evergreen WebView2 Runtime in Phase 1, so the protocol has no runtime-lane field until multiple lanes exist.
 
 The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, renderer recovery result, and retained artifact paths. Protocol DTOs expose no internal production enum or exception type.
 
 IntegrationTestKit must:
 
-- create a unique artifact, UDF, and cache directory per process;
-- copy the minimal host payload into a unique launch directory for adjacent-configuration scenarios, write `nanto.runtime.json` only there, and never mutate a shared build or publish directory;
-- deliberately share only the cache directory in the multi-instance bundle-lease scenario while keeping its UDFs independent;
-- provide a separate production multi-instance scenario in which two processes share the same `ApplicationId`, default profile, configured application data root, asset cache, and UDF while using byte-identical WebView2 environment options;
+- create a unique artifact directory and valid test `ApplicationId` per isolated scenario, then calculate the expected production application root without overriding it;
+- copy the minimal host payload into a unique launch directory for deployment scenarios and never mutate a shared build or publish directory;
+- provide a production multi-instance scenario in which two processes share the same `ApplicationId`, default application root, asset cache, profile, and UDF while using byte-identical WebView2 environment options;
 - launch TestApp without a shell and capture stdout/stderr asynchronously;
 - assign TestApp and inherited Chromium children to a kill-on-close Job Object;
 - use a 45-second default scenario timeout, 15-second renderer recovery timeout, 15-second shutdown timeout, and 10-second browser-exit timeout;
 - kill the job on timeout and report it as failure;
-- delete successful UDFs only after browser exit, while retaining failure artifacts;
+- delete the successful scenario's complete test application root only after browser exit and asset-lease release, while retaining failure roots and artifacts;
 - disable test parallelism in every real-WebView2 project.
 
-Hidden and long-running projects always send `Hidden`; visible tests always send `Visible`. No integration project accepts a profile property, trait filter, or environment variable that changes its test inventory.
+Hidden and long-running projects always send `Hidden`; visible tests always send `Visible`. Each integration project has a fixed test inventory and build mode. Traits are descriptive, and a runner filter may narrow a developer's diagnostic execution, but neither changes project setup or host behavior. No profile property or environment variable selects tests.
 
 ## Vertical milestones
 
 1. **Repository and lifecycle foundation**
    - Establish the canonical solution and its safe default/integration configuration matrix.
-   - Add production assemblies and fast test projects.
-   - Implement state machines, shutdown policy, registry snapshots, cancellation-first shutdown, and cleanup aggregation.
+   - Add the two production assemblies, repository-local Testing support, and fast test projects.
+   - Implement state machines, primary-window snapshots, cancellation-first shutdown, and cleanup aggregation.
    - Add fake host and dispatcher.
 
 2. **Win32 host**
@@ -887,29 +800,34 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
    - Support activation, focus, resize, close, destroy, and cancellation.
    - Number every native acquisition and test failure cleanup as each resource is introduced.
 
-3. **WebView2 and assets**
-   - Add the offline interop generator, reviewed projection specification, committed source/manifest, and byte-for-byte `IntegrationInterop` gate before production host code consumes the projection.
+3. **WebView2 interop and minimal host**
+   - Add the offline interop generator, reviewed projection specification, committed source/manifest, and byte-for-byte interop-generation gate before production host code consumes the projection.
    - Add shared environment and per-window controller ownership.
-   - Add directory and versioned extracted asset providers.
-   - Preserve secure virtual HTTPS, `DenyCors`, manifest-aware routing, SPA fallback, and origin validation.
+   - Navigate a minimal directory fixture through the secure virtual HTTPS origin with `DenyCors` and exact-origin validation.
    - Use source-generated COM with runtime marshalling disabled.
 
-4. **DPI and monitor behavior**
+4. **Assets and navigation**
+   - Add directory and versioned extracted asset providers.
+   - Add manifest validation, content-addressed publication, shared leases, quarantine/reconstruction, and fixed default application storage.
+   - Add manifest-aware routing, SPA fallback, and navigation normalization.
+
+5. **DPI, recovery, and diagnostics**
    - Convert DIPs only at the Windows boundary.
    - Handle resize, DPI changes, minimum sizes, work areas, activation, focus, and negative monitor coordinates.
    - Keep cached DPI UI-thread-owned.
-
-5. **Recovery and diagnostics**
    - Raise a portable renderer-failure event, attempt one reload, and close normally if recovery fails.
    - Complete subscription removal, controller closure, COM release, browser-exit synchronization, `HWND` destruction, and dispatcher shutdown.
    - Add structured logging and a development resource ledger without logging frontend payloads.
 
-6. **Phase gate**
-   - Execute framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop-generation integration configurations.
+6. **Deployment modes and Phase 1 gate**
+   - Add self-contained CoreCLR and Native AOT publish/smoke projects while keeping the exhaustive behavioral matrix in framework-dependent CoreCLR.
+   - Execute the single unattended `Integration` configuration, which covers framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop generation.
    - Confirm no UI-framework dependencies or unexplained trimming/AOT warnings.
    - Update README, `AGENTS.md`, and testing documentation with project-level commands.
 
 ## Test projects
+
+The canonical unattended integration command is `dotnet test -c Integration`; it runs every fast test and every unattended integration project. The direct project commands below are narrow developer checks and do not replace that phase gate.
 
 ### Default fast tests
 
@@ -918,9 +836,9 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 `Nanto.Core.Tests` owns:
 
 - `WindowId`, `WindowBounds`, options, route, and default-value validation.
-- Application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/disposal edge cases, cancellation during initialization, event ordering, timestamping, and failure aggregation.
+- Application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/close/disposal races, pre-canceled caller waits that still request shutdown, cancellation during initialization, event ordering, timestamping, and failure aggregation.
 - Cleanup ordering, idempotence, continued cleanup after errors, and aggregation.
-- Application-identity canonicalization and storage-key stability.
+- Application-identity trimming/lowercasing, segment and total-length boundaries, invalid-character rejection, and storage-key stability.
 - Portable manifest-path normalization and the complete navigation golden-decision table.
 - Dependency checks preventing platform types from entering portable APIs.
 
@@ -930,8 +848,8 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 - Immutable registry snapshots and second-window rejection.
 - DIP conversion at common and fractional DPIs, window-message decoding, and monitor/work-area calculations.
 - Embedded-manifest parsing, resource validation, bundle hashing, materialization, exact-file validation, traversal/reparse-point rejection, and concurrent publication.
-- Cache lease and maintenance behavior: last-use boundaries, invalid/future timestamp retention, cleanup eligibility, and application-identity mismatch.
-- Runtime-configuration absence/defaults, absolute and relative `dataRoot`, command-line precedence, malformed/oversized configuration, duplicate arguments, configured-root identity mismatch, and unwritable-root diagnostics.
+- Cache publication, application identity, shared leases, corrupt-bundle quarantine/reconstruction, quarantine failure, and identity-mismatch refusal.
+- Default `%LOCALAPPDATA%` application-root creation, write probes, path-length boundaries, and unwritable-root diagnostics.
 - Win32/WebView2 ABI declarations and dependency checks preventing UI-framework packages from entering the host.
 
 `Nanto.Testing.Tests` owns:
@@ -946,7 +864,7 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 ### WebView2 interop-generation integration
 
 ```powershell
-dotnet test -c IntegrationInterop
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
 ```
 
 - Resolves `WebView2.idl` and `WebView2.h` from the centrally pinned NuGet package without copying them into the repository.
@@ -955,12 +873,12 @@ dotnet test -c IntegrationInterop
 - Verifies manifest hashes, selected interface closure, source-generated COM requirements, and fail-closed diagnostics.
 - Creates no window, WebView2 environment, browser subprocess, UDF, or persistent artifact output.
 
-`IntegrationInterop` is inexpensive and safe for unattended execution. When change-scoped CI is enabled, it runs for changes to the WebView2 pin, generator, specification, committed generated files, or Windows interop usage.
+This project is inexpensive and safe for unattended execution. Developers may run it directly while changing the WebView2 pin, generator, specification, committed generated files, or Windows interop usage; the full `Integration` gate includes it automatically.
 
 ### Hidden WebView2 integration
 
 ```powershell
-dotnet test -c Integration
+dotnet test tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Windows.HiddenIntegrationTests.csproj
 ```
 
 - Creates the normal production parent `HWND`.
@@ -968,15 +886,14 @@ dotnet test -c Integration
 - Uses the normal non-composition WebView2 controller.
 - Runs scenarios in isolated child processes.
 - Tests navigation, assets, routing, renderer recovery, close races, failure injection, browser exit, and zero-resource teardown.
-- Starts two isolated processes against one bundle in the cache-lease scenario, proves cleanup cannot retire it until both leases close, and proves a terminated process releases its lease.
-- Starts two complete hosts against the same production UDF/profile, requires both to reach readiness and exchange messages, closes the first, proves the second remains usable, then closes the second and verifies Chromium releases the shared UDF without locked files. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate UDFs.
+- Starts two complete hosts against the same production application root, asset bundle, UDF, and profile; requires both to reach readiness and exchange messages; proves the asset lease denies deletion while either process is alive; closes the first and proves the second remains usable; then closes the second and verifies Chromium and the asset lease release the complete test root without locked files. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate roots or UDFs.
 
 This is the CI-safe real-WebView2 project.
 
 ### Native AOT integration
 
 ```powershell
-dotnet test -c IntegrationAot
+dotnet test tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj
 ```
 
 - Publishes the external hidden test host as `win-x64` Native AOT.
@@ -987,18 +904,20 @@ dotnet test -c IntegrationAot
 ### Self-contained CoreCLR integration
 
 ```powershell
-dotnet test -c IntegrationSelfContained
+dotnet test tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj
 ```
 
 - Publishes the external hidden test host as self-contained `win-x64` CoreCLR.
-- Runs the same critical lifecycle, asset, origin, messaging, and teardown scenarios as the framework-dependent hidden lane.
+- Runs a critical lifecycle, asset, origin, messaging, and teardown subset drawn from the exhaustive framework-dependent hidden lane.
 - Verifies the adjacent loader is present and Microsoft-signed, the apphost requires no installed .NET runtime, and publish metadata identifies CoreCLR rather than Native AOT.
 - Verifies the deployable directory contains no PDB and the separate symbol artifact exists with its hash recorded.
+
+HiddenIntegrationTests owns the exhaustive behavioral and failure matrix. The self-contained CoreCLR and Native AOT projects intentionally run only the critical startup, secure navigation, messaging, shutdown, loader, symbol, and zero-ledger smoke scenarios needed to prove that their deployment modes preserve the same production contracts.
 
 ### Visible desktop integration
 
 ```powershell
-dotnet test -c IntegrationVisible
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
 ```
 
 This project intentionally shows windows and covers only:
@@ -1009,12 +928,12 @@ This project intentionally shows windows and covers only:
 - Initial monitor placement.
 - Native input and screenshots.
 
-It is excluded from the default solution configurations and ordinary CI. It runs only when someone explicitly selects `IntegrationVisible` on an isolated VM/session or intentionally accepts desktop interaction.
+It is excluded from every solution configuration and ordinary CI. It runs only when someone names the project directly on an isolated VM/session and intentionally accepts desktop interaction.
 
 ### Long-running integration tests
 
 ```powershell
-dotnet test -c IntegrationLongRunning
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj
 ```
 
 - Hidden windows only.
@@ -1025,12 +944,10 @@ dotnet test -c IntegrationLongRunning
 ## CI and documentation policy
 
 - Ordinary CI runs root `dotnet build` and `dotnet test` using the default configuration.
-- Requested WebView2 CI runs `dotnet test -c Integration`.
-- Requested CoreCLR deployment CI runs `dotnet test -c IntegrationSelfContained`.
-- Requested AOT CI runs `dotnet test -c IntegrationAot`.
-- Interop-change CI runs `dotnet test -c IntegrationInterop` before compiling the Native AOT host.
-- `IntegrationVisible` and `IntegrationLongRunning` never run automatically.
-- Test-lane selection is expressed exclusively through solution configurations and fixed project boundaries; selecting a configuration never changes the tests compiled into a project.
+- Requested unattended integration CI runs `dotnet test -c Integration`, covering interop generation and all three host deployment modes.
+- VisibleIntegrationTests and LongRunningIntegrationTests never run automatically.
+- Project boundaries define runtime, deployment, visibility, and duration. Traits may annotate tests and filters may narrow a developer's diagnostic run, but canonical CI and phase gates do not use filters.
+- Test profiles and environment variables do not select tests or host build modes. Environment variables remain acceptable only for genuinely machine-specific inputs that are explicit in the relevant project contract.
 - Automatic GitHub Actions triggers remain disabled until a separate cost-policy decision enables them.
 
 Hidden integration remains desktop-hosted even though no window is shown: it must run under an ordinary logged-on Windows user session capable of creating Chromium renderer/GPU processes. Do not run it as a Windows service or in a restrictive process sandbox.
@@ -1054,62 +971,59 @@ Acceptance requires the default solution configurations to exclude integration s
 dotnet test -c Integration
 ```
 
-The hidden project initially covers `UiThreadStarted` through `HwndCreated`, dispatcher work, native close, cancellation, and ledger-zero shutdown. No top-level window may become visible or activated during the run.
+The hidden project initially covers every implemented acquisition through `HWND` creation, dispatcher work, native close, cancellation, and ledger-zero shutdown. No top-level window may become visible or activated during the run.
 
-### Milestone 3 — WebView2 and assets
+### Milestone 3 — WebView2 interop and minimal host
 
 ```powershell
-dotnet test -c IntegrationInterop
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
 dotnet test -c Integration
 ```
 
-The generated projection and manifest must reproduce byte-for-byte before the host consumes them. The complete 23-checkpoint failure matrix, secure-origin asset fixture, route fallback, navigation, browser-exit synchronization, and renderer-recovery scenarios must pass.
+The generated projection and manifest reproduce byte-for-byte before the host consumes them. A hidden production presenter creates the environment, controller, and WebView, navigates the minimal directory fixture through `https://app.nanto.invalid`, exchanges a readiness message, and returns every implemented acquisition to zero.
 
-### Milestone 4 — DPI and monitor behavior
+### Milestone 4 — assets and navigation
+
+```powershell
+dotnet test -c Integration
+```
+
+Manifest validation, content hashing, atomic publication, concurrent reuse, shared leases, corrupt-bundle quarantine/reconstruction, identity-mismatch refusal, secure-origin asset loading, route fallback, and navigation normalization must pass.
+
+### Milestone 5 — DPI, recovery, and diagnostics
 
 ```powershell
 dotnet test -c Integration
 ```
 
-All synthetic DPI/message tests must pass. The visible integration project is then run once on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
+All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, and shared-UDF multi-instance scenarios must pass with a zero final ledger. The visible integration project is then run once on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
 
 ```powershell
-dotnet test -c IntegrationVisible
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
 ```
 
-### Milestone 5 — recovery and diagnostics
-
-```powershell
-dotnet test -c Integration
-dotnet test -c IntegrationSelfContained
-dotnet test -c IntegrationAot
-```
-
-All normal, injected-failure, close-race, timeout, renderer-failure, and shared-UDF multi-instance reports must end with a zero ledger. Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT must use isolated build trees and the same production contracts. Native AOT must produce no unexplained trim/AOT warning. Deployable directories contain no PDB; every publish lane retains symbols separately.
-
-### Milestone 6 — Phase 1 gate
+### Milestone 6 — deployment modes and Phase 1 gate
 
 ```powershell
 dotnet build
 dotnet test
-dotnet test -c IntegrationInterop
 dotnet test -c Integration
-dotnet test -c IntegrationSelfContained
-dotnet test -c IntegrationAot
 ```
 
-Run `dotnet test -c IntegrationLongRunning` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations.
+Framework-dependent CoreCLR runs the exhaustive behavioral suite. Self-contained CoreCLR and Native AOT pass their critical deployment smoke, use isolated build trees and the same production contracts, and validate their loader and symbol policies. Native AOT produces no unexplained trim/AOT warning, deployable directories contain no PDB, and each publish lane retains symbols separately.
+
+Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations.
 
 ## Completion criteria
 
 - Root `dotnet test` in the default configuration never runs integration support code or creates native windows.
-- Default `dotnet test` consumes committed interop; `IntegrationInterop` verifies it without modifying source files.
+- Default `dotnet test` consumes committed interop; the `Integration` configuration verifies it without modifying source files.
 - Hidden integration tests display no windows and can run unattended.
 - Visible behavior is isolated in an unmistakably named opt-in project.
 - Every acquisition has fault-injection coverage.
 - CoreCLR and Native AOT use identical production contracts and ownership paths.
-- Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT use isolated `obj`/`bin` trees and pass their fixed integration configurations.
+- Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT use isolated `obj`/`bin` trees and pass through their fixed projects in the single `Integration` configuration.
 - Publish directories exclude PDBs while separately retained symbols remain available for diagnostics.
-- Default, adjacent-configuration, and command-line data-root resolution fail clearly and never silently fall back.
+- Default application-root creation and write probing fail clearly without silently choosing another location.
 - Success, failure, close races, and renderer recovery finish with a zero resource ledger.
 - Every milestone has a passing commit with its cumulative acceptance commands recorded in the commit or gate evidence.

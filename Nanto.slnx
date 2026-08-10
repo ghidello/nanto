@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/.solution/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="AGENTS.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Nanto.Core/Nanto.Core.csproj" />
+    <Project Path="src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj" />
+    <Project Path="tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj" />
+    <Project Path="tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj" />
+    <Project Path="tests/Nanto.Testing/Nanto.Testing.csproj" />
+  </Folder>
+</Solution>
