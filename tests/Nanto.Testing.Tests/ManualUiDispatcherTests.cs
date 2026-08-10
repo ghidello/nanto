@@ -25,6 +25,20 @@ public sealed class ManualUiDispatcherTests
     }
 
     [Fact]
+    public async Task PendingWorkSignalCompletesWhenWorkIsQueued()
+    {
+        using var dispatcher = new ManualUiDispatcher();
+
+        var pendingWork = dispatcher.WaitForPendingWorkAsync(TestContext.Current.CancellationToken);
+        var invocation = dispatcher.InvokeAsync(static () => { }, TestContext.Current.CancellationToken);
+
+        await pendingWork;
+        dispatcher.PendingCount.Should().Be(1);
+        await dispatcher.DrainAsync();
+        await invocation;
+    }
+
+    [Fact]
     public async Task NestedInvocationRunsInlineWithDispatcherAccess()
     {
         using var dispatcher = new ManualUiDispatcher();

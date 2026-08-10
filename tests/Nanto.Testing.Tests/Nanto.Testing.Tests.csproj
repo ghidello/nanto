@@ -2,4 +2,9 @@
   <ItemGroup>
     <ProjectReference Include="../Nanto.Testing/Nanto.Testing.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../Nanto.Testing/obj/project.assets.json"
+          Link="Nanto.Testing.project.assets.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

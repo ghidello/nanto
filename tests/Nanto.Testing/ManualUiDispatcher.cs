@@ -5,6 +5,7 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
     private readonly Lock _gate = new();
     private readonly DispatcherSynchronizationContext _synchronizationContext;
     private readonly Queue<IWorkItem> _workItems = new();
+    private TaskCompletionSource _workAvailable = CreateSignal();
     private bool _disposed;
 
     public int PendingCount
@@ -65,6 +66,7 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             workItem = new WorkItem<T>(action, cancellationToken);
             _workItems.Enqueue(workItem);
+            _workAvailable.TrySetResult();
         }
 
         return new ValueTask<T>(workItem.Task);
@@ -80,6 +82,11 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
             {
                 return false;
             }
+
+            if (_workItems.Count == 0)
+            {
+                _workAvailable = CreateSignal();
+            }
         }
 
         await PumpAsync(workItem.ExecuteAsync).ConfigureAwait(false);
@@ -90,6 +97,14 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
     {
         while (await RunNextAsync().ConfigureAwait(false))
         {
+        }
+    }
+
+    public Task WaitForPendingWorkAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            return (_disposed || _workItems.Count > 0 ? Task.CompletedTask : _workAvailable.Task).WaitAsync(cancellationToken);
         }
     }
 
@@ -106,6 +121,7 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
             _disposed = true;
             pendingWork = [.. _workItems];
             _workItems.Clear();
+            _workAvailable.TrySetResult();
         }
 
         foreach (var workItem in pendingWork)
@@ -164,6 +180,8 @@ public sealed class ManualUiDispatcher : IUiDispatcher, IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
         }
     }
+
+    private static TaskCompletionSource CreateSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private interface IWorkItem
     {

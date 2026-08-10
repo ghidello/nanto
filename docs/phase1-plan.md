@@ -570,13 +570,15 @@ Neither provider acquires a lease or mutates the filesystem in its constructor o
 
 `Nanto.Testing` is a non-packable, repository-local, test-framework-neutral support assembly. It references `Nanto.Core` only and contains no xUnit, assertion-library, Windows, filesystem, real-thread, or wall-clock dependency. It provides:
 
-- `ManualUiDispatcher`, which queues work until `RunNextAsync` or `DrainAsync` is called; while draining it temporarily installs its own synchronization context, callbacks observe dispatcher access, nested calls execute inline, posted continuations return to its queue, and the caller's prior context is restored afterward.
+- `ManualUiDispatcher`, which queues work until `RunNextAsync` or `DrainAsync` is called and exposes `WaitForPendingWorkAsync` for deterministic coordination without polling; while draining it temporarily installs its own synchronization context, callbacks observe dispatcher access, nested calls execute inline, posted continuations return to its queue, and the caller's prior context is restored afterward.
 - `FakeNantoApplicationHost`, which uses the production portable lifecycle state machine and exposes deterministic gates for creation, activation, failure, stop, and close.
 - `FakeNantoWindow`, which uses the production window state machine, records title/bounds/activation calls, and can raise a scripted renderer failure.
 - `LifecycleRecorder`, which records immutable ordered application, window, and renderer events with timestamps supplied by a caller-provided `TimeProvider`.
 - `FailurePlan`, which scripts failures at named portable operations such as application creation, window initialization, activation, and close. Windows acquisition checkpoints do not enter this package.
 
 These utilities expose recorded calls and state; they do not provide assertion methods or throw test-framework-specific exceptions. `Nanto.Testing.Tests` tests the toolkit itself rather than duplicating Core or Windows-host tests.
+
+The fake host's creation, activation, failure, stop, and close gates start open. A test closes a gate before the relevant operation, awaits its reached signal to observe the stable checkpoint, and opens it to continue; cancellation races creation and activation gates so shutdown never depends on a test releasing them. Portable failure-plan operation names are `application.create`, `window.initialize`, `application.activate`, `window.set-title`, `window.set-bounds`, `window.activate`, and `window.close`. A plan records every observed operation, including permissive plans and mismatches, and strict plans require exact ordinal order.
 
 `Nanto.Core` grants `InternalsVisibleTo` to `Nanto.Core.Tests` and `Nanto.Testing` so the fake host and window reuse the production portable state machines, cleanup aggregation, and internal `TimeProvider` seams instead of duplicating lifecycle logic. No Core or Testing friend access extends to the Windows host.
 
