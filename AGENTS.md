@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Phase 0 was completed in the historical [Telaio repository](https://github.com/ghidello/telaio/tree/phase_1); the immediate focus is Phase 1 as specified in `docs/phase1-plan.md`: establish portable lifecycle contracts and tests, then bring the proven raw-Win32/WebView2 x64 approach into production through narrow vertical milestones. Nanto must not reference or copy Telaio's Phase 0 assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Feasibility is complete; the immediate focus is Phase 1 as specified in `docs/phase1-plan.md`: establish portable lifecycle contracts and tests, then bring the validated raw-Win32/WebView2 x64 approach into production through narrow vertical milestones. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 
@@ -63,14 +63,17 @@ For applicable changes, verify:
 
 - Native AOT and CoreCLR builds use the same contracts.
 - x64 ABI-sensitive declarations remain correct; future architectures require their own support gate.
+- Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT builds use isolated intermediate/output trees and the same production contracts.
+- Production publish directories contain no PDBs; symbols remain enabled and are retained as separate diagnostic artifacts.
 - Partial initialization releases all previously acquired resources.
 - Concurrent or repeated close requests are harmless.
 - WebView subscriptions are removed, the controller closes before its parent `HWND` is destroyed, and no handles or COM references leak.
 - Unauthorized, malformed, or wrong-origin frontend messages fail safely.
 - Development orchestration leaves no child processes or locked files behind.
+- Two instances sharing the same application/profile UDF either pass the documented multi-instance lifecycle test or trigger an explicit support-policy decision; do not silently test only separate UDFs.
 
 When the repository gains canonical build, test, format, and publish commands, record them here rather than guessing or inventing alternatives.
 
 ## Canonical commands
 
-This documentation-and-configuration baseline intentionally has no solution or projects, so it has no build or test commands yet. Record canonical commands here when the corresponding Phase 1 projects are introduced; do not infer commands from the historical Telaio repository.
+This documentation-and-configuration baseline intentionally has no solution or projects, so it has no build or test commands yet. Record canonical commands here when the corresponding Phase 1 projects are introduced; use the explicit contracts in Nanto's documentation rather than inferring behavior from external source.

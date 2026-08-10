@@ -16,7 +16,7 @@
 
 Nanto is a .NET framework for building small native applications with a web frontend. It provides the structure that supports an application and connects its web frontend with native .NET capabilities. It follows the useful parts of Tauri's model—a native core process, an operating-system WebView, message-based access to native capabilities, a plugin ecosystem, and capability-based security—but makes C# and modern .NET the application backend.
 
-The feasibility work described as Phase 0 was completed under the former Telaio name. Its source and evidence remain in the [Telaio `phase_1` branch](https://github.com/ghidello/telaio/tree/phase_1) at commit [`0344107`](https://github.com/ghidello/telaio/commit/0344107c06ff36d2f89189bbb7660a46180193b1). Nanto begins with a clean Phase 1 implementation and has no source or build dependency on that repository.
+Nanto was renamed from Telaio after feasibility work was completed; commit [`90725e9`](https://github.com/ghidello/telaio/commit/90725e997fac3140ef4dd9f1a8ebd5d53db67642) records that historical boundary. Nanto begins with a clean Phase 1 implementation and has no source, build, report, or undocumented-decision dependency on the former repository. Every adopted production rule is stated here or in the Phase 1 plan.
 
 Its defining characteristics are:
 
@@ -301,52 +301,929 @@ The exact NuGet names can change before public release. Responsibilities should 
 
 ---
 
+## 6. Windows host design
+
+### 6.1 Chosen substrate
+
+The Windows host uses:
+
+- an STA UI thread;
+- per-monitor-v2 DPI awareness established before any window is created;
+- a standard Win32 message loop;
+- registered Win32 window classes and owned `HWND` instances;
+- WebView2 attached directly to the content area;
+- CsWin32 or an equivalent source-generated P/Invoke layer for Win32 calls;
+- explicit COM ownership suitable for Native AOT;
+- the shared Evergreen WebView2 Runtime.
+
+It does not require:
+
+- WinUI 3;
+- Windows App SDK;
+- XAML;
+- MAUI;
+- WPF;
+- WinForms;
+- MSIX;
+- a bundled Chromium/WebView2 Fixed Version runtime.
+
+Windows 11 includes the Evergreen WebView2 Runtime, and Microsoft has distributed it to most eligible Windows 10 devices. Evergreen applications share the runtime; the application should detect the exceptional missing-runtime case and offer/bootstrap installation ([WebView2 distribution](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)).
+
+### 6.2 Generated Win32 interop and the no-magic-number policy
+
+Nanto should use [`Microsoft.Windows.CsWin32`](https://github.com/microsoft/CsWin32) as the default projection for ordinary Win32 APIs. CsWin32 reads Microsoft's [`win32metadata`](https://github.com/microsoft/win32metadata) and generates only the requested functions, structs, constants, enums, handle types, COM interfaces, supporting declarations, friendly overloads, and SafeHandle types into the consuming project. No CsWin32 runtime assembly ships with the application.
+
+This is the intended answer to Win32 “magic numbers.” Microsoft deliberately converts many loosely typed integer-plus-constant patterns in the Windows headers into discoverable enums and records handle disposal metadata that projections can turn into SafeHandles. The generated code therefore allows Nanto's host to use names such as `WM_DPICHANGED`, `WM_GETMINMAXINFO`, `WINDOW_STYLE`, and typed `HWND` values instead of copied hexadecimal constants and hand-written `nint` signatures.
+
+The Windows host should contain a curated `NativeMethods.txt`, requesting exact APIs and constants rather than entire Windows namespaces:
+
+```text
+RegisterClassEx
+CreateWindowEx
+DefWindowProc
+DestroyWindow
+GetMessage
+TranslateMessage
+DispatchMessage
+PostQuitMessage
+GetDpiForWindow
+SetProcessDpiAwarenessContext
+WM_CREATE
+WM_CLOSE
+WM_DESTROY
+WM_SIZE
+WM_DPICHANGED
+WM_GETMINMAXINFO
+```
+
+CsWin32 generates transitive supporting types automatically. Keeping the input explicit makes the native surface reviewable and prevents accidental code growth.
+
+Host code then remains readable and searchable against Microsoft's native documentation:
+
+```csharp
+HWND hwnd = PInvoke.CreateWindowEx(
+    WINDOW_EX_STYLE.WS_EX_APPWINDOW,
+    windowClass,
+    title,
+    WINDOW_STYLE.WS_OVERLAPPEDWINDOW | WINDOW_STYLE.WS_VISIBLE,
+    x,
+    y,
+    width,
+    height,
+    default,
+    default,
+    module,
+    null);
+
+switch (message)
+{
+    case PInvoke.WM_DPICHANGED:
+        return HandleDpiChanged(hwnd, wParam, lParam);
+
+    case PInvoke.WM_GETMINMAXINFO:
+        return HandleMinMaxInfo(hwnd, lParam);
+}
+```
+
+The exact generated overloads can vary with CsWin32 configuration and target framework, but application code should retain this symbolic shape.
+
+For Native AOT, CsWin32 must run before compilation so that .NET's own `LibraryImport` and `GeneratedComInterface` generators can process its output. The Windows host baseline is therefore:
+
+```xml
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+  <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+  <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+</PropertyGroup>
+```
+
+Microsoft's current guidance specifically recommends build-task mode plus disabled runtime marshalling for Native AOT ([CsWin32 getting started](https://microsoft.github.io/CsWin32/docs/getting-started.html), [Microsoft Win32 interop guidance](https://learn.microsoft.com/en-us/windows/apps/develop/interop/call-win32-apis)).
+
+Interop policy:
+
+- Generated declarations are `internal` implementation details of `Nanto.Hosting.Windows`.
+- Nanto pins tested CsWin32 and Win32 metadata versions together and upgrades them through dedicated interop tests.
+- Generated sources are inspectable in `obj/` but are not copied into application source or exposed as Nanto API.
+- x64 compile/runtime tests validate structure sizes, pointer fields, callbacks, and calling conventions for the initial host. Equivalent native tests are required before adding a future architecture.
+- Hand-authored `LibraryImport` declarations are permitted only for APIs unavailable or incorrectly represented in metadata, with a source link and ABI test.
+- OS-defined constants must use generated symbolic names. Nanto-defined window messages are allocated centrally from `WM_APP`, represented by a named type/constant, and never repeated as raw numbers.
+- Casting a generated enum or handle at a native boundary is acceptable; spreading primitive integers through host logic is not.
+
+CsWin32 solves the Win32 declaration problem, but it must not be assumed to solve the separate WebView2 projection problem. WebView2 is distributed outside the core Windows SDK and has its own COM metadata and loader. As of August 2026, an open CsWin32 issue demonstrates failures while consuming `Microsoft.Web.WebView2.Core.winmd` directly ([CsWin32 issue 1695](https://github.com/microsoft/CsWin32/issues/1695)). Nanto therefore validates WebView2 independently through the interop-generation and real-host integration lanes.
+
+The WebView2 Runtime is already native code; Native AOT compatibility is primarily a problem in the managed COM projection used by the Nanto host. .NET Native AOT does not support the built-in Windows COM interop system. Microsoft's supported AOT-friendly direction is source-generated `ComWrappers` using `GeneratedComInterface` and `GeneratedComClass` ([Native AOT limitations](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/), [ComWrappers source generation](https://learn.microsoft.com/en-us/dotnet/standard/native-interop/comwrappers-source-generation)). A projection based on conventional `ComImport`/runtime-generated wrappers is therefore not acceptable merely because it works under CoreCLR.
+
+As of 9 August 2026, the current stable WebView2 SDK package is `Microsoft.Web.WebView2` 1.0.4129.50. Microsoft ships an AOT-oriented `Microsoft.Web.WebView2.Core.Projection` in recent Windows App SDK scenarios, but the public WebView2 documentation does not establish it as a supported standalone raw-Win32 C# Native AOT host independent of WinUI and Windows App SDK. Nanto must prove that use case rather than infer it from Windows App SDK support.
+
+The WebView2 AOT comparison order is therefore:
+
+1. Microsoft's current `Microsoft.Web.WebView2.Core.Projection`, consumed standalone from a raw-Win32 Native AOT host with no WinUI or Windows App SDK dependency.
+2. A narrow Nanto-owned source-generated COM projection from Microsoft's official WebView2 IDL/header, containing only the interfaces, callbacks, enums, and methods Nanto uses.
+3. CsWin32 against WebView2 metadata if the current metadata/projection issue is resolved and the output remains narrow and inspectable.
+4. A hand-authored vtable projection only for gaps that cannot be represented correctly by the preceding approaches.
+
+The selected path must publish with `DisableRuntimeMarshalling=true`, produce no unexplained trim/AOT warnings, and avoid pulling UI frameworks or broad Windows projection dependencies into the output. The WebView2 SDK version and generated ABI surface are pinned and reviewed together.
+
+Phase 1 operationalizes this decision with the offline `eng/Nanto.WebView2InteropGen` tool. It reads `WebView2.idl` and `build/native/include/WebView2.h` directly from the centrally pinned `Microsoft.Web.WebView2` NuGet package, applies a committed narrow projection specification, and produces the reviewed `src/Nanto.Hosting.Windows/Interop/Generated/WebView2Interop.g.cs` plus a deterministic input/output manifest. Official SDK inputs are not copied into repository `artifacts/`; NuGet restore supplies them when regeneration or verification is explicitly requested.
+
+The committed generated source is the only generator output consumed by production builds. `tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests` regenerates into its ignored `obj/interop-verification/<Configuration>` directory and compares both generated files byte-for-byte with the committed copies. Ordinary root builds neither execute the generator nor write source files. The detailed schema, commands, failure behavior, and test contract are specified in [`phase1-plan.md`](phase1-plan.md#webview2-interop-generation-and-verification).
+
+Nanto calls the loader through generated `LibraryImport` declarations shared by both compilation paths. CoreCLR loads the architecture-specific Microsoft-signed `WebView2Loader.dll` copied beside the host. Native AOT resolves the same entry points from the statically linked `WebView2LoaderStatic.lib`, producing no dynamic loader dependency. The standalone deployment spike proves both paths; the Evergreen WebView2 Runtime remains a separate installed system component ([static WebView2 loader](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/static)).
+
+Third-party projects such as [WebView2Aot](https://github.com/smourier/WebView2Aot) are useful implementation references and test comparators, but should not become foundational dependencies without a separate API, maintenance, license, size, and teardown review.
+
+### 6.3 Windows object ownership
+
+```text
+WindowsApplicationHost
+├── UI thread and message loop
+├── application cancellation source
+├── shared WebView environment
+└── WindowRegistry
+    └── WindowsWindow
+        ├── owned HWND
+        ├── WindowMessageMonitor
+        ├── WebView controller
+        ├── WebView instance
+        ├── IPC transport
+        ├── event subscription tokens
+        └── window/plugin lifetime scope
+```
+
+An object that borrows a resource must not release it. An object that owns a resource must release it exactly once.
+
+### 6.4 Window lifecycle
+
+Every window has an explicit state machine:
+
+```text
+Created → Initializing → Running → Closing → Closed
+                  ↘ Failed ↗
+```
+
+Rules:
+
+- Transitions are serialized on the UI thread.
+- `CloseAsync` is idempotent.
+- A second native close request is harmless.
+- Native callbacks received after `Closing` begins either complete required teardown or are ignored safely.
+- Failed initialization cleans up every resource that was successfully created.
+- No command may begin after its window enters `Closing`.
+- Outstanding window commands receive cancellation and a bounded shutdown interval.
+- `Closed` is terminal.
+
+### 6.5 Reverse-order teardown
+
+The target shutdown sequence is:
+
+1. Mark the window `Closing` and reject new IPC work.
+2. Cancel the window lifetime token and active command streams.
+3. Ask window-scoped plugins to stop.
+4. Unsubscribe every browser, environment, and WebView event using its registration token; remove any registered scripts, mappings, or callbacks owned by the window.
+5. Call `ICoreWebView2Controller::Close`, then release the WebView, controller, and callback COM interfaces.
+6. Release the window's reference to shared WebView resources. After the last controller closes, use `BrowserProcessExited` to synchronize runtime replacement, environment reconfiguration, authentication-cache clearing, or user-data-folder deletion.
+7. Remove native message hooks and callbacks.
+8. Destroy the `HWND` if native close has not already done so.
+9. Remove the window from the registry.
+10. Dispose the window/plugin service scope.
+11. Evaluate the application shutdown policy.
+
+The same operations must be safe when entered from user close, application shutdown, renderer failure, failed initialization, or an OS callback.
+
+### 6.6 Resource implementation rules
+
+- Wrap suitable owned handles in `SafeHandle` subclasses.
+- Use explicit wrappers for COM interfaces; do not depend on finalizer timing.
+- Represent event registration with disposable subscription tokens.
+- Keep WebView2 environment and controller callbacks on the owning STA UI thread. All requests into WebView2 must be marshalled to that dispatcher.
+- Use `IDisposable` for synchronous ownership and `IAsyncDisposable` only when shutdown genuinely requires asynchronous completion.
+- Do not block the UI thread waiting on work that must resume on the UI thread.
+- Do not use `.Result`, `.Wait()`, or a native blocking wait around a WebView2 asynchronous operation; WebView2 completion callbacks require the message pump to continue running ([WebView2 threading model](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/threading-model)).
+- Keep a debug resource ledger containing windows, handles, COM objects, subscriptions, streams, and plugin scopes.
+- Report unreleased resources at process exit in development builds.
+- Catch only documented/understood native or COM errors at teardown boundaries; do not broadly swallow exceptions.
+- Make failed startup testable by injecting a failure after every acquisition step.
+
+### 6.7 DPI and window messages
+
+Nanto's portable API uses device-independent pixels. The Windows host owns conversion to physical pixels based on the current window DPI.
+
+At minimum, it must correctly handle:
+
+- `WM_DPICHANGED`;
+- `WM_GETMINMAXINFO`;
+- `WM_SIZE` and WebView bounds updates;
+- activation and focus;
+- close and destroy;
+- display/work-area changes;
+- custom title-bar hit testing when that feature is added.
+
+The host should maintain a cached per-window DPI and update it only on the UI thread. Initial placement and first-monitor correction require dedicated multi-monitor tests.
+
+### 6.8 Static asset origin
+
+Production assets must be served by an `IWebAssetProvider` abstraction. The Windows host should avoid a loopback HTTP server unless a platform limitation requires it.
+
+The default production implementation materializes embedded/compressed SPA assets into a versioned local cache and maps that directory to `https://app.nanto.invalid` using `SetVirtualHostNameToFolderMapping`. The default access kind is `DenyCors`. This gives the application a secure origin, supports relative resources and browser storage, and lets WebView2 resolve files inside its own processes. The hostname is an internal implementation detail and must not leak into the frontend API.
+
+`WebResourceRequested` remains an optional provider for genuinely dynamic or in-memory content. It is not the default for a normal SPA because every intercepted resource crosses into the host UI thread and is slower than virtual-host mapping. A directory deployment can map its output directly; an embedded single-file deployment can extract once per asset version and then use the same serving path ([local content in WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/working-with-local-content)).
+
+The completed feasibility work established these requirements for Nanto:
+
+- a secure application origin;
+- SPA route fallback to `index.html`;
+- embedded or linked assets;
+- correct MIME types;
+- fetch, module, worker, and CSP behavior;
+- no accidental filesystem access;
+- atomic cache creation and safe retention across application upgrades;
+- no extraction on every launch when the asset version is already present.
+
+Every application declares a stable, globally unique `ApplicationId`, normally in reverse-DNS form such as `com.ghidello.myapp`. Nanto canonicalizes that identity and derives a collision-resistant filesystem key; display name, assembly name, executable name, and installation directory are not identities. Changing `ApplicationId` deliberately creates a new storage boundary.
+
+The Windows cache schema is `%LOCALAPPDATA%\Nanto\applications\<application-key>\assets-v1\<bundle-sha256>`. The bundle key hashes the normalized asset manifest and contents rather than the application release number, so releases with identical assets reuse one immutable `content` directory. Mutable siblings record completeness, last use, and an explicit lease. The stable WebView2 UDF lives under the same application boundary at `profiles\default\webview2-udf`, outside release and bundle directories, so browser storage survives application upgrades.
+
+`%LOCALAPPDATA%\Nanto\applications\<application-key>` is the default application data root, not an unchangeable location. A deployment may place a small versioned `nanto.runtime.json` beside the application and set `dataRoot`; an explicit `--data-root` process argument takes precedence for diagnostics and enterprise launch scripts. Relative configured paths resolve from the application directory, never the current working directory, and the resolved application root contains the same `assets-v1`, `profiles`, and maintenance layout. The selected root is normalized and write-probed before asset extraction or WebView2 startup, and failure reports the exact source and path without silently falling back elsewhere.
+
+Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A short per-application cross-process maintenance lock serializes lease acquisition with cleanup. Cleanup runs best-effort at most daily, skips the current or leased bundles, and atomically retires only complete bundles whose explicit UTC `last-used` timestamp is older than 30 days. Missing, invalid, or future timestamps are retained. Abandoned staging directories may be removed after 24 hours. A previously installed release whose dormant cache was removed can re-extract its embedded assets on its next launch.
+
+### 6.9 Critical Native AOT risk: COM
+
+WebView2 is COM-based, while .NET Native AOT on Windows does not provide built-in COM support. This is the most important technical risk in the Windows MVP.
+
+Before building the framework, a feasibility spike must prove that Nanto can:
+
+- create a WebView2 environment and controller from Native AOT;
+- receive WebView2 callbacks;
+- exchange web messages;
+- resize, navigate, open developer tools, and shut down repeatedly;
+- use generated or manually defined COM interop without reflection or runtime code generation;
+- publish with zero unexplained trim/AOT warnings;
+- run without leaked COM references or shutdown crashes.
+
+Possible implementations include Microsoft's AOT projection when it is independently usable without Windows App SDK, source-generated COM interop from the official WebView2 IDL/header, and narrowly scoped manually generated ABI bindings for remaining gaps. The public host contract must not depend on the chosen mechanism.
+
+#### Adopted feasibility evidence
+
+The completed feasibility work established the following inputs to Nanto Phase 1. This is a self-contained evidence summary, not a dependency on experiment source, test profiles, or reports:
+
+- A warning-free `win-x64` Native AOT host can use raw Win32, generated COM interop, `DisableRuntimeMarshalling=true`, and WebView2 without WinUI, Windows App SDK, WPF, WinForms, or MAUI.
+- The same narrow host contracts can support CoreCLR and Native AOT while changing only deployment and loader mechanics.
+- A secure virtual HTTPS origin can support exact-origin checks, CSP, modules, workers, service workers, browser storage, and denial of unintended CORS, mixed-content, and filesystem access.
+- A normalized manifest and content hashes can drive deterministic, immutable asset extraction, cache reuse, path/query-preserving SPA fallback, and safe cleanup.
+- Renderer termination, browser-process termination, same-process recreation, deterministic teardown, and bounded failure diagnostics are feasible.
+- Closing the controller while keeping the STA message pump active until a bounded `BrowserProcessExited` notification permits deterministic WebView2 UDF cleanup.
+- Native feasibility was demonstrated on x64 and Arm64. Phase 1 deliberately supports Windows x64 only; Arm64 remains future scope.
+- CoreCLR and Native AOT measurements can record readiness, lifecycle time, process-tree memory, executable and installed payload sizes, symbols, and compressed payload consistently.
+
+Nanto adopts only the production rules stated in this architecture and [`phase1-plan.md`](phase1-plan.md). No historical experiment path, test profile, report, or unstated behavior is a Nanto requirement.
+
+---
+
+## 7. Application and surface lifecycle
+
+### 7.1 Portable lifecycle
+
+Nanto should expose a small lifecycle vocabulary:
+
+- `Creating`
+- `Created`
+- `Activated`
+- `Deactivated`
+- `Suspending` or `Stopping` where meaningful
+- `Resuming`
+- `Closing`
+- `Closed`
+
+Not every event exists on every platform. Platform hosts map native events and document guarantees. Application state must be saved incrementally because mobile platforms and system shutdown cannot guarantee a final callback.
+
+### 7.2 Surface model
+
+Windows and tray icons are peer application surfaces. This supports applications that close their last visible window but remain active in the tray.
+
+Suggested shutdown policies:
+
+```csharp
+public enum ShutdownMode
+{
+    OnPrimaryWindowClosed,
+    OnLastSurfaceClosed,
+    Explicit
+}
+```
+
+Owned dialogs and auxiliary windows do not automatically become shutdown-defining surfaces.
+
+### 7.3 Thread affinity
+
+- Each platform host captures its UI dispatcher/executor.
+- All window and WebView mutation happens through that dispatcher.
+- Debug builds throw immediately when a UI-thread-only API is used incorrectly.
+- The command dispatcher may execute ordinary commands away from the UI thread, but injects a portable UI dispatcher for operations that affect windows.
+- Registries use immutable or copy-on-write snapshots for thread-safe observation; mutation remains UI-thread-owned.
+
+---
+
+## 8. IPC and typed bindings
+
+Typed C# ↔ TypeScript bindings are a defining Nanto feature, not optional tooling.
+
+### 8.1 C# authoring model
+
+An application exposes explicitly annotated services or methods:
+
+```csharp
+[NantoApi]
+public sealed class ProjectsApi
+{
+    [NantoCommand]
+    public async Task<ProjectDetails> OpenAsync(
+        ProjectId id,
+        CancellationToken cancellationToken)
+    {
+        // Application logic
+    }
+
+    [NantoCommand]
+    public IAsyncEnumerable<BuildProgress> BuildAsync(
+        ProjectId id,
+        CancellationToken cancellationToken)
+    {
+        // Stream progress
+    }
+}
+```
+
+The exact attribute names remain provisional, but registration must be explicit and analyzable.
+
+### 8.2 Generated output
+
+The Roslyn incremental generator produces:
+
+1. A reflection-free command registry and dispatcher.
+2. Source-generated `System.Text.Json` metadata for every request, response, event, stream item, and structured error.
+3. A protocol manifest containing commands, types, permissions, and plugin contributions.
+4. A TypeScript model consumed by the SDK/CLI to emit `@nanto/app`.
+5. Diagnostics for unsupported, ambiguous, or unsafe signatures.
+
+The generated TypeScript should feel handwritten:
+
+```typescript
+import { projects } from "@nanto/app";
+
+const project = await projects.open(projectId, { signal });
+
+for await (const progress of projects.build(projectId, { signal })) {
+  console.log(progress.message);
+}
+```
+
+### 8.3 Type mapping
+
+Initial mappings:
+
+| C# | TypeScript/runtime representation |
+| --- | --- |
+| `Task<T>` / `ValueTask<T>` | `Promise<T>` |
+| `CancellationToken` | Optional `AbortSignal` call option |
+| `IAsyncEnumerable<T>` | `AsyncIterable<T>` |
+| nullable reference/value | `T \| null`, with optionality defined separately |
+| records/classes | generated TypeScript interfaces or types |
+| enum | string union by default |
+| `Guid` | string, validated at the native boundary |
+| `DateOnly` | ISO date string |
+| `DateTimeOffset` | ISO timestamp string |
+| `byte[]` / `ReadOnlyMemory<byte>` | `Uint8Array`, with optimized binary transport when available |
+| `void` / non-generic task | `Promise<void>` |
+
+The contract must distinguish missing, `undefined`, and `null`. Naming and enum serialization rules must be deterministic and configurable only at a well-defined boundary.
+
+### 8.4 Unsupported signatures
+
+The generator should initially reject:
+
+- overloaded command names;
+- open generics;
+- arbitrary object graphs without generated serialization metadata;
+- delegates and expression trees;
+- raw pointers and platform handles in portable commands;
+- synchronous streaming abstractions;
+- methods whose public contract depends on runtime type discovery.
+
+Diagnostics should identify the exact parameter or return type and suggest a supported alternative.
+
+### 8.5 Protocol model
+
+The transport protocol supports:
+
+- request/response commands;
+- structured errors;
+- cancellation;
+- typed events;
+- ordered streams/channels;
+- window/WebView identity;
+- capability context;
+- protocol version negotiation.
+
+Every request has a correlation ID. Responses are delivered exactly once from Nanto's perspective. Late responses after cancellation are discarded. Stream closure and error semantics are explicit.
+
+The generator may assign compact numeric command IDs for the private wire format, as Wails v3 does, provided that:
+
+- IDs are generated deterministically or recorded in the build manifest;
+- collisions are detected at build time;
+- the dispatcher is generated as a direct switch/table rather than a reflective lookup;
+- capability documents and public TypeScript use symbolic service and command names;
+- logs always show the symbolic name, with the numeric ID only as supplemental protocol detail;
+- protocol-version mismatch fails clearly rather than invoking the wrong command.
+
+The invocation context includes the calling application, window/WebView identity, origin, capabilities, request metadata, and a cancellation token. Closing or navigating the calling WebView automatically cancels its outstanding invocations unless a command has explicitly transferred work to an application-owned background operation.
+
+Large binary payloads should not be base64-encoded JSON once a platform transport can carry bytes efficiently. Binary transport is a post-MVP optimization, but the protocol must reserve room for it.
+
+### 8.6 Structured errors
+
+Native exception details and stack traces must not be sent to production frontends by default. Commands return a generated error contract such as:
+
+```typescript
+type NantoError = {
+  code: string;
+  message: string;
+  details?: unknown;
+};
+```
+
+Development builds may include a separately flagged diagnostic payload.
+
+---
+
+## 9. Security and capabilities
+
+Tauri explicitly treats the native core and frontend as different trust domains ([Tauri security model](https://v2.tauri.app/security/)). Nanto should do the same.
+
+### 9.1 Default-deny rules
+
+- Only generated and registered commands are callable.
+- Installing a plugin does not automatically grant its permissions to every WebView.
+- Every native request is associated with a known WebView, window, origin, command, and capability set.
+- Navigating to a remote origin removes application capabilities unless explicitly granted.
+- New windows receive an explicit capability profile.
+- Development allowances must never be copied silently into production configuration.
+
+### 9.2 Capability documents
+
+A capability document grants named permissions to a set of windows/origins:
+
+```json
+{
+  "identifier": "main-window",
+  "windows": ["main"],
+  "origins": ["https://app.nanto.invalid"],
+  "permissions": [
+    "app:default",
+    "dialog:open",
+    {
+      "identifier": "filesystem:read",
+      "allow": ["$APPDATA/projects/**"]
+    }
+  ]
+}
+```
+
+The syntax and final application origin are provisional; the model is not.
+
+### 9.3 Scope-aware plugins
+
+Permissions can carry scopes:
+
+- filesystem roots and glob patterns;
+- allowed shell executables and arguments;
+- URL schemes and domains;
+- notification features;
+- clipboard read versus write;
+- database connection identifiers rather than arbitrary connection strings.
+
+Plugins validate scopes again at the native boundary. The frontend cannot turn an allowed alias into a broader native operation.
+
+### 9.4 WebView hardening
+
+Production defaults should include:
+
+- local application content only;
+- navigation allowlists;
+- explicit external-link handling;
+- a restrictive Content Security Policy;
+- no arbitrary native object injection;
+- no unrestricted JavaScript evaluation from plugin input;
+- disabled developer tools unless explicitly enabled for a diagnostic build;
+- validation of message source and protocol envelope;
+- no secrets embedded in frontend assets.
+
+Microsoft recommends web messages rather than host objects for ordinary host/web communication. Nanto therefore uses `PostWebMessageAsJson`/`WebMessageReceived` for its generated protocol and does not use `AddHostObjectToScript` as its normal command bridge. Host objects are disabled by default. Every inbound message is accepted only after checking the current top-level origin and validating its generated protocol envelope; capability authorization is a separate, subsequent check ([WebView2 security guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security), [WebView2 performance guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/performance)).
+
+The WebView2 host runs at standard user integrity. An application that genuinely requires elevation isolates that privileged work from the WebView-hosting process rather than elevating the browser surface.
+
+---
+
+## 10. Plugin model
+
+### 10.1 Plugins are build-time components
+
+An Nanto plugin is normally a NuGet package selected at build time. It may contribute:
+
+- portable managed services;
+- platform-specific native implementations;
+- generated command handlers;
+- permissions and scope validators;
+- TypeScript declarations/client methods;
+- configuration schema;
+- lifecycle hooks;
+- packaging metadata or native assets.
+
+The NuGet package is the source of truth. Nanto generates the matching frontend module so users do not need to coordinate independently versioned NuGet and npm plugin packages.
+
+Plugins are not discovered by scanning assemblies at runtime. The generator creates a static registry containing exactly the referenced plugins.
+
+### 10.2 AOT compatibility
+
+Plugin compatibility is verified, not merely claimed. A plugin can declare metadata, but the SDK also runs .NET trim/AOT analyzers and checks referenced assemblies where possible.
+
+Suggested compatibility levels:
+
+```csharp
+public enum RuntimeCompatibility
+{
+    NativeAot,
+    CoreClr
+}
+```
+
+Build modes:
+
+```text
+dotnet nanto build --runtime auto
+dotnet nanto build --runtime native-aot
+dotnet nanto build --runtime coreclr
+```
+
+- `auto` prefers Native AOT and falls back to CoreCLR when a verified dependency requires it. The CLI must prominently explain the plugin and size/runtime consequence.
+- `native-aot` is strict and fails on any incompatibility or unexplained AOT warning. This is the recommended CI setting for applications that promise AOT.
+- `coreclr` is an explicit compatibility build.
+
+No build may silently suppress AOT warnings to claim compatibility.
+
+### 10.3 Plugin lifecycle
+
+Plugins may have application, window, or invocation scope. Each scope is owned and disposed by the corresponding Nanto object.
+
+Lifecycle hooks are ordered and bounded:
+
+```text
+Configure → Start → Running → Stop → Dispose
+```
+
+- A plugin that fails during start causes already-started plugins to stop in reverse order.
+- A plugin cannot indefinitely block shutdown.
+- Window-scoped plugin instances stop before their WebView and window disappear if they depend on them.
+- Plugin callbacks run on documented executors; UI-thread access must be requested explicitly.
+
+### 10.4 Initial plugin catalogue
+
+Core should remain narrow. Candidate first-party plugins are:
+
+**MVP or early:**
+
+- clipboard;
+- native dialogs;
+- filesystem;
+- opener/default application;
+- logging;
+- operating-system/application information;
+- single-instance activation.
+
+**Next:**
+
+- notifications;
+- global shortcuts;
+- menus and tray;
+- shell/process execution with strict scopes;
+- persistent key-value store;
+- deep links;
+- updater.
+
+**Later or community:**
+
+- SQL/database access;
+- secure credential storage;
+- HTTP with native policy integration;
+- taskbar/dock integration;
+- autostart;
+- window-state persistence;
+- platform-specific integrations.
+
+Window management, lifecycle, IPC, capabilities, and asset serving remain core because plugins depend on them.
+
+---
+
+## 11. Developer experience
+
+Developer experience is a release criterion for Nanto, not a convenience layer over the runtime. A feature is incomplete if its happy path is fast but its generated output, restart behavior, failure mode, or native cleanup is opaque. Phase 3 must establish measurable baselines for first-run time, incremental frontend feedback, managed restart time, diagnostic quality, and clean process termination; later phases may not regress them silently.
+
+### 11.1 Project creation
+
+The .NET-native entry point should be:
+
+```bash
+dotnet new install Nanto.Templates
+dotnet new nanto -n MyApp --frontend react
+cd MyApp
+dotnet nanto dev
+```
+
+The initial reference template uses React, TypeScript, and Vite because it provides a familiar way to prove the complete experience. It is not the Nanto frontend model. The template system should also support `--frontend custom` (or `none`) so an existing or newly created SPA can be attached by configuring its commands, development URL, output directory, and generated-client directory. Additional curated templates can follow without changing the host or bridge.
+
+Suggested project structure:
+
+```text
+MyApp/
+├── MyApp.csproj
+├── Program.cs
+├── nanto.json
+├── Capabilities/
+│   └── main.json
+├── Api/
+│   └── AppApi.cs
+└── Frontend/
+    ├── package.json
+    ├── vite.config.ts
+    ├── src/
+    └── generated/
+        └── nanto/
+```
+
+Generated files should be consumable through the `@nanto/app` import alias but normally excluded from source control. A stable manifest may be checked in optionally for API review.
+
+### 11.2 Configuration
+
+Nanto needs one schema-validated application configuration containing:
+
+- application identity and metadata;
+- frontend directory, dev command, dev URL, and production output;
+- initial windows;
+- capability documents;
+- runtime/build preference;
+- plugin configuration;
+- bundling/signing settings;
+- development diagnostics.
+
+Configuration should support environment-specific overlays without embedding secrets. MSBuild owns compilation and publish properties; `nanto.json` owns application behavior. The same value should not have two competing sources of truth.
+
+Example:
+
+```json
+{
+  "$schema": "https://nanto.dev/schemas/config/v1.json",
+  "productName": "MyApp",
+  "identifier": "com.example.myapp",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "Frontend/dist",
+    "runtime": "auto"
+  },
+  "windows": [
+    {
+      "id": "main",
+      "title": "MyApp",
+      "width": 1100,
+      "height": 720
+    }
+  ]
+}
+```
+
+### 11.3 Development orchestration
+
+`dotnet nanto dev` should:
+
+1. Validate the .NET, Node/package-manager, native toolchain, and WebView prerequisites.
+2. Restore/build generated C# and TypeScript contracts.
+3. Start `beforeDevCommand` (for example Vite, Angular CLI, webpack, Rsbuild, Parcel, or another SPA development server).
+4. Wait until `devUrl` is reachable instead of relying on arbitrary delays.
+5. Start the native host under `dotnet watch`/CoreCLR.
+6. Load `devUrl` into the WebView.
+7. Forward structured logs from the host and frontend with clear prefixes.
+8. Stop all child processes when the command exits.
+
+Tauri uses the same `beforeDevCommand`, `devUrl`, `beforeBuildCommand`, and `frontendDist` concepts, with the selected frontend dev server providing HMR ([Tauri development configuration](https://v2.tauri.app/develop/), [Tauri Vite integration](https://v2.tauri.app/start/frontend/vite/)). Nanto should preserve that familiar, framework-neutral mental model.
+
+### 11.4 Hot reload behavior
+
+There are three independent change paths:
+
+| Change | Expected behavior |
+| --- | --- |
+| SPA/CSS/frontend code | The selected frontend dev server's HMR or live-reload behavior updates the page without restarting the native host |
+| C# method-body change supported by Hot Reload | `dotnet watch` applies the update in the running CoreCLR development process |
+| C# shape/native interop/change requiring restart | CLI restarts the host and reports why |
+
+When a C# API contract changes:
+
+1. the incremental generator updates the manifest and TypeScript files;
+2. the selected frontend watcher observes the generated-file change;
+3. TypeScript reports broken frontend callers immediately;
+4. the host is hot reloaded or restarted depending on the managed change.
+
+Production Native AOT is not the inner development loop. The SDK keeps AOT analyzers enabled during ordinary builds, and CI performs strict AOT publishes. An optional `dotnet nanto dev --aot` may exist later as a slower validation mode, not as the default.
+
+### 11.5 Diagnostics and developer tools
+
+Development mode should provide:
+
+- WebView developer tools enabled by default;
+- a command and keyboard shortcut to open them;
+- native debugger attachment instructions;
+- generated protocol inspection;
+- capability-denial explanations;
+- child-process and HMR status;
+- resource ledger/leak reporting on exit;
+- `dotnet nanto doctor` for environment diagnostics.
+
+Production developer tools are disabled unless the application explicitly opts in.
+
+### 11.6 Aspire orchestration and OpenTelemetry
+
+Aspire is a strong optional development host for Nanto. Its AppHost can orchestrate .NET projects, arbitrary executables, Vite applications, containers, databases, and other dependencies. Its dashboard receives OTLP telemetry and shows resources, logs, traces, and metrics together. Nanto should integrate with this model without making Aspire a runtime or production dependency ([Aspire executable resources](https://learn.microsoft.com/en-us/dotnet/aspire/app-host/executable-resources), [Aspire JavaScript integration](https://learn.microsoft.com/en-us/dotnet/aspire/get-started/build-aspire-apps-with-nodejs), [Aspire telemetry](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/telemetry)).
+
+The intended development modes are:
+
+| Mode | Purpose |
+| --- | --- |
+| `dotnet nanto dev` | Minimal default loop: Nanto directly owns Vite and the managed host. No Aspire installation or AppHost is required. |
+| Aspire AppHost | Opt-in orchestration for applications with APIs, databases, containers, queues, or a desire for the unified resource and telemetry dashboard. |
+| Standalone Aspire dashboard | Optional OTLP viewer when full orchestration is unnecessary. |
+
+The Aspire integration should eventually provide a small `Nanto.Hosting.Aspire` package with an `AddNantoApp(...)` resource extension. It should compose the Nanto host, frontend resource, readiness relationship, endpoints, dependent services, environment variables, and shutdown ordering while leaving the effective resource graph inspectable. Until that extension exists, an AppHost can use `AddProject` or `AddExecutable` for the Nanto host and the appropriate JavaScript resource—such as `AddViteApp`, `AddJavaScriptApp`, or another explicit executable—for the SPA.
+
+Nanto core instrumentation should use standard .NET primitives—`ActivitySource`, `Meter`, and structured logging—so that instrumentation is cheap when no listener is present and export policy belongs to the application. An optional telemetry package may register the OpenTelemetry SDK and OTLP exporter. Aspire supplies the standard `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and `OTEL_EXPORTER_OTLP_ENDPOINT` settings during development; any OTLP-compatible collector can supply equivalent settings elsewhere. Telemetry must remain optional, trimmable, Native-AOT-tested, and free of secrets or command payloads by default.
+
+The native host should emit spans and metrics for:
+
+- application and window startup;
+- WebView environment/controller creation and navigation;
+- frontend bridge calls, including queueing, serialization, authorization, execution, cancellation, and failure;
+- plugin startup, calls, and teardown;
+- frontend and host restarts during development;
+- renderer/process failure and recovery;
+- shutdown phases and resource-ledger residue.
+
+#### Telemetry from the WebView
+
+Yes, frontend telemetry is possible. OpenTelemetry JavaScript supports browser traces and metrics, and the Aspire dashboard can receive browser telemetry over OTLP/HTTP. This instruments the SPA and Nanto bridge; it should not be presented as access to WebView2/Edge's private internal telemetry. Browser export cannot use OTLP/gRPC and must account for CSP, CORS, and endpoint authentication. OpenTelemetry currently labels browser client instrumentation experimental, so Nanto must keep this integration optional and versioned rather than making its present SDK surface part of Nanto core ([OpenTelemetry JavaScript status](https://opentelemetry.io/docs/languages/js/), [browser instrumentation](https://opentelemetry.io/docs/languages/js/getting-started/browser/), [browser exporters](https://opentelemetry.io/docs/languages/js/exporters/), [Aspire browser telemetry](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard/enable-browser-telemetry)).
+
+Nanto should support two export paths:
+
+1. **Direct OTLP/HTTP during development.** The SPA exports to the Aspire dashboard or another collector using HTTP/protobuf or HTTP/JSON. The dev environment configures the exact WebView/Vite origin, CSP `connect-src`, CORS allow-list, and an ephemeral OTLP API key where required. Credentials must never be compiled into production assets.
+2. **Nanto host relay as the preferred packaged-app path.** An optional `@nanto/telemetry` module sends telemetry batches through an internal, origin-checked bridge channel. The native host forwards them to the configured OTLP destination. This avoids browser CORS coupling and collector credentials in JavaScript, works with the production virtual HTTPS origin, and keeps export policy in native configuration.
+
+All generated command envelopes should carry W3C Trace Context. A frontend interaction span can therefore parent the native bridge span, which can in turn parent database, HTTP, or plugin spans. Trace propagation is protocol metadata, not an application capability, but the internal telemetry channel remains restricted to trusted local origins and enforces size, rate, and attribute limits.
+
+---
+
+## 12. Build and distribution
+
+### 12.1 Runtime profiles
+
+| Profile | Managed runtime | WebView | Purpose |
+| --- | --- | --- | --- |
+| AOT | Native AOT, self-contained | Shared system/Evergreen WebView | Default and preferred production profile |
+| CoreCLR compatibility, self-contained | Self-contained CoreCLR | Shared system WebView | Explicit production choice for non-AOT dependencies without requiring an installed .NET runtime |
+| CoreCLR compatibility, framework-dependent | Installed CoreCLR | Shared system WebView | Explicit smaller deployment for environments that manage a compatible .NET runtime |
+| Development | CoreCLR with Hot Reload | System WebView loading dev URL | Fast inner loop |
+| Offline enterprise | AOT or CoreCLR | Runtime installer supplied separately/in bundle | Restricted environments |
+
+The WebView runtime, application assets, symbols, fonts, and installer can dominate distribution size. Nanto must report both compressed download size and installed size rather than advertising only the executable size.
+
+### 12.2 Size policy
+
+- Do not bundle a WebView runtime in the normal profile.
+- Do not reference unused platform UI frameworks.
+- Treat trim and AOT warnings as errors in strict builds.
+- Source-generate registration and serialization.
+- Set `CopyOutputSymbolsToPublishDirectory=false` for production publishes so deployable application directories do not contain PDBs. Preserve generated symbols in a separate diagnostic artifact for CI evidence, crash-dump analysis, and releases that intentionally publish symbols; never disable symbol generation merely to make the deployable directory look smaller.
+- Provide a build-size report grouped by managed code, native host, frontend assets, symbols, and installer payload.
+- Establish size budgets from measured feasibility baselines rather than inventing a marketing number.
+
+### 12.3 Packaging
+
+The Windows MVP must first produce an unpackaged executable/application directory. Installer, MSIX, signing, update, and Store support are separate layers. Packaging must never be required merely to create a window or run WebView2.
+
+WebView2 availability is an explicit deployment policy, informed by Wails' treatment of the same dependency:
+
+```csharp
+public enum WebViewRuntimePolicy
+{
+    RequireInstalled,
+    DownloadBootstrapper,
+    IncludeOfflineInstaller
+}
+```
+
+The normal small profile uses `RequireInstalled` with an actionable error or `DownloadBootstrapper`. `IncludeOfflineInstaller` is an enterprise/offline packaging choice and its bytes are reported separately. Falling back to the user's external browser is not equivalent—the frontend would no longer have the same trusted window, origin, or IPC boundary—and is therefore not a transparent Nanto fallback.
+
+Each platform host later owns its native packaging requirements while the CLI presents a coherent command surface.
+
+---
+
+## 13. Decision register
+
+### 13.1 Accepted decisions
+
+| ID | Decision | Rationale |
+| --- | --- | --- |
+| D-001 | Nanto is a .NET-native Tauri-like framework, not a literal port. | Preserve the product model while designing naturally for .NET. |
+| D-002 | Use system WebViews. | Avoid bundling a browser engine and reduce application size. |
+| D-003 | Keep the public application/window model platform-neutral. | Protect applications from OS-framework churn and support multiple hosts. |
+| D-004 | Use raw Win32 + WebView2 for Windows. | Small, durable substrate with no WinUI/XAML/Windows App SDK requirement. |
+| D-005 | Nanto owns the `HWND`; optional APIs attach to it. | The durable native resource remains under Nanto's control. |
+| D-006 | Do not depend on MAUI UI, WinUI, or Reactor. | Avoid unnecessary framework weight and volatile abstractions. |
+| D-007 | Learn from MAUI lifecycle/handler patterns and Reactor ownership/teardown patterns. | Reuse sound engineering lessons without importing their UI stacks. |
+| D-008 | Native AOT is the preferred production target. | Smaller self-contained applications, startup performance, and architectural discipline. |
+| D-009 | Provide CoreCLR compatibility mode for non-AOT-compatible plugins. | Avoid excluding useful .NET libraries while preserving a strict AOT path. |
+| D-010 | Plugins are statically composed at build time. | Compatible with AOT, trimming, deterministic security, and small output. |
+| D-011 | Typed generated C# ↔ TypeScript bindings are a defining feature. | Remove stringly typed IPC and make contract changes visible at build time. |
+| D-012 | Use source-generated dispatch and JSON metadata. | Avoid reflection and enable trimming/AOT. |
+| D-013 | Capability-based authorization is default-deny. | The frontend is a separate trust domain. |
+| D-014 | Delegate frontend HMR to the selected SPA development server and orchestrate it alongside .NET Hot Reload/restart. | Preserve each frontend ecosystem's normal workflow; use Vite as the reference, not a dependency. |
+| D-015 | Resource ownership and reverse-order teardown are architectural requirements. | Native lifetime bugs are correctness issues, not polish. |
+| D-016 | Use the Evergreen WebView2 Runtime in ordinary Windows distribution. | Share the installed runtime and avoid bundling Chromium. |
+| D-017 | Windows is the first and only currently committed complete host. | It proves the product, smallest-host, and AOT/COM risks while platform-neutral contracts preserve—not promise—future options. |
+| D-018 | Use CsWin32 plus Microsoft's Win32 metadata for ordinary Windows APIs. | Generate correct typed declarations, constants, handles, and cleanup metadata without shipping a wrapper runtime. |
+| D-019 | Raw OS magic numbers are forbidden in host logic. | Use generated symbolic values; centralize and name Nanto-owned native message IDs. |
+| D-020 | Treat Wails v3 as an additional architecture reference, not a dependency. | Its explicit objects, static bindings, services, assets, lifecycle, and transparent build model validate and refine Nanto's direction. |
+| D-021 | Adopt **Nanto** as the product name and **“The native frame for your web application.”** as its tagline. | The Italian name expresses the framework, chassis, and weaving roles of the architecture while remaining concise and distinctive for developer tooling. |
+| D-022 | The Native AOT WebView2 path must not use .NET's built-in COM interop. | Native AOT does not support built-in COM; use a proven AOT projection, source-generated COM, or a narrow generated ABI layer. |
+| D-023 | Use JSON web messages, not host objects, for the normal generated frontend bridge. | Microsoft recommends web messages for performance, reliability, memory use, and reduced coupling; the design also fits capability checks and cross-platform hosts. |
+| D-024 | Create and access WebView2 only on its owning STA UI thread, without blocking its message pump. | WebView2 callbacks and asynchronous completion depend on that thread and message pump. |
+| D-025 | Share a WebView2 environment for compatible windows and make UDF ownership explicit. | Reduces browser-process memory and makes profile, update, cleanup, and shutdown behavior deterministic. |
+| D-026 | Serve ordinary production SPA assets through virtual HTTPS host mapping from a directory or versioned extracted cache. | WebView2 resolves mapped resources in its own processes; per-request interception crosses the host UI thread and is reserved for dynamic providers. |
+| D-027 | Synchronize WebView2 teardown through event-token removal, controller close, explicit COM release, and `BrowserProcessExited` where environment resources are involved. | Prevents reference cycles, shutdown races, UDF corruption, and failed runtime/configuration replacement. |
+| D-028 | Run the WebView2 host non-elevated and validate origin before protocol and capability authorization. | Keeps the browser-hosting attack surface at standard-user integrity and preserves independent trust checks. |
+| D-029 | Treat developer experience as a defining product surface and quality gate. | Fast feedback, transparent orchestration, actionable errors, diagnostics, and clean teardown determine whether the framework is genuinely usable. |
+| D-030 | Support Aspire as an optional development orchestrator while instrumenting Nanto with vendor-neutral OpenTelemetry primitives. | Gains unified resource orchestration and local diagnostics without coupling the runtime or production deployment to Aspire. |
+| D-031 | Commit only to Windows initially while keeping core contracts free of Windows types. | Focuses delivery while preserving the architectural option—not a promise—to add other hosts later. |
+| D-032 | Propagate W3C Trace Context across the frontend bridge and support opt-in browser telemetry. | Produces end-to-end SPA-to-native-to-service traces while keeping browser SDK and export policy optional. |
+| D-033 | Keep the runtime, generated ESM client, and frontend integration contract framework- and bundler-neutral. | React/Vite can provide the first polished template without restricting Angular, Vue, Svelte, Solid, vanilla TypeScript, or future SPA toolchains. |
+| D-034 | Resolve SPA document routes with a generated asset manifest and an explicit navigation policy; never treat every missing resource as `index.html`. | Preserves static asset correctness and security while allowing clean URLs; exact assets remain mapped directly and only top-level same-origin document routes may fall back. |
+| D-035 | Resolve O-001 with a narrow Nanto-owned source-generated WebView2 COM projection derived from the pinned official header. | Feasibility results establish Native AOT, trimming, callbacks, ABI layout, messaging, and teardown without a UI framework or built-in COM interop; deterministic regeneration verification prevents unnoticed projection drift. |
+| D-036 | Resolve O-002 with the internal `https://app.nanto.invalid` origin and application-scoped, content-addressed asset caches with shared process leases and 30-day last-use retention. | Secure-origin behavior is proven; stable application identity prevents cross-application collisions, immutable bundles support concurrent releases, and leases prevent deletion while any instance is using a bundle. |
+| D-037 | Resolve O-003 by supporting Windows 10 22H2/build 19045 or newer on x64 for the initial product. | Completed feasibility and standalone deployment results establish the x64 path. Arm64 joins macOS and Linux as a future platform commitment rather than a Phase 1 gate. |
+| D-038 | Resolve O-012 by making embedded, versioned extraction the default production asset deployment; retain directory mapping for development and externally managed assets. | Feasibility results establish single-file-compatible embedding, atomic extraction, secure virtual-host mapping, and content-hash cache reuse on Windows 10. |
+| D-039 | Resolve O-006 by supporting explicit framework-dependent and self-contained CoreCLR compatibility publishes while keeping Native AOT the default. | Users with non-AOT dependencies need a deliberate fallback, but deployment ownership differs by environment. All modes use the same AOT-compatible host contracts and no mode is selected through silent publish fallback. |
+| D-040 | Allow the application data root to be selected by an adjacent versioned `nanto.runtime.json` or an overriding `--data-root` argument. | `%LOCALAPPDATA%` remains the safe default, while enterprise policy and diagnostics may require an approved writable local path without rebuilding the application. |
+
+### 13.2 Recommended decisions awaiting implementation proof
+
+| ID | Recommendation | Proof required |
+| --- | --- | --- |
+| R-001 | Use a Roslyn incremental generator plus an MSBuild/CLI TypeScript emission step. | Incremental performance, stable output, IDE behavior. |
+| R-002 | Make NuGet the plugin source of truth and generate frontend plugin modules. | Package-consumer ergonomics and JS bundler compatibility. |
+| R-003 | Default `--runtime auto`, with strict `native-aot` for CI. | Ensure fallback is visible and never surprising. |
+| R-005 | Use application/window/plugin lifetime scopes without a heavy mandatory DI dependency. | AOT size and ergonomics benchmark. |
+| R-006 | Use compact generated command IDs in the private IPC wire format. | Measure payload/dispatch benefits; prove collision and version-mismatch safety. |
+| R-007 | Provide an inspectable MSBuild execution plan and CLI dry-run. | Confirm the build remains customizable without exposing unstable internal targets. |
+| R-009 | Prefer a native OTLP relay for packaged WebView telemetry, while allowing direct OTLP/HTTP in development. | Prove batching, correlation, AOT size, origin checks, limits, shutdown flushing, and interoperability with Aspire Dashboard and a generic collector. |
+
+### 13.3 Open decisions
+
+| ID | Question | When to decide |
+| --- | --- | --- |
+| O-004 | macOS AppKit versus Mac Catalyst host | Before Apple host implementation |
+| O-005 | GTK major version and supported Linux distributions | Before Linux host implementation |
+| O-007 | Exact configuration and capability schema | Before CLI/template stabilization |
+| O-008 | Stable command/event naming and TypeScript mapping rules | Generator prototype review |
+| O-009 | Binary IPC transport | After JSON IPC MVP benchmark |
+| O-010 | Packaging, signing, updater, and Store scope | After Windows MVP |
+| O-011 | Numeric command-ID derivation and protocol compatibility strategy | Generator/IPC prototype benchmark |
+| O-013 | Exact `Nanto.Hosting.Aspire` resource API and whether templates offer an `--aspire` option | Phase 3 developer-experience prototype |
+| O-014 | Exact browser telemetry package, default instrumentations, sampling, and relay wire format | Phase 3 telemetry prototype; account for experimental browser instrumentation status |
+
+---
+
 ## 14. Implementation roadmap
 
-### Phase 0 — Telaio feasibility and size gates (completed)
+### Pre-Nanto feasibility and size gates (completed)
 
-**Purpose:** prove the riskiest assumptions before designing broad APIs.
+**Purpose:** prove the riskiest assumptions before designing broad APIs. The completed work established that:
 
-Deliverables:
+- a raw-Win32 x64 host can embed WebView2 under CoreCLR and warning-free Native AOT without a managed UI framework;
+- generated Win32 and WebView2 interop can preserve ABI correctness with runtime marshalling disabled;
+- WebView2 messaging, secure-origin asset loading, SPA routing, recovery, and deterministic teardown work through the proposed ownership model;
+- architecture-specific dynamic and static loader strategies are viable for CoreCLR and Native AOT respectively;
+- repeated lifecycle tests and complete process-tree measurements can enforce resource and size budgets;
+- x64 is ready for production implementation while Arm64 remains a future platform gate.
 
-1. Recover the working Native AOT WebView2 shell from the other computer under its former Albireo name, preserve its source and build inputs, and produce the audit described in section 6.9 before replacing any of its interop work.
-2. A Native-AOT Windows executable, based on the recovered spike where appropriate, that:
-   - creates an STA Win32 window;
-   - uses CsWin32 build-task output with runtime marshalling disabled;
-   - refers to Win32 messages, styles, handles, and structures through generated symbolic types;
-   - embeds WebView2;
-   - loads a minimal framework-neutral static SPA fixture;
-   - exchanges request/response JSON messages;
-   - resizes correctly;
-   - opens developer tools in a development build;
-   - survives bounded repeated create/navigate/close cycles with resource-baseline assertions; an optional 1,000-cycle soak remains available for controlled machines.
-3. ABI tests for generated Win32 and WebView2 declarations on x64 and Arm64, including callback calling conventions, GUIDs, interface inheritance/vtable shape, string marshalling, and structure sizes.
-4. A documented WebView2 COM interop comparison covering standalone `Microsoft.Web.WebView2.Core.Projection`, a narrow source-generated COM projection from official IDL/header, CsWin32/WebView2 metadata where viable, and manual ABI code only for remaining gaps. The selected path has no unexplained AOT/trim warnings and no unwanted UI-framework dependencies.
-5. Loader comparison: architecture-specific `WebView2Loader.dll` baseline versus Native AOT static linking if technically viable, including complete output size and startup behavior.
-6. Asset-serving proof covering virtual-host mapping from a directory and a versioned extracted embedded bundle, plus optional request interception for dynamic content.
-7. STA/threading tests that fail on cross-thread WebView2 access and prove that no synchronous wait blocks WebView2 completion callbacks.
-8. Failure/recovery tests for missing runtime, unwritable or locked UDF, renderer failure, browser-process failure, runtime update, and environment reconfiguration.
-9. Baseline measurements:
-   - executable and application-directory size;
-   - compressed distribution size;
-   - cold/warm startup time;
-   - idle working set;
-   - window creation and teardown time;
-   - leaked handles/COM references after stress runs.
-10. CoreCLR comparison build using identical host contracts.
-
-Exit criteria:
-
-- Native AOT WebView2 messaging and deterministic teardown work reliably.
-- The recovered Albireo spike's working mechanism and dependencies are understood, reproduced, and either adopted deliberately or rejected with recorded reasons.
-- No raw OS magic numbers or hand-copied Win32 signatures remain in ordinary host code.
-- CsWin32 and Win32 metadata versions are pinned and their generated surface is recorded for review.
-- No dependency on WinUI, Windows App SDK, WPF, WinForms, or MAUI UI appears in the output.
-- The selected WebView2 projection works with `DisableRuntimeMarshalling=true` and produces no unexplained IL2026, IL3050, IL3052, or equivalent AOT/trim warnings.
-- Every WebView2 subscription is removed before release; the controller closes before its parent `HWND` is destroyed; environment/UDF operations wait for `BrowserProcessExited` when required.
-- Production assets load from a secure virtual HTTPS origin without a loopback server, and ordinary static requests do not cross the managed UI thread.
-- The team understands every AOT warning and native dependency.
-- The measured result supports continuing the small-host approach.
+This completed stage is evidence for the chosen direction, not a source dependency. Nanto's normative implementation, verification, and failure requirements begin with Phase 1 and are fully stated in [`phase1-plan.md`](phase1-plan.md).
 
 ### Phase 1 — Windows host and lifecycle kernel
 
@@ -354,7 +1231,7 @@ Deliverables:
 
 - `Nanto.Core` lifecycle and host contracts;
 - `Nanto.Hosting.Windows` application host, UI dispatcher, message pump, window registry, and WebView host;
-- curated CsWin32 API/constant inputs and a generated-interop review test;
+- curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and the `IntegrationInterop` byte-for-byte regeneration gate;
 - explicit application/window state machines;
 - reverse-order cleanup stack for partial initialization;
 - DPI-correct sizing and multi-monitor behavior;
@@ -564,14 +1441,14 @@ CI should cover:
 
 ## 17. Immediate next actions
 
-Phase 0 has passed and its implementation is evidence, not a production dependency. Continue with [`phase1-plan.md`](phase1-plan.md) in vertical milestone order:
+Historical feasibility work has passed and is evidence, not a production dependency. Continue with [`phase1-plan.md`](phase1-plan.md) in vertical milestone order:
 
-1. Create the canonical production-only Nanto solution while keeping Phase 0 source and tests in Telaio.
+1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with default and explicit integration configurations controlling which projects build and run.
 2. Create the portable Core, Windows host, Testing, and fast-test projects without adding UI frameworks or broad hosting infrastructure.
 3. Implement and exhaustively test the portable lifecycle state machines, cancellation-first shutdown, cleanup aggregation, application identity, and immutable registry snapshots.
 4. Add the dedicated STA dispatcher and raw Win32 x64 host, numbering and fault-injecting every native acquisition as it is introduced.
 5. Bring the proven generated WebView2 COM projection, static-loader AOT path, secure origin, embedded versioned cache, routing policy, and teardown ownership into production code through hidden integration tests.
-6. Keep visible-window, Native AOT, and long-running tests in explicit projects outside the root solution; do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
+6. Keep visible-window, Native AOT, self-contained CoreCLR, interop-generation, and long-running tests in explicit projects inside `Nanto.slnx`; select them only through their documented integration configurations. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
 
 ---
 
@@ -623,7 +1500,6 @@ That vertical slice is the proof that Nanto is more than “WebView2 hosted from
 - [Microsoft guidance for calling Win32 APIs from C#](https://learn.microsoft.com/en-us/windows/apps/develop/interop/call-win32-apis)
 - [Current CsWin32/WebView2 metadata issue](https://github.com/microsoft/CsWin32/issues/1695)
 - [WebView2 distribution](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
-- [Historical Telaio WebView2 host binding comparison](https://github.com/ghidello/telaio/blob/0344107c06ff36d2f89189bbb7660a46180193b1/docs/research/webview2-host-bindings.md)
 - [.NET Native AOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/)
 - [.NET trimming guidance](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/prepare-libraries-for-trimming)
 - [.NET MAUI lifecycle](https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/app-lifecycle?view=net-maui-10.0)

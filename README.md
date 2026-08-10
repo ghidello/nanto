@@ -8,7 +8,7 @@ Nanto is an early-stage .NET framework for building small native applications wi
 
 Nanto starts with Phase 1: a clean production implementation of the Windows host and lifecycle kernel. This repository currently contains only the documentation and shared configuration baseline for review; production projects and tests have not been created yet.
 
-Phase 0 feasibility work remains in the [Telaio repository](https://github.com/ghidello/telaio/tree/phase_1) at source commit [`0344107`](https://github.com/ghidello/telaio/commit/0344107c06ff36d2f89189bbb7660a46180193b1). That work proved the raw-Win32/WebView2, Native AOT, secure asset, messaging, recovery, and deterministic teardown approach. It is historical evidence, not a production dependency of Nanto.
+Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](https://github.com/ghidello/telaio/commit/90725e997fac3140ef4dd9f1a8ebd5d53db67642) records that historical boundary. Nanto has no source, build, report, or undocumented-decision dependency on the former repository. The architecture and Phase 1 plan state every adopted production rule directly.
 
 ## Documentation
 
