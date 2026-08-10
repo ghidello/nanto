@@ -34,7 +34,7 @@ Work from the roadmap in order. Phase 0 was completed in the historical [Telaio 
 
 ## C# style
 
-Treat `.editorconfig` as the source of truth for formatting and naming. Use modern C# features supported by the pinned SDK when they make code clearer, but do not use novelty at the expense of readability.
+Treat `.editorconfig` as the source of truth for formatting and naming. Apply the same naming, member-ordering, and formatting rules to C# examples in documentation and design proposals so examples can become production code without a style rewrite. Use modern C# features supported by the pinned SDK when they make code clearer, but do not use novelty at the expense of readability.
 
 - Treat 150 characters as a soft line-length ceiling, not a formatting target. Keep cohesive signatures, conditions, expressions, and fluent calls on one line when they fit and remain easy to scan.
 - Do not mechanically wrap arguments, generic constraints, object initializers, or Boolean expressions merely to produce shorter lines. Break long code where the logical structure benefits from being visible.
@@ -47,6 +47,13 @@ Treat `.editorconfig` as the source of truth for formatting and naming. Use mode
 - Prefer ordinary block-bodied methods when they contain meaningful behavior. Use expression bodies for genuinely simple properties, accessors, operators, and one-expression members.
 - Use meaningful names and favor clarity over abbreviations. Comments should explain intent, constraints, ownership, or non-obvious decisions, not restate the code.
 - Document public contracts where behavior, ownership, threading, security, or platform differences are not obvious from the signature.
+
+## Async context
+
+- Treat UI affinity as intentional. Code running through the Windows UI dispatcher must remain on its private `SynchronizationContext` whenever its continuation touches Win32, WebView2, window state, or other UI-thread-owned resources.
+- An ordinary `await` captures that context; do not add `ConfigureAwait(false)` to a UI-affine flow. `ConfigureAwait(true)` is redundant and should normally be omitted unless spelling out the capture materially improves a delicate boundary.
+- Use `ConfigureAwait(false)` in thread-agnostic lower-level code when its continuation does not touch UI-owned state. Return to UI work explicitly through `IUiDispatcher`; never assume a thread-pool continuation can access Win32 or WebView2.
+- Library code must not depend on a caller-provided synchronization context unless the contract explicitly requires it. Never synchronously block to recover affinity.
 
 ## Verification
 
