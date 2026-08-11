@@ -93,9 +93,10 @@ public sealed class DispatcherWorkQueueTests
         var runningWork = queue.Enqueue(
             async token =>
             {
+                var cancellation = Task.Delay(Timeout.InfiniteTimeSpan, token);
                 using var registration = token.Register(() => throw cancellationFailure);
                 callbackStarted.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                await cancellation;
             },
             TestContext.Current.CancellationToken);
         var queuedWork = queue.Enqueue(static _ => ValueTask.CompletedTask, TestContext.Current.CancellationToken);

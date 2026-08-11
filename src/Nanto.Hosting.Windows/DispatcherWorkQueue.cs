@@ -306,29 +306,62 @@ internal sealed class DispatcherWorkQueue : IDisposable
         {
             if (Interlocked.CompareExchange(ref _state, 2, 0) == 0)
             {
-                _completion.TrySetCanceled(cancellationToken);
-                ReleaseResources();
+                try
+                {
+                    ReleaseResources();
+                    _completion.TrySetCanceled(cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    _completion.TrySetException(exception);
+                }
             }
         }
 
         private async Task ExecuteAsync()
         {
+            T? result = default;
+            CancellationToken canceledToken = default;
+            Exception? failure = null;
+            var canceled = false;
             try
             {
-                _completion.TrySetResult(await _action(_combinedCancellation.Token));
+                result = await _action(_combinedCancellation.Token);
             }
             catch (OperationCanceledException exception)
             {
-                _completion.TrySetCanceled(exception.CancellationToken);
+                canceled = true;
+                canceledToken = exception.CancellationToken;
             }
             catch (Exception exception)
             {
-                _completion.TrySetException(exception);
+                failure = exception;
             }
             finally
             {
                 Volatile.Write(ref _state, 2);
-                ReleaseResources();
+                try
+                {
+                    ReleaseResources();
+                }
+                catch (Exception exception)
+                {
+                    failure = failure is null ? exception : new AggregateException("Dispatcher work and its cleanup both failed.", failure, exception);
+                    canceled = false;
+                }
+            }
+
+            if (failure is not null)
+            {
+                _completion.TrySetException(failure);
+            }
+            else if (canceled)
+            {
+                _completion.TrySetCanceled(canceledToken);
+            }
+            else
+            {
+                _completion.TrySetResult(result!);
             }
         }
 

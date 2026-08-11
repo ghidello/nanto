@@ -342,7 +342,10 @@ RegisterClassEx
 CreateWindowEx
 DefWindowProc
 DestroyWindow
+GetCurrentThreadId
 GetMessage
+PeekMessage
+PostThreadMessage
 TranslateMessage
 DispatchMessage
 PostQuitMessage
@@ -354,6 +357,8 @@ WM_DESTROY
 WM_SIZE
 WM_DPICHANGED
 WM_GETMINMAXINFO
+WM_APP
+PEEK_MESSAGE_REMOVE_TYPE
 ```
 
 CsWin32 generates transitive supporting types automatically. Keeping the input explicit makes the native surface reviewable and prevents accidental code growth.

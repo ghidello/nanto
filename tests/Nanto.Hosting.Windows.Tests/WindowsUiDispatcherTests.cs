@@ -265,9 +265,10 @@ public sealed class WindowsUiDispatcherTests
         var work = dispatcher.InvokeAsync(
             async token =>
             {
+                var cancellation = Task.Delay(Timeout.InfiniteTimeSpan, token);
                 using var registration = token.Register(() => throw cancellationFailure);
                 callbackStarted.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                await cancellation;
             },
             TestContext.Current.CancellationToken);
 
