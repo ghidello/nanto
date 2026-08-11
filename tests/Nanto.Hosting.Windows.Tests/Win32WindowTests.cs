@@ -81,6 +81,194 @@ public sealed class Win32WindowTests
     }
 
     [Fact]
+    public async Task CloseCallbackRunsOnceOnTheUiThreadAndDefersNativeDestruction()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            Win32WindowClass? windowClass = null;
+            Win32Window? window = null;
+            var closeRequestCount = 0;
+            var closeRequestedOnUiThread = false;
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    window = CreateHiddenWindow(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new Win32WindowCallbacks
+                        {
+                            CloseRequested = () =>
+                            {
+                                closeRequestCount++;
+                                closeRequestedOnUiThread = dispatcher.CheckAccess();
+                            },
+                        });
+                },
+                TestContext.Current.CancellationToken);
+
+            ((bool)PInvoke.PostMessage(window!.Handle, PInvoke.WM_CLOSE, default, default)).Should().BeTrue();
+            ((bool)PInvoke.PostMessage(window.Handle, PInvoke.WM_CLOSE, default, default)).Should().BeTrue();
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    closeRequestCount.Should().Be(1);
+                    closeRequestedOnUiThread.Should().BeTrue();
+                    window.IsDestroyed.Should().BeFalse();
+
+                    window.Dispose();
+                    windowClass!.Dispose();
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CloseCallbackFailureStillDestroysTheWindowAndIsReportedAfterCleanup()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            Win32WindowClass? windowClass = null;
+            Win32Window? window = null;
+            var callbackFailure = new InvalidOperationException("close callback failed");
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    window = CreateHiddenWindow(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new Win32WindowCallbacks
+                        {
+                            CloseRequested = () => throw callbackFailure,
+                        });
+                },
+                TestContext.Current.CancellationToken);
+
+            ((bool)PInvoke.PostMessage(window!.Handle, PInvoke.WM_CLOSE, default, default)).Should().BeTrue();
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    window.IsDestroyed.Should().BeTrue();
+                    window.Invoking(static value => value.Dispose()).Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(callbackFailure);
+                    windowClass!.Dispose();
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DestroyedCallbackRunsAfterNativeOwnershipIsReleased()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    using var windowClass = new Win32WindowClass(ledger, dispatcher);
+                    var destroyedCount = 0;
+                    using var window = CreateHiddenWindow(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new Win32WindowCallbacks
+                        {
+                            Destroyed = () =>
+                            {
+                                destroyedCount++;
+                                ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.Window).Should().Be(0);
+                                ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.NativeHandle).Should().Be(1);
+                            },
+                        });
+
+                    window.Dispose();
+                    destroyedCount.Should().Be(1);
+                    window.Dispose();
+                    destroyedCount.Should().Be(1);
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CallbackFailuresAreAggregatedAfterNativeOwnershipIsReleased()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            Win32WindowClass? windowClass = null;
+            Win32Window? window = null;
+            var closeFailure = new InvalidOperationException("close callback failed");
+            var destroyedFailure = new InvalidOperationException("destroyed callback failed");
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    window = CreateHiddenWindow(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new Win32WindowCallbacks
+                        {
+                            CloseRequested = () => throw closeFailure,
+                            Destroyed = () => throw destroyedFailure,
+                        });
+                },
+                TestContext.Current.CancellationToken);
+
+            ((bool)PInvoke.PostMessage(window!.Handle, PInvoke.WM_CLOSE, default, default)).Should().BeTrue();
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    window.IsDestroyed.Should().BeTrue();
+                    var callbackFailures = window.Invoking(static value => value.Dispose()).Should().Throw<AggregateException>().Which;
+                    callbackFailures.InnerExceptions.Should().Equal(closeFailure, destroyedFailure);
+                    ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.Window).Should().Be(0);
+                    ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.NativeHandle).Should().Be(1);
+                    windowClass!.Dispose();
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
     public async Task WindowClassCannotBeReleasedWhileItsWindowIsAliveButCanBeRetriedAfterDestruction()
     {
         var ledger = new ResourceLedger();
@@ -191,13 +379,52 @@ public sealed class Win32WindowTests
                         windowClass,
                         ledger,
                         dispatcher,
-                        new DelegateFailureInjector(checkpoint =>
+                        failureInjector: new DelegateFailureInjector(checkpoint =>
                         {
                             checkpoint.Should().Be(Phase1AcquisitionCheckpoint.WindowCreated);
                             throw failure;
                         }));
 
                     create.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(failure);
+                    ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.Window).Should().Be(0);
+                    ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.NativeHandle).Should().Be(1);
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task WindowCheckpointFailureRetainsDestroyedCallbackFailureAfterRollback()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    using var windowClass = new Win32WindowClass(ledger, dispatcher);
+                    var creationFailure = new InvalidOperationException("window checkpoint failed");
+                    var callbackFailure = new InvalidOperationException("destroyed callback failed");
+                    var create = () => CreateHiddenWindow(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new Win32WindowCallbacks
+                        {
+                            Destroyed = () => throw callbackFailure,
+                        },
+                        new DelegateFailureInjector(_ => throw creationFailure));
+
+                    var failures = create.Should().Throw<AggregateException>().Which;
+                    failures.InnerExceptions.Should().Equal(creationFailure, callbackFailure);
                     ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.Window).Should().Be(0);
                     ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.NativeHandle).Should().Be(1);
                 },
@@ -228,8 +455,8 @@ public sealed class Win32WindowTests
                         windowClass,
                         ledger,
                         dispatcher,
-                        new DelegateFailureInjector(static _ => throw new InvalidOperationException("window checkpoint failed")),
-                        handle =>
+                        failureInjector: new DelegateFailureInjector(static _ => throw new InvalidOperationException("window checkpoint failed")),
+                        destroyWindow: handle =>
                         {
                             retainedHandle = handle;
                             return false;
@@ -258,6 +485,7 @@ public sealed class Win32WindowTests
         Win32WindowClass windowClass,
         ResourceLedger ledger,
         IUiDispatcher dispatcher,
+        Win32WindowCallbacks? callbacks = null,
         IPhase1FailureInjector? failureInjector = null,
         Func<HWND, bool>? destroyWindow = null) => new(
         windowClass,
@@ -270,6 +498,7 @@ public sealed class Win32WindowTests
         480,
         WINDOW_EX_STYLE.WS_EX_NOACTIVATE,
         WINDOW_STYLE.WS_OVERLAPPEDWINDOW,
+        callbacks,
         failureInjector,
         destroyWindow);
 

@@ -14,8 +14,11 @@ internal sealed unsafe class Win32Window : IDisposable
 {
     private static readonly ConcurrentDictionary<HWND, Win32Window> Windows = new();
 
+    private readonly Win32WindowCallbacks? _callbacks;
+    private readonly Lock _callbackFailureGate = new();
     private readonly IUiDispatcher _dispatcher;
-    private Exception? _callbackFailure;
+    private List<Exception>? _callbackFailures;
+    private int _closeRequested;
     private HWND _handle;
     private IDisposable? _nativeHandleLease;
     private IDisposable? _windowLease;
@@ -37,11 +40,13 @@ internal sealed unsafe class Win32Window : IDisposable
         int height,
         WINDOW_EX_STYLE extendedStyle,
         WINDOW_STYLE style,
+        Win32WindowCallbacks? callbacks = null,
         IPhase1FailureInjector? failureInjector = null,
         Func<HWND, bool>? destroyWindow = null)
     {
         ArgumentNullException.ThrowIfNull(windowClass);
         ArgumentNullException.ThrowIfNull(resourceLedger);
+        _callbacks = callbacks;
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         ArgumentNullException.ThrowIfNull(title);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
@@ -100,6 +105,16 @@ internal sealed unsafe class Win32Window : IDisposable
             _handle = default;
             Interlocked.Exchange(ref _nativeHandleLease, null)?.Dispose();
             Interlocked.Exchange(ref _windowLease, null)?.Dispose();
+
+            var callbackFailure = TakeCallbackFailure();
+            if (callbackFailure is not null)
+            {
+                throw new AggregateException(
+                    "Nanto native window creation failed and its rollback callback also failed.",
+                    creationException,
+                    callbackFailure);
+            }
+
             throw;
         }
     }
@@ -118,7 +133,7 @@ internal sealed unsafe class Win32Window : IDisposable
             throw new InvalidOperationException("DestroyWindow completed without delivering WM_NCDESTROY to the native window owner.");
         }
 
-        var callbackFailure = Interlocked.Exchange(ref _callbackFailure, null);
+        var callbackFailure = TakeCallbackFailure();
         if (callbackFailure is not null)
         {
             ExceptionDispatchInfo.Capture(callbackFailure).Throw();
@@ -130,11 +145,47 @@ internal sealed unsafe class Win32Window : IDisposable
         _handle = default;
         Interlocked.Exchange(ref _nativeHandleLease, null)?.Dispose();
         Interlocked.Exchange(ref _windowLease, null)?.Dispose();
+        _callbacks?.Destroyed?.Invoke();
+    }
+
+    private bool OnNativeCloseRequested()
+    {
+        var closeRequested = _callbacks?.CloseRequested;
+        if (closeRequested is null)
+        {
+            return false;
+        }
+
+        if (Interlocked.Exchange(ref _closeRequested, 1) == 0)
+        {
+            closeRequested();
+        }
+
+        return true;
     }
 
     private void RecordCallbackFailure(Exception exception)
     {
-        _ = Interlocked.CompareExchange(ref _callbackFailure, exception, null);
+        lock (_callbackFailureGate)
+        {
+            _callbackFailures ??= [];
+            _callbackFailures.Add(exception);
+        }
+    }
+
+    private Exception? TakeCallbackFailure()
+    {
+        lock (_callbackFailureGate)
+        {
+            var callbackFailure = _callbackFailures switch
+            {
+                null => null,
+                [var exception] => exception,
+                _ => new AggregateException("Native window callbacks encountered multiple failures.", _callbackFailures),
+            };
+            _callbackFailures = null;
+            return callbackFailure;
+        }
     }
 
     private void ThrowIfNotOnUiThread()
@@ -148,6 +199,21 @@ internal sealed unsafe class Win32Window : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static LRESULT ProcessWindowMessage(HWND windowHandle, uint message, WPARAM wParam, LPARAM lParam)
     {
+        if (message == PInvoke.WM_CLOSE && Windows.TryGetValue(windowHandle, out var closingWindow))
+        {
+            try
+            {
+                if (closingWindow.OnNativeCloseRequested())
+                {
+                    return default;
+                }
+            }
+            catch (Exception exception)
+            {
+                closingWindow.RecordCallbackFailure(exception);
+            }
+        }
+
         var result = PInvoke.DefWindowProc(windowHandle, message, wParam, lParam);
         if (message == PInvoke.WM_NCDESTROY && Windows.TryRemove(windowHandle, out var window))
         {
