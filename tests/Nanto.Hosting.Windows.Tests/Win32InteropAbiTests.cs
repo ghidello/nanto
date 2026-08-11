@@ -24,5 +24,12 @@ public sealed class Win32InteropAbiTests
         Marshal.OffsetOf<MSG>(nameof(MSG.lParam)).Should().Be(24);
         Marshal.OffsetOf<MSG>(nameof(MSG.time)).Should().Be(32);
         Marshal.OffsetOf<MSG>(nameof(MSG.pt)).Should().Be(36);
+        Unsafe.SizeOf<WNDCLASSEXW>().Should().Be(80);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.cbSize)).Should().Be(0);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.style)).Should().Be(4);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.lpfnWndProc)).Should().Be(8);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.hInstance)).Should().Be(24);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.lpszClassName)).Should().Be(64);
+        Marshal.OffsetOf<WNDCLASSEXW>(nameof(WNDCLASSEXW.hIconSm)).Should().Be(72);
     }
 }

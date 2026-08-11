@@ -6,7 +6,7 @@ Phase 1 creates Nanto's production framework foundations as a clean implementati
 
 Work will use small vertical commits and structurally separated test projects:
 
-- `dotnet test` runs only production fast tests.
+- `dotnet test` runs only production fast tests. Windows-fast tests may create bounded hidden raw-Win32 windows on private STA threads, but they must not show or activate a window, start WebView2 or an external process, require desktop interaction, or become long-running.
 - All unattended framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop-generation tests run through the single `Integration` solution configuration.
 - Visible and long-running tests remain explicit projects inside `Nanto.slnx` and run only through direct project commands.
 - Traits may describe tests and filters may help local diagnosis, but canonical gates run complete projects. Test profiles and environment variables do not select tests or build modes.
@@ -33,7 +33,7 @@ dotnet build
 dotnet test
 ```
 
-build production code and run fast tests without creating WebView2 processes or windows.
+build production code and run fast tests without creating WebView2 processes, external test processes, or visible or activated windows. The Windows-fast project may create short-lived hidden raw-Win32 windows to exercise the real message and ownership boundary.
 
 The solution defines three configurations:
 
@@ -101,7 +101,7 @@ Use the following exact project layout:
 | `src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj` | `net10.0-windows10.0.19041.0` | References Core, pinned WebView2 SDK assets, CsWin32, and logging abstractions; supports `win-x64`; enables unsafe code, trimming analysis, `DisableRuntimeMarshalling`, and CsWin32 build-task generation. Product policy requires Windows 10 22H2/build 19045 or newer even though the Windows SDK contract version remains 19041. |
 | `tests/Nanto.Testing/Nanto.Testing.csproj` | `net10.0` | Non-packable repository support library; references Core only and contains deterministic fakes, recording, and failure scripting without Windows or test-framework types. |
 | `tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj` | `net10.0` | References Core and the standard repository test packages. |
-| `tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj` | `net10.0-windows10.0.19041.0` | References Core and Windows hosting; contains no real window or WebView creation. |
+| `tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj` | `net10.0-windows10.0.19041.0` | References Core and Windows hosting; may create short-lived hidden raw-Win32 windows on private STA threads, but contains no visible or activated window, WebView2 creation, external-process orchestration, desktop interaction, or long-running scenario. |
 | `tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj` | `net10.0` | References Core and the repository-local Testing support library. |
 | `tests/Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj` | `net10.0` | Integration-only versioned request/report DTOs, scenario names, and serialized checkpoint names; references no production or test-framework assembly and is not a test project. |
 | `tests/Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj` | `net10.0-windows10.0.19041.0` executable | References Core, Windows hosting, and TestProtocol; external process used by every native integration project; publishable as CoreCLR or Native AOT. |
@@ -113,6 +113,8 @@ Use the following exact project layout:
 Pin `Microsoft.Web.WebView2` at `1.0.4129.50`, `Microsoft.Windows.CsWin32` at `0.3.298`, and `Microsoft.Extensions.Logging.Abstractions` at `10.0.10` in central package management. Upgrade WebView2 and CsWin32 only through an explicit dependency review that includes interop regeneration, ABI verification, AOT/trim diagnostics, loader verification, and real-host integration tests. Do not add `Microsoft.Extensions.Hosting`, a DI container, OpenTelemetry SDK, or a UI framework in Phase 1.
 
 The solution contains the complete project graph. Its `Debug` and `Release` configurations build the two production projects, repository-local Testing support, and three fast test projects only. `Integration` adds every native support/tooling project and all unattended integration-test projects while excluding visible and long-running tests.
+
+The hidden raw-Win32 fast tests are an early Phase 1 placement, not a permanent commitment. After `Nanto.Hosting.Windows.HiddenIntegrationTests` and TestApp exist, measure the default suite and evaluate whether moving those tests to the integration project materially improves execution speed or isolation. Move them only when the measured benefit justifies losing their coverage from ordinary `dotnet test`; do not duplicate the same scenarios indefinitely.
 
 TestApp declares the `win-x64` runtime identifier and supports exactly three explicit build modes: `CoreClrFrameworkDependent`, `CoreClrSelfContained`, and `NativeAot`. Ordinary builds default to `CoreClrFrameworkDependent`; production tooling defaults to `NativeAot`. Selecting CoreCLR is deliberate and never occurs as a silent fallback after an AOT failure. Arm64 is outside Phase 1 and requires a future platform gate rather than conditional code in the initial host.
 
@@ -757,7 +759,7 @@ The internal debug ledger tracks application hosts, UI threads, windows, native 
 
 ### Failure-injection checkpoints
 
-Define `Phase1AcquisitionCheckpoint` and the failure-injector interface as internal members of `Nanto.Hosting.Windows`. The production default injector never fails. Grant `InternalsVisibleTo` only to TestApp so it can install an injector and map TestProtocol's serialized checkpoint name to the internal enum; IntegrationTestKit never references the production assembly. Unknown or incorrectly cased checkpoint names are rejected before the host starts. Tests inject immediately after the named acquisition succeeds.
+Define `Phase1AcquisitionCheckpoint` and the failure-injector interface as internal members of `Nanto.Hosting.Windows`. The production default injector never fails. Grant friend access to Windows-fast tests for their bounded raw-Win32 failure cases and to TestApp so it can install an injector and map TestProtocol's serialized checkpoint name to the internal enum; IntegrationTestKit never references the production assembly. Unknown or incorrectly cased checkpoint names are rejected before the host starts. Tests inject immediately after the named acquisition succeeds.
 
 Every implementation change that introduces an owned acquisition adds a named checkpoint in creation order and its corresponding failure-path assertion in the same commit. The expected areas include UI-thread/COM setup, dispatcher and Win32 registration, `HWND`, asset lease, WebView2 environment/controller/control, settings, subscriptions and filters, virtual-host mapping, and initial navigation. The definitive enum names and count evolve with the implementation rather than being frozen before the ownership graph exists.
 
@@ -847,6 +849,7 @@ The canonical unattended integration command is `dotnet test -c Integration`; it
 `Nanto.Hosting.Windows.Tests` owns:
 
 - Windows dispatcher affinity, synchronization-context capture, FIFO ordering, cancellation, exception propagation, and rejection during shutdown.
+- Short-lived hidden raw-Win32 class and window creation, non-activation, native close delivery, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
 - Immutable registry snapshots and second-window rejection.
 - DIP conversion at common and fractional DPIs, window-message decoding, and monitor/work-area calculations.
 - Embedded-manifest parsing, resource validation, bundle hashing, materialization, exact-file validation, traversal/reparse-point rejection, and concurrent publication.

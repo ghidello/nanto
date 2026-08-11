@@ -339,12 +339,17 @@ The Windows host should contain a curated `NativeMethods.txt`, requesting exact 
 
 ```text
 RegisterClassEx
+UnregisterClass
 CreateWindowEx
 DefWindowProc
 DestroyWindow
+GetActiveWindow
 GetCurrentThreadId
 GetMessage
+GetModuleHandle
+IsWindowVisible
 PeekMessage
+PostMessage
 PostThreadMessage
 TranslateMessage
 DispatchMessage
@@ -354,11 +359,15 @@ SetProcessDpiAwarenessContext
 WM_CREATE
 WM_CLOSE
 WM_DESTROY
+WM_NCDESTROY
 WM_SIZE
 WM_DPICHANGED
 WM_GETMINMAXINFO
 WM_APP
 PEEK_MESSAGE_REMOVE_TYPE
+WINDOW_EX_STYLE
+WINDOW_STYLE
+WNDCLASSEXW
 ```
 
 CsWin32 generates transitive supporting types automatically. Keeping the input explicit makes the native surface reviewable and prevents accidental code growth.
@@ -1406,7 +1415,7 @@ Whether any platform follows Windows should be decided after Phase 5. Android an
 | Core | Lifecycle state machines, authorization, protocol, cancellation, shutdown policy |
 | Generators | Roslyn snapshot/golden tests, diagnostics, deterministic output, incremental behavior |
 | TypeScript | Type tests, serialization fixtures, AbortSignal and AsyncIterable behavior |
-| Windows unit | DIP conversion, message decoding, ownership and cleanup-stack behavior |
+| Windows fast | DIP conversion, message decoding, ownership and cleanup-stack behavior, including bounded hidden raw-Win32 windows where they provide direct native-boundary coverage |
 | Windows integration | Real HWND/WebView2, focus, resize, navigation, renderer failure, close races |
 | AOT | Strict publish and smoke tests for every sample/plugin combination |
 | Security | Origin spoofing, malformed messages, unauthorized commands, scope escapes, navigation |
@@ -1414,6 +1423,8 @@ Whether any platform follows Windows should be decided after Phase 5. Android an
 | Telemetry | W3C context propagation, frontend/native span parenting, redaction, sampling, batching, relay limits, shutdown flush, disabled-listener overhead |
 | Aspire integration | Resource readiness/order, frontend and host endpoints, dependent-service references, dashboard OTLP, Ctrl+C cleanup |
 | Packaging | Clean VM/machine, WebView runtime present/missing, signed/unsigned paths |
+
+During early Windows-host development, the Windows fast-test layer may create short-lived hidden raw-Win32 windows on private STA threads so ordinary fast tests exercise the real message and ownership boundary. These tests must not show or activate a window, start WebView2 or an external process, require desktop interaction, or become long-running. Once the hidden integration project and its external TestApp exist, measure the default suite and reconsider this placement: move the hidden-window cases out of the fast suite when doing so provides a material execution-speed or isolation benefit without leaving important ownership paths uncovered, and avoid retaining duplicate coverage without a specific reason.
 
 ### 15.2 Lifecycle fault testing
 
