@@ -81,4 +81,24 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, and the three fast test projects. The `Integration` configuration and its explicit support and integration projects have not been introduced yet; do not treat `dotnet test -c Integration` as a phase gate until that graph exists.
+Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, the three fast test projects, and the current TestProtocol/TestApp integration support. Only the three fast test projects execute tests by default. IntegrationTestKit and the integration-test projects have not been introduced yet; do not treat an integration-scope command as a phase gate until that graph exists.
+
+Test scope is independent from build configuration. Once the integration projects exist, use:
+
+```powershell
+dotnet test                              # fast tests only
+dotnet test -p:TestScope=All             # fast and unattended integration tests
+dotnet test -p:TestScope=Integration     # unattended integration tests only
+dotnet test -c Release -p:TestScope=All  # complete suite using Release builds
+```
+
+`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. Until the first integration-test project is introduced, only the default fast command is a meaningful test gate.
+
+Once the manual projects exist, their commands are:
+
+```powershell
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
+```
+
+Do not run either manual project as routine verification or infer permission from a general request to build, test, continue implementation, or complete a milestone. When one is necessary to validate relevant behavior, explain why that manual test is needed and ask the user for explicit approval to run the specific project, including its effects: desktop interaction for visible tests or substantial machine time for long-running tests. After approval, name only that project; never opt manual tests into the solution-level command.

@@ -29,4 +29,23 @@ dotnet build
 dotnet test
 ```
 
-The Windows host, WebView2 integration, integration-test graph, and deployment modes have not been implemented yet.
+Test inventory is selected independently from the `Debug` or `Release` build configuration. Once the Phase 1 integration projects are introduced, the canonical commands will be:
+
+```powershell
+dotnet test                              # fast tests only
+dotnet test -p:TestScope=All             # fast and unattended integration tests
+dotnet test -p:TestScope=Integration     # unattended integration tests only
+```
+
+Every `*IntegrationTests` assembly receives its integration trait from repository build configuration; individual tests do not need to repeat it. Visible and long-running projects remain separately opted in and are never part of unattended scopes. The integration scopes are not phase gates until those test projects exist.
+
+Once introduced, manual integration tests must be run by naming exactly one project and supplying both opt-ins:
+
+```powershell
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
+```
+
+Visible tests interact with the desktop; long-running tests may occupy the machine for substantial time. Passing `RunManualTests=true` through `Nanto.slnx` is rejected so the two categories cannot start together accidentally. Automated agents must not run either project as routine verification. When a manual test is needed to validate relevant behavior, the agent must explain why and obtain explicit user approval before running that specific project.
+
+The raw-Win32 host now has an external, versioned TestProtocol/TestApp foundation that exercises clean hidden startup and checkpoint-injected failure cleanup through the production host. Process containment, automated integration-test projects, WebView2 integration, and deployment modes have not been implemented yet.

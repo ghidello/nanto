@@ -17,6 +17,7 @@
     <ProjectReference Include="../Nanto.Core/Nanto.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Nanto.Hosting.Windows.TestApp" />
     <InternalsVisibleTo Include="Nanto.Hosting.Windows.Tests" />
   </ItemGroup>
 </Project>

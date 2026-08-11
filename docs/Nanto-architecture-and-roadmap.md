@@ -1271,7 +1271,7 @@ Deliverables:
 
 - `Nanto.Core` lifecycle and host contracts;
 - `Nanto.Hosting.Windows` application host, UI dispatcher, message pump, window registry, and WebView host;
-- curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and a byte-for-byte regeneration project included in the unattended `Integration` gate;
+- curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and a byte-for-byte regeneration project included in the complete unattended test gate;
 - explicit application/window state machines;
 - reverse-order cleanup registry for partial initialization;
 - DPI-correct sizing and multi-monitor behavior;
@@ -1485,12 +1485,12 @@ CI should cover:
 
 Historical feasibility work has passed and is evidence, not a production dependency. Continue with [`phase1-plan.md`](phase1-plan.md) in vertical milestone order:
 
-1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with safe `Debug`/`Release` configurations and one unattended `Integration` configuration.
+1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with ordinary `Debug`/`Release` configurations and a repository-level fast, complete, and integration-only test-scope convention.
 2. Create the portable Core and Windows host projects, non-packable repository Testing support, and fast-test projects without adding UI frameworks or broad hosting infrastructure.
 3. Implement and exhaustively test the portable lifecycle state machines, cancellation-first shutdown, cleanup aggregation, application identity, safely published primary-window snapshots, and internal registry ownership.
 4. Add the dedicated STA dispatcher and raw Win32 x64 host, numbering and fault-injecting every native acquisition as it is introduced.
 5. Bring the proven generated WebView2 COM projection, static-loader AOT path, secure origin, embedded versioned cache, routing policy, and teardown ownership into production code through hidden integration tests.
-6. Keep Native AOT, self-contained CoreCLR, and interop-generation tests in explicit projects selected together by `Integration`. Keep visible-window and long-running tests in explicit solution-member projects invoked only by direct project commands. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
+6. Keep Native AOT, self-contained CoreCLR, and interop-generation tests in explicit projects selected together by the complete or integration-only scope. Keep visible-window and long-running tests in explicit solution-member projects invoked only by direct project commands with the manual opt-in. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
 
 ---
 

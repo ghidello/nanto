@@ -10,10 +10,60 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <TestScope Condition="'$(TestScope)' == ''">Fast</TestScope>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('IntegrationTests'))">
+    <AssemblyAttribute Include="Xunit.TraitAttribute">
+      <_Parameter1>integration</_Parameter1>
+      <_Parameter2>true</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('VisibleIntegrationTests')) or $(MSBuildProjectName.EndsWith('LongRunningIntegrationTests'))">
+    <AssemblyAttribute Include="Xunit.TraitAttribute">
+      <_Parameter1>manual</_Parameter1>
+      <_Parameter2>true</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TestScope)' == 'Fast' and $(MSBuildProjectName.EndsWith('IntegrationTests'))">
+    <NantoTestAssemblyExcluded>true</NantoTestAssemblyExcluded>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --filter-not-trait "integration=true"</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TestScope)' == 'Integration' and $(MSBuildProjectName.EndsWith('Tests')) and !$(MSBuildProjectName.EndsWith('IntegrationTests'))">
+    <NantoTestAssemblyExcluded>true</NantoTestAssemblyExcluded>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --filter-trait "integration=true"</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RunManualTests)' != 'true' and ($(MSBuildProjectName.EndsWith('VisibleIntegrationTests')) or $(MSBuildProjectName.EndsWith('LongRunningIntegrationTests')))">
+    <NantoTestAssemblyExcluded>true</NantoTestAssemblyExcluded>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --filter-not-trait "manual=true"</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NantoTestAssemblyExcluded)' == 'true'">
+    <!-- MTP returns exit code 8 when filters intentionally select no tests; append the exception once after composing every exclusion filter. -->
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --ignore-exit-code 8</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
   <ItemGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="AwesomeAssertions.Analyzers" PrivateAssets="all" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <Using Include="Xunit" />
   </ItemGroup>
+
+  <Target Name="ValidateNantoTestScope"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(IsTestProject)' == 'true' and '$(TestScope)' != 'Fast' and '$(TestScope)' != 'All' and '$(TestScope)' != 'Integration'">
+    <Error Text="Unknown TestScope '$(TestScope)'. Expected Fast, All, or Integration." />
+  </Target>
+
+  <Target Name="ValidateNantoManualTestInvocation"
+          BeforeTargets="PrepareForBuild;VSTest;Test"
+          Condition="'$(RunManualTests)' == 'true' and '$(BuildingSolutionFile)' == 'true' and ($(MSBuildProjectName.EndsWith('VisibleIntegrationTests')) or $(MSBuildProjectName.EndsWith('LongRunningIntegrationTests')))">
+    <Error Text="Manual Nanto tests must be run by naming one visible or long-running integration-test project directly; they cannot be enabled through Nanto.slnx." />
+  </Target>
 </Project>

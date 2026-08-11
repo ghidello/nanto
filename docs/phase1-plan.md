@@ -7,9 +7,9 @@ Phase 1 creates Nanto's production framework foundations as a clean implementati
 Work will use small vertical commits and structurally separated test projects:
 
 - `dotnet test` runs only production fast tests. Windows-fast tests may create bounded hidden raw-Win32 windows on private STA threads, but they must not show or activate a window, start WebView2 or an external process, require desktop interaction, or become long-running.
-- All unattended framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop-generation tests run through the single `Integration` solution configuration.
+- All unattended framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop-generation tests run through explicit `*IntegrationTests` projects selected by the repository `TestScope` convention.
 - Visible and long-running tests remain explicit projects inside `Nanto.slnx` and run only through direct project commands.
-- Traits may describe tests and filters may help local diagnosis, but canonical gates run complete projects. Test profiles and environment variables do not select tests or build modes.
+- Repository build configuration assigns the `integration=true` trait once at assembly level to every `*IntegrationTests` project. `TestScope` selects the fast, complete, or integration-only inventory; test profiles and environment variables do not select tests or build modes.
 
 The integration strategy remains hybrid: pure tests for most behavior, hidden production-path WebView2 tests for unattended execution, and a small isolated visible-window project.
 
@@ -17,7 +17,7 @@ The integration strategy remains hybrid: pure tests for most behavior, hidden pr
 
 ### Root `Nanto.slnx`
 
-This is the single canonical solution and contains every production, testing, support, and integration project. Its default `Debug` and `Release` configurations select only:
+This is the single canonical solution and will contain every production, testing, support, and integration project. `Debug` and `Release` retain their ordinary compiler meanings; neither changes project or test inventory. The current fast foundation comprises:
 
 - `Nanto.Core`
 - `Nanto.Hosting.Windows`
@@ -35,22 +35,22 @@ dotnet test
 
 build production code and run fast tests without creating WebView2 processes, external test processes, or visible or activated windows. The Windows-fast project may create short-lived hidden raw-Win32 windows to exercise the real message and ownership boundary.
 
-The solution defines three configurations:
+The repository-local `tests/Directory.Build.props` assigns an assembly-level `integration=true` trait to every project whose name ends in `IntegrationTests`. Its `TestScope` property has exactly three values:
 
-| Solution configuration | Selected projects and behavior |
+| `TestScope` | Selected tests |
 | --- | --- |
-| `Debug` / `Release` | The two production libraries, repository-local Nanto.Testing support, and the three fast test projects only. No TestApp or WebView2 process can start. |
-| `Integration` | Everything in `Debug`, plus TestProtocol, TestApp, IntegrationTestKit, WebView2InteropGen, and all four unattended integration projects: interop generation, framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT. |
+| `Fast` (default) | Runs ordinary fast-test assemblies and intentionally filters integration assemblies to zero tests. |
+| `All` | Runs every fast and unattended integration test in the solution. |
+| `Integration` | Runs unattended integration assemblies and intentionally filters ordinary fast-test assemblies to zero tests. |
 
-`Integration` maps its selected SDK projects to the ordinary `Debug` project configuration; it is a project-selection boundary, not an alternative compiler optimization mode. Each integration project fixes its own runtime and deployment model. The AOT project explicitly publishes TestApp with Release settings.
+When a scope intentionally filters an assembly to zero tests, its project-specific MTP arguments ignore exit code 8. That exception is applied only to the assemblies excluded by the chosen scope so an accidentally empty participating project still fails. Visible and long-running assemblies additionally receive `manual=true` and remain excluded unless their project is named directly with `TestScope=All` and `RunManualTests=true`; a solution-level manual opt-in fails validation. `TestScope` changes only test selection; each integration project fixes its own runtime and deployment model, and the AOT project explicitly publishes TestApp with Release settings.
 
 Canonical selection therefore remains visible at the command line:
 
 ```powershell
-dotnet test                       # fast tests only
-dotnet test -c Integration        # fast + every unattended integration project
-dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
-dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj
+dotnet test                              # fast tests only
+dotnet test -p:TestScope=All             # fast + every unattended integration project
+dotnet test -p:TestScope=Integration     # unattended integration projects only
 ```
 
 ### Explicit Phase 1 integration projects
@@ -64,7 +64,7 @@ These projects are members of `Nanto.slnx` and remain visible in the IDE:
 - `Nanto.Hosting.Windows.VisibleIntegrationTests`
 - `Nanto.Hosting.Windows.LongRunningIntegrationTests`
 
-Their support projects—TestProtocol, TestApp, IntegrationTestKit, and the offline WebView2InteropGen tool—are also solution members. `Debug` and `Release` exclude all support, tooling, and integration projects. `Integration` includes the complete unattended graph but excludes VisibleIntegrationTests and LongRunningIntegrationTests; those two projects run only when named directly.
+Their support projects—TestProtocol, TestApp, IntegrationTestKit, and the offline WebView2InteropGen tool—are also solution members. All projects remain visible and buildable in ordinary `Debug` and `Release` configurations. The default `Fast` test scope excludes every integration project; `All` runs the complete unattended graph, while `Integration` runs only unattended integration projects. VisibleIntegrationTests and LongRunningIntegrationTests remain manual-only despite their assembly classification and require direct project commands plus `-p:TestScope=All -p:RunManualTests=true`.
 
 ## Architecture and contracts
 
@@ -112,7 +112,7 @@ Use the following exact project layout:
 
 Pin `Microsoft.Web.WebView2` at `1.0.4129.50`, `Microsoft.Windows.CsWin32` at `0.3.298`, and `Microsoft.Extensions.Logging.Abstractions` at `10.0.10` in central package management. Upgrade WebView2 and CsWin32 only through an explicit dependency review that includes interop regeneration, ABI verification, AOT/trim diagnostics, loader verification, and real-host integration tests. Do not add `Microsoft.Extensions.Hosting`, a DI container, OpenTelemetry SDK, or a UI framework in Phase 1.
 
-The solution contains the complete project graph. Its `Debug` and `Release` configurations build the two production projects, repository-local Testing support, and three fast test projects only. `Integration` adds every native support/tooling project and all unattended integration-test projects while excluding visible and long-running tests.
+The solution contains the complete project graph. Ordinary solution builds compile that graph under the requested `Debug` or `Release` configuration. Test execution uses `TestScope`; the default fast loop does not execute integration tests, although their projects may still be built as solution members.
 
 The hidden raw-Win32 fast tests are an early Phase 1 placement, not a permanent commitment. After `Nanto.Hosting.Windows.HiddenIntegrationTests` and TestApp exist, measure the default suite and evaluate whether moving those tests to the integration project materially improves execution speed or isolation. Move them only when the measured benefit justifies losing their coverage from ordinary `dotnet test`; do not duplicate the same scenarios indefinitely.
 
@@ -141,7 +141,7 @@ Mode behavior is fixed:
 
 All modes compile the same production projects, generated COM projection, lifecycle, security, serialization, asset, and teardown code. CoreCLR is a compatibility/development deployment choice, not permission to introduce framework code that fails AOT analysis. Nanto production assemblies remain `IsAotCompatible` and the Native AOT lane stays green.
 
-Within the `Integration` solution configuration, HiddenIntegrationTests runs framework-dependent CoreCLR TestApp, CoreClrSelfContainedIntegrationTests publishes once to `artifacts/phase1/publish/coreclr-self-contained/win-x64`, and AotIntegrationTests publishes once to `artifacts/phase1/publish/native-aot/win-x64`. Each project fixes `NantoBuildMode` in MSBuild; no trait, filter, environment variable, profile, or test argument changes its build mode.
+Within the complete or integration-only test scope, HiddenIntegrationTests runs framework-dependent CoreCLR TestApp, CoreClrSelfContainedIntegrationTests publishes once to `artifacts/phase1/publish/coreclr-self-contained/win-x64`, and AotIntegrationTests publishes once to `artifacts/phase1/publish/native-aot/win-x64`. Each project fixes `NantoBuildMode` in MSBuild; no trait, filter, environment variable, profile, or test argument changes its build mode.
 
 Every production publish sets `CopyOutputSymbolsToPublishDirectory=false` while leaving symbol generation enabled. The integration build copies the resulting managed or native PDB from its mode-specific tree into `artifacts/phase1/symbols/<mode>/win-x64`, records size and SHA-256, and rejects PDBs in the deployable publish directory. If Native AOT places a linker PDB in publish output, the publish target moves it to the symbol artifact before validating deployment; it never deletes the only diagnostic copy or disables symbols.
 
@@ -170,7 +170,7 @@ tests/
     └── InteropGenerationTests.cs
 ```
 
-The generator and its integration test are members of `Nanto.slnx` but excluded from `Debug` and `Release`. Ordinary `dotnet build` and `dotnet test` consume only committed `WebView2Interop.g.cs`; `dotnet test -c Integration` includes deterministic regeneration and comparison. A developer may run the interop-generation project directly for a narrow check. The project is safe for unattended CI because it creates no native window, browser process, or desktop interaction.
+The generator and its integration test are members of `Nanto.slnx`. Ordinary `dotnet build` consumes only committed `WebView2Interop.g.cs`, and default `dotnet test` does not execute regeneration; `dotnet test -p:TestScope=All` includes deterministic regeneration and comparison. A developer may run the interop-generation project directly with `-p:TestScope=All` for a narrow check. The project is safe for unattended CI because it creates no native window, browser process, or desktop interaction.
 
 #### Authoritative inputs
 
@@ -272,7 +272,7 @@ The target first generates both files into `eng/Nanto.WebView2InteropGen/obj/upd
 The narrow verification command is:
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj -p:TestScope=All
 ```
 
 The test project references the generator and the pinned WebView2 package for build-time inputs only. Its project file evaluates three absolute paths and emits them as test-assembly metadata: the repository root, the restored WebView2 package root, and the verification output directory. `InteropGenerationTests.cs` reads that metadata; it never guesses the checkout depth, walks the NuGet cache, or reconstructs an `obj` path from `AppContext.BaseDirectory`.
@@ -778,7 +778,7 @@ TestApp accepts only:
 
 TestProtocol owns the source-generated JSON context and versioned DTOs used by both TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), canonical test `ApplicationId`, optional case-sensitive failure-checkpoint name, iteration count, and artifact directory. TestApp derives the production cache and UDF paths from the fixed default application root; the request cannot override them. TestApp always uses the installed Evergreen WebView2 Runtime in Phase 1, so the protocol has no runtime-lane field until multiple lanes exist.
 
-The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, renderer recovery result, and retained artifact paths. Protocol DTOs expose no internal production enum or exception type.
+The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, renderer recovery result, retained artifact paths, and a structured observed failure with every cleanup failure. Protocol DTOs expose no internal production enum or exception type.
 
 IntegrationTestKit must:
 
@@ -797,7 +797,7 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 ## Vertical milestones
 
 1. **Repository and lifecycle foundation**
-   - Establish the canonical solution and its safe default/integration configuration matrix.
+   - Establish the canonical solution and its safe repository-level test-scope convention.
    - Add the two production assemblies, repository-local Testing support, and fast test projects.
    - Implement state machines, primary-window snapshots, cancellation-first shutdown, and cleanup aggregation.
    - Add fake host and dispatcher.
@@ -828,13 +828,13 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 
 6. **Deployment modes and Phase 1 gate**
    - Add self-contained CoreCLR and Native AOT publish/smoke projects while keeping the exhaustive behavioral matrix in framework-dependent CoreCLR.
-   - Execute the single unattended `Integration` configuration, which covers framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop generation.
+   - Execute the complete unattended test scope, which covers framework-dependent CoreCLR, self-contained CoreCLR, Native AOT, and interop generation.
    - Confirm no UI-framework dependencies or unexplained trimming/AOT warnings.
    - Update README, `AGENTS.md`, and testing documentation with project-level commands.
 
 ## Test projects
 
-The canonical unattended integration command is `dotnet test -c Integration`; it runs every fast test and every unattended integration project. The direct project commands below are narrow developer checks and do not replace that phase gate.
+The canonical unattended integration command is `dotnet test -p:TestScope=All`; it runs every fast test and every unattended integration project. Use `dotnet test -p:TestScope=Integration` when diagnosing only the integration inventory. The direct project commands below are narrow developer checks and do not replace the complete phase gate.
 
 ### Default fast tests
 
@@ -873,7 +873,7 @@ The canonical unattended integration command is `dotnet test -c Integration`; it
 ### WebView2 interop-generation integration
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj -p:TestScope=All
 ```
 
 - Resolves `WebView2.idl` and `WebView2.h` from the centrally pinned NuGet package without copying them into the repository.
@@ -882,12 +882,12 @@ dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto
 - Verifies manifest hashes, selected interface closure, source-generated COM requirements, and fail-closed diagnostics.
 - Creates no window, WebView2 environment, browser subprocess, UDF, or persistent artifact output.
 
-This project is inexpensive and safe for unattended execution. Developers may run it directly while changing the WebView2 pin, generator, specification, committed generated files, or Windows interop usage; the full `Integration` gate includes it automatically.
+This project is inexpensive and safe for unattended execution. Developers may run it directly while changing the WebView2 pin, generator, specification, committed generated files, or Windows interop usage; the complete unattended gate includes it automatically.
 
 ### Hidden WebView2 integration
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Windows.HiddenIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Windows.HiddenIntegrationTests.csproj -p:TestScope=All
 ```
 
 - Creates the normal production parent `HWND`.
@@ -902,7 +902,7 @@ This is the CI-safe real-WebView2 project.
 ### Native AOT integration
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj -p:TestScope=All
 ```
 
 - Publishes the external hidden test host as `win-x64` Native AOT.
@@ -913,7 +913,7 @@ dotnet test tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Window
 ### Self-contained CoreCLR integration
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj -p:TestScope=All
 ```
 
 - Publishes the external hidden test host as self-contained `win-x64` CoreCLR.
@@ -926,7 +926,7 @@ HiddenIntegrationTests owns the exhaustive behavioral and failure matrix. The se
 ### Visible desktop integration
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
 This project intentionally shows windows and covers only:
@@ -937,12 +937,12 @@ This project intentionally shows windows and covers only:
 - Initial monitor placement.
 - Native input and screenshots.
 
-It is excluded from every solution configuration and ordinary CI. It runs only when someone names the project directly on an isolated VM/session and intentionally accepts desktop interaction.
+It is excluded from every unattended test scope and ordinary CI. It runs only when someone names the project directly with `RunManualTests=true` on an isolated VM/session and intentionally accepts desktop interaction.
 
 ### Long-running integration tests
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
 - Hidden windows only.
@@ -952,10 +952,10 @@ dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hostin
 
 ## CI and documentation policy
 
-- Ordinary CI runs root `dotnet build` and `dotnet test` using the default configuration.
-- Requested unattended integration CI runs `dotnet test -c Integration`, covering interop generation and all three host deployment modes.
+- Ordinary CI runs root `dotnet build` and `dotnet test` using the default `Fast` test scope.
+- Requested unattended integration CI runs `dotnet test -p:TestScope=All`, covering interop generation and all three host deployment modes.
 - VisibleIntegrationTests and LongRunningIntegrationTests never run automatically.
-- Project boundaries define runtime, deployment, visibility, and duration. Traits may annotate tests and filters may narrow a developer's diagnostic run, but canonical CI and phase gates do not use filters.
+- Project boundaries define runtime, deployment, visibility, and duration. Repository-generated assembly traits and centrally supplied MTP filters implement the canonical scopes; individual tests do not select their own inventory.
 - Test profiles and environment variables do not select tests or host build modes. Environment variables remain acceptable only for genuinely machine-specific inputs that are explicit in the relevant project contract.
 - Automatic GitHub Actions triggers remain disabled until a separate cost-policy decision enables them.
 
@@ -972,12 +972,12 @@ dotnet build
 dotnet test
 ```
 
-Acceptance requires the default solution configurations to exclude integration support and integration-test projects and all portable API dependency tests to pass. Nanto must build from a clean clone with no external source repository present.
+Acceptance requires the default test scope to execute only the fast inventory and all portable API dependency tests to pass. Nanto must build from a clean clone with no external source repository present.
 
 ### Milestone 2 — Win32 host
 
 ```powershell
-dotnet test -c Integration
+dotnet test -p:TestScope=All
 ```
 
 The hidden project initially covers every implemented acquisition through `HWND` creation, dispatcher work, native close, cancellation, and ledger-zero shutdown. No top-level window may become visible or activated during the run.
@@ -985,8 +985,8 @@ The hidden project initially covers every implemented acquisition through `HWND`
 ### Milestone 3 — WebView2 interop and minimal host
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj
-dotnet test -c Integration
+dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj -p:TestScope=All
+dotnet test -p:TestScope=All
 ```
 
 The generated projection and manifest reproduce byte-for-byte before the host consumes them. A hidden production presenter creates the environment, controller, and WebView, navigates the minimal directory fixture through `https://app.nanto.invalid`, exchanges a readiness message, and returns every implemented acquisition to zero.
@@ -994,7 +994,7 @@ The generated projection and manifest reproduce byte-for-byte before the host co
 ### Milestone 4 — assets and navigation
 
 ```powershell
-dotnet test -c Integration
+dotnet test -p:TestScope=All
 ```
 
 Manifest validation, content hashing, atomic publication, concurrent reuse, shared leases, corrupt-bundle quarantine/reconstruction, identity-mismatch refusal, secure-origin asset loading, route fallback, and navigation normalization must pass.
@@ -1002,13 +1002,13 @@ Manifest validation, content hashing, atomic publication, concurrent reuse, shar
 ### Milestone 5 — DPI, recovery, and diagnostics
 
 ```powershell
-dotnet test -c Integration
+dotnet test -p:TestScope=All
 ```
 
 All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, and shared-UDF multi-instance scenarios must pass with a zero final ledger. The visible integration project is then run once on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
 
 ```powershell
-dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj
+dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
 ### Milestone 6 — deployment modes and Phase 1 gate
@@ -1016,22 +1016,22 @@ dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Wi
 ```powershell
 dotnet build
 dotnet test
-dotnet test -c Integration
+dotnet test -p:TestScope=All
 ```
 
 Framework-dependent CoreCLR runs the exhaustive behavioral suite. Self-contained CoreCLR and Native AOT pass their critical deployment smoke, use isolated build trees and the same production contracts, and validate their loader and symbol policies. Native AOT produces no unexplained trim/AOT warning, deployable directories contain no PDB, and each publish lane retains symbols separately.
 
-Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations.
+Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations.
 
 ## Completion criteria
 
-- Root `dotnet test` in the default configuration never runs integration support code or creates native windows.
-- Default `dotnet test` consumes committed interop; the `Integration` configuration verifies it without modifying source files.
+- Root `dotnet test` in the default scope never executes integration tests, creates WebView2 or external test processes, or shows or activates a window; bounded fast tests may create hidden raw-Win32 windows on private STA threads.
+- Default `dotnet test` consumes committed interop; the complete unattended test scope verifies it without modifying source files.
 - Hidden integration tests display no windows and can run unattended.
 - Visible behavior is isolated in an unmistakably named opt-in project.
 - Every acquisition has fault-injection coverage.
 - CoreCLR and Native AOT use identical production contracts and ownership paths.
-- Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT use isolated `obj`/`bin` trees and pass through their fixed projects in the single `Integration` configuration.
+- Framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT use isolated `obj`/`bin` trees and pass through their fixed projects in the complete unattended test scope.
 - Publish directories exclude PDBs while separately retained symbols remain available for diagnostics.
 - Default application-root creation and write probing fail clearly without silently choosing another location.
 - Success, failure, close races, and renderer recovery finish with a zero resource ledger.
