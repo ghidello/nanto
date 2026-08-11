@@ -84,6 +84,36 @@ public sealed class DispatcherWorkQueueTests
     }
 
     [Fact]
+    public async Task DisposalFinishesCleanupBeforePropagatingCancellationCallbackFailure()
+    {
+        var ledger = new ResourceLedger();
+        var queue = new DispatcherWorkQueue(ledger);
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationFailure = new InvalidOperationException("cancellation callback failed");
+        var runningWork = queue.Enqueue(
+            async token =>
+            {
+                using var registration = token.Register(() => throw cancellationFailure);
+                callbackStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            },
+            TestContext.Current.CancellationToken);
+        var queuedWork = queue.Enqueue(static _ => ValueTask.CompletedTask, TestContext.Current.CancellationToken);
+
+        queue.TryStartNext().Should().BeTrue();
+        await callbackStarted.Task;
+        var dispose = queue.Invoking(static value => value.Dispose());
+
+        var disposeException = dispose.Should().Throw<AggregateException>().Which;
+        disposeException.Flatten().InnerExceptions.Should().ContainSingle().Which.Should().BeSameAs(cancellationFailure);
+        await runningWork.AsTask().Invoking(static task => task).Should().ThrowAsync<OperationCanceledException>();
+        await queuedWork.AsTask().Invoking(static task => task).Should().ThrowAsync<OperationCanceledException>();
+        queue.ActiveOperationCount.Should().Be(0);
+        ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.DispatcherItem).Should().Be(0);
+        queue.Invoking(static value => value.Dispose()).Should().NotThrow();
+    }
+
+    [Fact]
     public async Task CallbackFailurePropagatesAndReleasesItsLedgerLease()
     {
         var ledger = new ResourceLedger();
@@ -117,7 +147,42 @@ public sealed class DispatcherWorkQueueTests
         ledger.CaptureSnapshot().TotalActive.Should().Be(0);
         var enqueue = () => queue.Enqueue(static _ => ValueTask.CompletedTask, TestContext.Current.CancellationToken);
         enqueue.Should().Throw<ObjectDisposedException>();
-        var pump = queue.TryStartNext;
-        pump.Should().Throw<ObjectDisposedException>();
+        queue.TryStartNext().Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShutdownPreservesAlreadyQueuedSynchronizationContextContinuations()
+    {
+        var ledger = new ResourceLedger();
+        var queue = new DispatcherWorkQueue(ledger);
+        var called = false;
+        queue.EnqueueContinuation(_ => called = true, null);
+
+        queue.Dispose();
+        queue.TryStartNext().Should().BeTrue();
+
+        called.Should().BeTrue();
+        queue.TryStartNext().Should().BeFalse();
+        ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.DispatcherItem).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task InlineWorkStartsImmediatelyAndUsesTheSameLifetime()
+    {
+        var ledger = new ResourceLedger();
+        var queue = new DispatcherWorkQueue(ledger);
+        var called = false;
+
+        var work = queue.StartInline(_ =>
+        {
+            called = true;
+            return ValueTask.CompletedTask;
+        }, TestContext.Current.CancellationToken);
+
+        called.Should().BeTrue();
+        await work;
+        queue.PendingCount.Should().Be(0);
+        ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.DispatcherItem).Should().Be(0);
+        queue.Dispose();
     }
 }
