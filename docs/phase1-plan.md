@@ -622,13 +622,14 @@ Created/Initializing → Closing → Closed
 
 Any transition not listed above throws `InvalidOperationException` in tests and debug builds. `Closed` is terminal.
 
-- `RunAsync` is single-use and returns only after `Closed`. A second invocation throws `InvalidOperationException`.
+- `RunAsync` is single-use and normally returns only after `Closed`. A second invocation throws `InvalidOperationException`.
 - `RunAsync` after `DisposeAsync` throws `ObjectDisposedException`. An already-canceled run token still starts the UI lifecycle, transitions from `Creating` to `Closing`, completes deterministic cleanup, and reaches `Closed` without creating a window or WebView.
 - Cancellation of the `RunAsync` token requests orderly shutdown; it does not abandon cleanup. `RunAsync` completes normally if shutdown succeeds.
 - `StopAsync` before `RunAsync` is a completed no-op. Once `RunAsync` has atomically claimed the host, every `StopAsync` call requests application shutdown exactly once. Its cancellation token cancels only that caller's wait, including when the token was already canceled; the shutdown request is still recorded, teardown continues, and completion remains observable through `RunAsync`. `StopAsync` after `Closed` completes immediately.
 - `INantoWindow.CloseAsync` independently requests that window's close exactly once. Its cancellation token likewise cancels only the caller's wait, including when already canceled. A primary-window close and an application stop may race safely and converge on the same idempotent window and application teardown paths.
-- `DisposeAsync` before `RunAsync` marks the host disposed without starting a UI thread or raising lifecycle events; `State` remains `NotStarted`. During execution it requests stop and waits without cancellation until teardown reaches `Closed`. After closure and on repeated or concurrent calls it completes immediately.
-- Startup/runtime/teardown failure is represented by `NantoHostException`, retaining the first failure and any later cleanup failures. The host still attempts to reach `Closed` before `RunAsync` throws.
+- `DisposeAsync` before `RunAsync` marks the host disposed without starting a UI thread or raising lifecycle events; `State` remains `NotStarted`. During execution it requests stop and waits without caller cancellation for the same completion as `RunAsync`. After closure and on repeated or concurrent calls it observes that same completion immediately.
+- The validated `ShutdownTimeout` is one deadline spanning the transition to `Closing`, native and managed cleanup, the transition to `Closed`, dispatcher/UI-thread termination, and final host-lease release. If that deadline expires, `RunAsync`, `StopAsync`, and `DisposeAsync` observe a teardown `NantoHostException` promptly; the host retains ownership and continues observing cleanup in the background, logs any later teardown failure, and still attempts to reach `Closed` and release every resource. The external integration scenario timeout remains the final process-containment backstop for code that cannot be interrupted cooperatively.
+- Startup/runtime/teardown failure is represented by `NantoHostException`, retaining the first failure and any later distinct cleanup failures. Except for the configured shutdown-timeout case above, the host attempts to reach `Closed` before `RunAsync` throws.
 - With `OnPrimaryWindowClosed`, closing the primary window requests application shutdown. With `Explicit`, the application message loop remains active with no primary window until `StopAsync` or cancellation.
 - No new window or WebView operation may begin after its lifetime enters `Closing`.
 
@@ -850,6 +851,7 @@ The canonical unattended integration command is `dotnet test -c Integration`; it
 
 `Nanto.Hosting.Windows.Tests` owns:
 
+- Production `WindowsApplicationHost` single-use startup, primary-window publication, shutdown modes, caller-wait cancellation, lifecycle ordering, acquisition-failure rollback, and ledger-zero teardown.
 - Windows dispatcher affinity, synchronization-context capture, FIFO ordering, cancellation, exception propagation, and rejection during shutdown.
 - Short-lived hidden raw-Win32 class and window creation, production `WindowsWindow` lifecycle and snapshot behavior, non-activation, native close delivery, caller-wait cancellation, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
 - Immutable registry snapshots and second-window rejection.

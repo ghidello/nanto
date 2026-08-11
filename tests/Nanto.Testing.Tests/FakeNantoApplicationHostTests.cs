@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Microsoft.Extensions.Logging;
+
 namespace Nanto.Testing.Tests;
 
 public sealed class FakeNantoApplicationHostTests
@@ -250,5 +252,43 @@ public sealed class FakeNantoApplicationHostTests
         readDispatcher.Should().Throw<InvalidOperationException>();
         var run = () => host.RunAsync(TestingFixture.CreateOptions(), TestContext.Current.CancellationToken);
         await run.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task LoggerCreationFailureDoesNotClaimTheFakeHost()
+    {
+        using var dispatcher = new ManualUiDispatcher();
+        var host = new FakeNantoApplicationHost(dispatcher, TimeProvider.System);
+        var loggerFailure = new InvalidOperationException("logger creation failed");
+        var failingOptions = TestingFixture.CreateOptions() with { LoggerFactory = new ThrowingLoggerFactory(loggerFailure) };
+        Action failedRun = () => _ = host.RunAsync(failingOptions, TestContext.Current.CancellationToken);
+
+        failedRun.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(loggerFailure);
+        host.State.Should().Be(ApplicationState.NotStarted);
+
+        var run = host.RunAsync(TestingFixture.CreateOptions(), TestContext.Current.CancellationToken);
+        await TestingFixture.DriveUntilAsync(dispatcher, () => host.State == ApplicationState.Activated);
+        var stop = host.StopAsync(TestContext.Current.CancellationToken);
+        await TestingFixture.DriveUntilAsync(dispatcher, () => run.IsCompleted);
+        await stop;
+        await run;
+    }
+
+    private sealed class ThrowingLoggerFactory(Exception failure) : ILoggerFactory
+    {
+        public void AddProvider(ILoggerProvider provider)
+        {
+            ArgumentNullException.ThrowIfNull(provider);
+        }
+
+        public ILogger CreateLogger(string categoryName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(categoryName);
+            throw failure;
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }

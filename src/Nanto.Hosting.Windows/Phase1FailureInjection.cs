@@ -2,6 +2,7 @@ namespace Nanto.Hosting.Windows;
 
 internal enum Phase1AcquisitionCheckpoint
 {
+    ApplicationHostStarted,
     UiThreadStarted,
     NativeMessageQueueCreated,
     DispatcherCreated,

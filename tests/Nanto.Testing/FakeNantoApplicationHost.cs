@@ -84,8 +84,8 @@ public sealed class FakeNantoApplicationHost : INantoApplicationHost
                 throw new InvalidOperationException("RunAsync can be called only once.");
             }
 
-            _runClaimed = true;
             _logger = validatedOptions.LoggerFactory.CreateLogger<FakeNantoApplicationHost>();
+            _runClaimed = true;
         }
 
         _ = RunCoreAsync(validatedOptions, cancellationToken);
