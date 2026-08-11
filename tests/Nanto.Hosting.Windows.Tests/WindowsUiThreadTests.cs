@@ -4,6 +4,13 @@ namespace Nanto.Hosting.Windows.Tests;
 
 public sealed class WindowsUiThreadTests
 {
+    public static TheoryData<int> UiThreadCheckpoints => new()
+    {
+        (int)Phase1AcquisitionCheckpoint.UiThreadStarted,
+        (int)Phase1AcquisitionCheckpoint.NativeMessageQueueCreated,
+        (int)Phase1AcquisitionCheckpoint.DispatcherCreated,
+    };
+
     [Fact]
     public async Task DedicatedThreadIsStaAndDrainsDispatcherWork()
     {
@@ -133,6 +140,35 @@ public sealed class WindowsUiThreadTests
         var completionException = (await uiThread.Completion.Invoking(static task => task).Should().ThrowAsync<InvalidOperationException>()).Which;
 
         completionException.Should().BeSameAs(continuationFailure);
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Theory]
+    [MemberData(nameof(UiThreadCheckpoints))]
+    public async Task AcquisitionCheckpointFailureReleasesTheUiThreadAndPreviouslyCreatedResources(int failingCheckpointValue)
+    {
+        var failingCheckpoint = (Phase1AcquisitionCheckpoint)failingCheckpointValue;
+        var ledger = new ResourceLedger();
+        var failure = new InvalidOperationException($"{failingCheckpoint} failed");
+        var reachedCheckpoints = new List<Phase1AcquisitionCheckpoint>();
+        var failureInjector = new DelegatePhase1FailureInjector(checkpoint =>
+        {
+            reachedCheckpoints.Add(checkpoint);
+            if (checkpoint == failingCheckpoint)
+            {
+                throw failure;
+            }
+        });
+        var uiThread = new WindowsUiThread(ledger, failureInjector);
+
+        var dispatcherFailure = (await uiThread.DispatcherReady.Invoking(
+            static task => task.WaitAsync(TestContext.Current.CancellationToken)).Should().ThrowAsync<InvalidOperationException>()).Which;
+        var completionFailure = (await uiThread.Completion.Invoking(
+            static task => task.WaitAsync(TestContext.Current.CancellationToken)).Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        dispatcherFailure.Should().BeSameAs(failure);
+        completionFailure.Should().BeSameAs(failure);
+        reachedCheckpoints.Should().EndWith(failingCheckpoint);
         ledger.CaptureSnapshot().TotalActive.Should().Be(0);
     }
 }

@@ -347,10 +347,14 @@ GetActiveWindow
 GetCurrentThreadId
 GetMessage
 GetModuleHandle
+GetWindowRect
+GetWindowText
 IsWindowVisible
 PeekMessage
 PostMessage
 PostThreadMessage
+SetWindowPos
+SetWindowText
 TranslateMessage
 DispatchMessage
 PostQuitMessage
@@ -365,6 +369,7 @@ WM_DPICHANGED
 WM_GETMINMAXINFO
 WM_APP
 PEEK_MESSAGE_REMOVE_TYPE
+SET_WINDOW_POS_FLAGS
 WINDOW_EX_STYLE
 WINDOW_STYLE
 WNDCLASSEXW

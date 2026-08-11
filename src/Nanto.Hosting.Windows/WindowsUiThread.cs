@@ -12,6 +12,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
 
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<WindowsUiDispatcher> _dispatcherReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly IPhase1FailureInjector _failureInjector;
     private readonly Lock _failureGate = new();
     private readonly ResourceLedger _resourceLedger;
     private readonly Thread _thread;
@@ -26,9 +27,10 @@ internal sealed class WindowsUiThread : IAsyncDisposable
 
     public Task<WindowsUiDispatcher> DispatcherReady => _dispatcherReady.Task;
 
-    public WindowsUiThread(ResourceLedger resourceLedger)
+    public WindowsUiThread(ResourceLedger resourceLedger, IPhase1FailureInjector? failureInjector = null)
     {
         _resourceLedger = resourceLedger ?? throw new ArgumentNullException(nameof(resourceLedger));
+        _failureInjector = failureInjector ?? NoOpPhase1FailureInjector.Instance;
         _thread = new Thread(ThreadMain)
         {
             IsBackground = true,
@@ -70,8 +72,10 @@ internal sealed class WindowsUiThread : IAsyncDisposable
         try
         {
             threadLease = _resourceLedger.Acquire(WindowsResourceKind.UiThread);
+            _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.UiThreadStarted);
             _nativeThreadId = PInvoke.GetCurrentThreadId();
             _ = PInvoke.PeekMessage(out _, default, 0, 0, PEEK_MESSAGE_REMOVE_TYPE.PM_NOREMOVE);
+            _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.NativeMessageQueueCreated);
 
             var managedThreadId = Environment.CurrentManagedThreadId;
             var dispatcher = new WindowsUiDispatcher(
@@ -79,6 +83,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
                 () => Environment.CurrentManagedThreadId == managedThreadId,
                 RequestDispatcherDrain);
             Volatile.Write(ref _dispatcher, dispatcher);
+            _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.DispatcherCreated);
             _dispatcherReady.TrySetResult(dispatcher);
 
             if (Volatile.Read(ref _stopRequested) != 0)

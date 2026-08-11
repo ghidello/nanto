@@ -140,6 +140,43 @@ internal sealed unsafe class Win32Window : IDisposable
         }
     }
 
+    public void RequestClose()
+    {
+        ThrowIfNotOnUiThread();
+        ThrowIfDestroyed();
+
+        if (!PInvoke.PostMessage(_handle, PInvoke.WM_CLOSE, default, default))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not request native window closure.");
+        }
+    }
+
+    public void SetBounds(int x, int y, int width, int height)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ThrowIfNotOnUiThread();
+        ThrowIfDestroyed();
+
+        const SET_WINDOW_POS_FLAGS flags = SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
+        if (!PInvoke.SetWindowPos(_handle, default, x, y, width, height, flags))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not update its native window bounds.");
+        }
+    }
+
+    public void SetTitle(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        ThrowIfNotOnUiThread();
+        ThrowIfDestroyed();
+
+        if (!PInvoke.SetWindowText(_handle, title))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not update its native window title.");
+        }
+    }
+
     private void OnNativeDestroyed()
     {
         _handle = default;
@@ -186,6 +223,11 @@ internal sealed unsafe class Win32Window : IDisposable
             _callbackFailures = null;
             return callbackFailure;
         }
+    }
+
+    private void ThrowIfDestroyed()
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsNull, this);
     }
 
     private void ThrowIfNotOnUiThread()
