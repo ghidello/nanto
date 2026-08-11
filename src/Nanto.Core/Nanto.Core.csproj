@@ -6,8 +6,4 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="Nanto.Core.Tests" />
-    <InternalsVisibleTo Include="Nanto.Testing" />
-  </ItemGroup>
 </Project>

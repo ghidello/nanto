@@ -151,6 +151,16 @@ internal sealed unsafe class Win32Window : IDisposable
         }
     }
 
+    public void Activate()
+    {
+        ThrowIfNotOnUiThread();
+        ThrowIfDestroyed();
+
+        _ = PInvoke.ShowWindow(_handle, SHOW_WINDOW_CMD.SW_SHOW);
+        _ = PInvoke.SetForegroundWindow(_handle);
+        _ = PInvoke.SetFocus(_handle);
+    }
+
     public void SetBounds(int x, int y, int width, int height)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);

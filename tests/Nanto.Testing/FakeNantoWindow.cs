@@ -3,6 +3,8 @@ using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Testing;
 
 public sealed class FakeNantoWindow : INantoWindow

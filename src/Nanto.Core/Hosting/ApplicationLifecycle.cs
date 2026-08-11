@@ -1,6 +1,9 @@
-namespace Nanto;
+namespace Nanto.Hosting;
 
-internal sealed class ApplicationLifecycle(TimeProvider timeProvider)
+/// <summary>
+/// Enforces the portable application lifecycle state machine for host implementations.
+/// </summary>
+public sealed class ApplicationLifecycle(TimeProvider timeProvider)
 {
     private readonly Lock _gate = new();
     private readonly TimeProvider _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -8,6 +11,9 @@ internal sealed class ApplicationLifecycle(TimeProvider timeProvider)
 
     public ApplicationState State => (ApplicationState)Volatile.Read(ref _state);
 
+    /// <summary>
+    /// Performs a valid state transition and returns its timestamped notification.
+    /// </summary>
     public ApplicationStateChangedEventArgs TransitionTo(ApplicationState newState, Exception? failure = null)
     {
         lock (_gate)

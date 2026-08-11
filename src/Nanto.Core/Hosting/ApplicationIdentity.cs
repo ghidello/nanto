@@ -1,10 +1,32 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Nanto;
+namespace Nanto.Hosting;
 
-internal sealed record ApplicationIdentity(string CanonicalId, string StorageKey)
+/// <summary>
+/// Represents the canonical application identifier and its stable filesystem-safe storage key.
+/// </summary>
+public sealed record ApplicationIdentity
 {
+    /// <summary>
+    /// Gets the normalized application identifier.
+    /// </summary>
+    public string CanonicalId { get; }
+
+    /// <summary>
+    /// Gets the stable filesystem-safe key derived from the canonical identifier.
+    /// </summary>
+    public string StorageKey { get; }
+
+    private ApplicationIdentity(string canonicalId, string storageKey)
+    {
+        CanonicalId = canonicalId;
+        StorageKey = storageKey;
+    }
+
+    /// <summary>
+    /// Validates and canonicalizes an application identifier.
+    /// </summary>
     public static ApplicationIdentity Parse(string applicationId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);

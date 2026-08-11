@@ -13,12 +13,16 @@ PeekMessage
 PostMessage
 PostThreadMessage
 RegisterClassEx
+SetFocus
+SetForegroundWindow
 SetWindowPos
 SetWindowText
+ShowWindow
 TranslateMessage
 UnregisterClass
 PEEK_MESSAGE_REMOVE_TYPE
 SET_WINDOW_POS_FLAGS
+SHOW_WINDOW_CMD
 WINDOW_EX_STYLE
 WINDOW_STYLE
 WM_CLOSE

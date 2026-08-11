@@ -2,6 +2,8 @@ using AwesomeAssertions;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Core.Tests;
 
 public sealed class OptionsValidationTests
@@ -16,6 +18,9 @@ public sealed class OptionsValidationTests
         validated.Identity.CanonicalId.Should().Be("com.example.nanto");
         validated.LoggerFactory.Should().BeSameAs(NullLoggerFactory.Instance);
         validated.PrimaryWindow.Should().BeSameAs(options.PrimaryWindow);
+        var preparationContext = validated.CreateWebAssetPreparationContext();
+        preparationContext.ApplicationId.Should().Be(validated.Identity.CanonicalId);
+        preparationContext.ApplicationStorageKey.Should().Be(validated.Identity.StorageKey);
     }
 
     [Theory]

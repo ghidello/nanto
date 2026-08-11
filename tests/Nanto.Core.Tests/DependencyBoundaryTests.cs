@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Core.Tests;
 
 public sealed class DependencyBoundaryTests
@@ -18,5 +20,24 @@ public sealed class DependencyBoundaryTests
         var references = typeof(WindowId).Assembly.GetReferencedAssemblies().Select(static reference => reference.Name ?? string.Empty);
 
         references.Should().NotContain(name => forbiddenReferences.Any(forbidden => name.StartsWith(forbidden, StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void HostAuthoringContractsArePublicAndSeparatedFromApplicationContracts()
+    {
+        Type[] hostAuthoringTypes =
+        [
+            typeof(ApplicationIdentity),
+            typeof(ApplicationLifecycle),
+            typeof(AsyncCleanupRegistry),
+            typeof(ValidatedApplicationOptions),
+            typeof(WindowLifecycle),
+        ];
+
+        foreach (var type in hostAuthoringTypes)
+        {
+            type.IsPublic.Should().BeTrue();
+            type.Namespace.Should().Be("Nanto.Hosting");
+        }
     }
 }

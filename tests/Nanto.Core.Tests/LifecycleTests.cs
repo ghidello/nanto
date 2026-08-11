@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Core.Tests;
 
 public sealed class LifecycleTests

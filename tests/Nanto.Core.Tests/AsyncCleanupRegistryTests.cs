@@ -1,13 +1,15 @@
 using AwesomeAssertions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Core.Tests;
 
-public sealed class AsyncCleanupStackTests
+public sealed class AsyncCleanupRegistryTests
 {
     [Fact]
     public async Task DrainRunsEveryCleanupInReverseOrderAndAggregatesFailures()
     {
-        var cleanup = new AsyncCleanupStack();
+        var cleanup = new AsyncCleanupRegistry();
         var operations = new List<string>();
         cleanup.Push("first", () => RecordAsync("first"));
         cleanup.Push("second", () => throw new InvalidOperationException("second failed"));
@@ -29,7 +31,7 @@ public sealed class AsyncCleanupStackTests
     [Fact]
     public async Task RepeatedDrainIsAnEmptyNoOp()
     {
-        var cleanup = new AsyncCleanupStack();
+        var cleanup = new AsyncCleanupRegistry();
         cleanup.Push("cleanup", static () => ValueTask.CompletedTask);
 
         await cleanup.DrainAsync();

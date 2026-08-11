@@ -275,7 +275,7 @@ The frontend and core normally live in one application installation, but the Web
 
 | Package | Responsibility |
 | --- | --- |
-| `Nanto.Core` | Application model, lifecycle, IPC contracts, capabilities, plugin contracts |
+| `Nanto.Core` | Application model, public host-authoring contracts, lifecycle, IPC contracts, capabilities, plugin contracts |
 | `Nanto.Sdk` | MSBuild integration, build targets, asset collection, publish configuration |
 | `Nanto.Generators` | Command dispatcher, JSON context, plugin registry, manifests, TypeScript model |
 | `Nanto.Hosting.Windows` | Win32 message loop, HWND windows, WebView2, Windows lifecycle |
@@ -289,6 +289,8 @@ The frontend and core normally live in one application installation, but the Web
 | `@nanto/app` | Generated application-specific TypeScript API |
 
 The exact NuGet names can change before public release. Responsibilities should not.
+
+`Nanto.Core` exposes two deliberate portable API layers. The `Nanto` namespace is application-facing. The `Nanto.Hosting` namespace is the supported host-authoring surface for platform implementations: canonical application identity and option validation, application and window lifecycle state machines, asset-preparation context creation, and reverse-order asynchronous cleanup. Production hosts consume this public surface and receive no friend-assembly access. Core tests should prefer public contracts, but `Nanto.Core.Tests` may receive narrowly scoped friend access when direct verification of internal edge cases materially improves coverage or maintainability; that access must never become a production dependency.
 
 ### 5.2 Platform hosts
 
@@ -353,8 +355,11 @@ IsWindowVisible
 PeekMessage
 PostMessage
 PostThreadMessage
+SetFocus
+SetForegroundWindow
 SetWindowPos
 SetWindowText
+ShowWindow
 TranslateMessage
 DispatchMessage
 PostQuitMessage
@@ -370,6 +375,7 @@ WM_GETMINMAXINFO
 WM_APP
 PEEK_MESSAGE_REMOVE_TYPE
 SET_WINDOW_POS_FLAGS
+SHOW_WINDOW_CMD
 WINDOW_EX_STYLE
 WINDOW_STYLE
 WNDCLASSEXW
@@ -1267,7 +1273,7 @@ Deliverables:
 - `Nanto.Hosting.Windows` application host, UI dispatcher, message pump, window registry, and WebView host;
 - curated CsWin32 API/constant inputs, the offline WebView2 interop generator, committed generated output and manifest, and a byte-for-byte regeneration project included in the unattended `Integration` gate;
 - explicit application/window state machines;
-- reverse-order cleanup stack for partial initialization;
+- reverse-order cleanup registry for partial initialization;
 - DPI-correct sizing and multi-monitor behavior;
 - navigation policy and production asset provider;
 - structured logging and resource ledger;

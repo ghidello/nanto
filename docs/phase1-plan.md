@@ -70,7 +70,7 @@ Their support projects—TestProtocol, TestApp, IntegrationTestKit, and the offl
 
 Create:
 
-- `Nanto.Core`: portable lifecycle, application, window, dispatcher, asset, and failure contracts.
+- `Nanto.Core`: portable application contracts plus the public `Nanto.Hosting` host-authoring surface for lifecycle, validation, identity, asset context, and cleanup.
 - `Nanto.Hosting.Windows`: STA host, Win32 window, WebView2, assets, navigation, DPI, logging, and teardown.
 - `Nanto.Testing`: non-packable repository test support containing the deterministic fake host/window, manual dispatcher, lifecycle recorder, and portable failure scripting. It is not a Phase 1 product package.
 
@@ -97,7 +97,7 @@ Use the following exact project layout:
 
 | Project | Target | References and role |
 | --- | --- | --- |
-| `src/Nanto.Core/Nanto.Core.csproj` | `net10.0` | Portable contracts and implementations; references `Microsoft.Extensions.Logging.Abstractions` 10.0.10; sets `IsAotCompatible=true`. |
+| `src/Nanto.Core/Nanto.Core.csproj` | `net10.0` | Portable application and public host-authoring contracts and implementations; references `Microsoft.Extensions.Logging.Abstractions` 10.0.10; sets `IsAotCompatible=true`. |
 | `src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj` | `net10.0-windows10.0.19041.0` | References Core, pinned WebView2 SDK assets, CsWin32, and logging abstractions; supports `win-x64`; enables unsafe code, trimming analysis, `DisableRuntimeMarshalling`, and CsWin32 build-task generation. Product policy requires Windows 10 22H2/build 19045 or newer even though the Windows SDK contract version remains 19041. |
 | `tests/Nanto.Testing/Nanto.Testing.csproj` | `net10.0` | Non-packable repository support library; references Core only and contains deterministic fakes, recording, and failure scripting without Windows or test-framework types. |
 | `tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj` | `net10.0` | References Core and the standard repository test packages. |
@@ -551,7 +551,9 @@ public interface IWebAssetLease : IDisposable
 }
 ```
 
-The host is the only component that can construct `WebAssetPreparationContext`, after validating and canonicalizing `NantoApplicationOptions.ApplicationId`. Provider implementations can read the public properties but cannot create inconsistent contexts or independently derive a different application key. A directory provider may ignore the storage key, while the versioned provider uses it beneath the platform cache root.
+The `Nanto.Hosting` namespace in `Nanto.Core` is the supported, platform-free surface for implementing a host. It exposes `ApplicationIdentity`, `ValidatedApplicationOptions`, `ApplicationLifecycle`, `WindowLifecycle`, and `AsyncCleanupRegistry`. Application code continues to use the contracts in `Nanto`; the host-authoring types are public so first-party and future external platform hosts can share the canonical lifecycle, validation, identity, and cleanup machinery without friend access or duplicated rules.
+
+`ApplicationIdentity` and `ValidatedApplicationOptions` have no public constructors. Hosts call `ApplicationIdentity.Parse` or, normally, `ValidatedApplicationOptions.Create`; validated options then create the corresponding `WebAssetPreparationContext`. This prevents a host or provider from pairing an application ID with an inconsistent storage key. Provider implementations can read the context's public properties but cannot construct it or independently derive a different key. A directory provider may ignore the storage key, while the versioned provider uses it beneath the platform cache root. Route and timestamp validation helpers remain internal implementation details.
 
 State-change event arguments contain old state, new state, timestamp, and an optional failure object. Events are raised synchronously on the UI thread after the state field changes. Event handlers are diagnostic notifications: an exception from one handler is logged and does not prevent later handlers or teardown.
 
@@ -582,7 +584,7 @@ These utilities expose recorded calls and state; they do not provide assertion m
 
 The fake host's creation, activation, failure, stop, and close gates start open. A test closes a gate before the relevant operation, awaits its reached signal to observe the stable checkpoint, and opens it to continue; cancellation races creation and activation gates so shutdown never depends on a test releasing them. Portable failure-plan operation names are `application.create`, `window.initialize`, `application.activate`, `window.set-title`, `window.set-bounds`, `window.activate`, and `window.close`. A plan records every observed operation, including permissive plans and mismatches, and strict plans require exact ordinal order.
 
-`Nanto.Core` grants `InternalsVisibleTo` to `Nanto.Core.Tests` and `Nanto.Testing` so the fake host and window reuse the production portable state machines, cleanup aggregation, and internal `TimeProvider` seams instead of duplicating lifecycle logic. No Core or Testing friend access extends to the Windows host.
+`Nanto.Hosting.Windows` and `Nanto.Testing` consume the public `Nanto.Hosting` surface and receive no friend access to Core. `Nanto.Core.Tests` should verify behavior through public contracts by default, but Core may grant that test project friend access when direct coverage of internal edge cases is useful and avoids awkward production API exposure. Such access is test-only and must not be used by production or repository testing-support assemblies. Tests receive no friend access to the Windows host beyond `Nanto.Hosting.Windows.Tests` and the Phase 1 TestApp seams described below; portable Core remains free of Windows types.
 
 ### Dispatcher semantics
 
@@ -732,7 +734,7 @@ WindowsApplicationHost
     │   ├── settings
     │   ├── event subscriptions and filters
     │   └── navigation/recovery state
-    └── reverse-order CleanupStack
+    └── reverse-order AsyncCleanupRegistry
 ```
 
 `WindowsApplicationHost` owns the UI thread, COM initialization, window class, shared environment, registry, and application cleanup. `WindowsWindow` owns its `HWND`, asset lease, controller, WebView, subscriptions, and window cancellation. Borrowers never release native resources.
@@ -840,7 +842,7 @@ The canonical unattended integration command is `dotnet test -c Integration`; it
 `Nanto.Core.Tests` owns:
 
 - `WindowId`, `WindowBounds`, options, route, and default-value validation.
-- Application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/close/disposal races, pre-canceled caller waits that still request shutdown, cancellation during initialization, event ordering, timestamping, and failure aggregation.
+- Public host-authoring boundary, canonical application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/close/disposal races, pre-canceled caller waits that still request shutdown, cancellation during initialization, event ordering, timestamping, and failure aggregation.
 - Cleanup ordering, idempotence, continued cleanup after errors, and aggregation.
 - Application-identity trimming/lowercasing, segment and total-length boundaries, invalid-character rejection, and storage-key stability.
 - Portable manifest-path normalization and the complete navigation golden-decision table.
@@ -849,7 +851,7 @@ The canonical unattended integration command is `dotnet test -c Integration`; it
 `Nanto.Hosting.Windows.Tests` owns:
 
 - Windows dispatcher affinity, synchronization-context capture, FIFO ordering, cancellation, exception propagation, and rejection during shutdown.
-- Short-lived hidden raw-Win32 class and window creation, non-activation, native close delivery, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
+- Short-lived hidden raw-Win32 class and window creation, production `WindowsWindow` lifecycle and snapshot behavior, non-activation, native close delivery, caller-wait cancellation, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
 - Immutable registry snapshots and second-window rejection.
 - DIP conversion at common and fractional DPIs, window-message decoding, and monitor/work-area calculations.
 - Embedded-manifest parsing, resource validation, bundle hashing, materialization, exact-file validation, traversal/reparse-point rejection, and concurrent publication.

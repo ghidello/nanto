@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Nanto.Hosting;
+
 namespace Nanto.Testing;
 
 public sealed class FakeNantoApplicationHost : INantoApplicationHost
@@ -198,7 +200,7 @@ public sealed class FakeNantoApplicationHost : INantoApplicationHost
             await DispatchAsync(() => TransitionTo(ApplicationState.Closing, primaryFailure)).ConfigureAwait(false);
             await CloseGate.WaitAsync().ConfigureAwait(false);
 
-            var cleanup = new AsyncCleanupStack();
+            var cleanup = new AsyncCleanupRegistry();
             var window = _ownedWindow;
             if (window is not null)
             {

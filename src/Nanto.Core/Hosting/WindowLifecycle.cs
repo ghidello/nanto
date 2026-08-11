@@ -1,6 +1,9 @@
-namespace Nanto;
+namespace Nanto.Hosting;
 
-internal sealed class WindowLifecycle(TimeProvider timeProvider)
+/// <summary>
+/// Enforces the portable window lifecycle state machine for host implementations.
+/// </summary>
+public sealed class WindowLifecycle(TimeProvider timeProvider)
 {
     private readonly Lock _gate = new();
     private readonly TimeProvider _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -8,6 +11,9 @@ internal sealed class WindowLifecycle(TimeProvider timeProvider)
 
     public WindowState State => (WindowState)Volatile.Read(ref _state);
 
+    /// <summary>
+    /// Performs a valid state transition and returns its timestamped notification.
+    /// </summary>
     public WindowStateChangedEventArgs TransitionTo(WindowState newState, Exception? failure = null)
     {
         lock (_gate)
