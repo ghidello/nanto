@@ -11,6 +11,7 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_rootDirectory, "assets"));
         await File.WriteAllTextAsync(Path.Combine(_rootDirectory, "index.html"), "<html></html>", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(_rootDirectory, "..bundle.js"), "export {};", TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(_rootDirectory, "assets", "app.js"),
             "export {};",
@@ -21,7 +22,7 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
 
         lease.RootDirectory.Should().Be(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_rootDirectory)));
         lease.Version.Should().Be("directory");
-        lease.AssetPaths.Should().BeEquivalentTo(["/index.html", "/assets/app.js"]);
+        lease.AssetPaths.Should().BeEquivalentTo(["/index.html", "/..bundle.js", "/assets/app.js"]);
 
         await File.WriteAllTextAsync(Path.Combine(_rootDirectory, "later.js"), "export {};", TestContext.Current.CancellationToken);
         lease.AssetPaths.Should().NotContain("/later.js");
@@ -93,7 +94,7 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
             Assets = new UnusedAssetProvider(),
             PrimaryWindow = new WindowOptions { Title = "Assets" },
         };
-        return Nanto.Hosting.ValidatedApplicationOptions.Create(options).CreateWebAssetPreparationContext();
+        return Nanto.Hosting.ValidatedApplicationOptions.Create(options).CreateWebAssetPreparationContext(Path.GetTempPath());
     }
 
     private sealed class UnusedAssetProvider : IWebAssetProvider

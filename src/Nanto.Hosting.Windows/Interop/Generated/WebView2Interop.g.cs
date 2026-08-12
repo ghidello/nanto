@@ -291,6 +291,34 @@ internal partial interface ICoreWebView2NavigationCompletedEventHandler
 }
 
 [GeneratedComInterface]
+[Guid("5b495469-e119-438a-9b18-7604f25f2e49")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ICoreWebView2NavigationStartingEventArgs
+{
+    [PreserveSig]
+    int get_Uri(nint uri);
+    [PreserveSig]
+    int get_IsUserInitiated(nint isUserInitiated);
+    [PreserveSig]
+    int get_IsRedirected(nint isRedirected);
+    [PreserveSig]
+    int get_RequestHeaders(nint requestHeaders);
+    [PreserveSig]
+    int get_Cancel(nint cancel);
+    [PreserveSig]
+    int put_Cancel(int cancel);
+}
+
+[GeneratedComInterface]
+[Guid("9adbe429-f36d-432b-9ddc-f8881fbd76e3")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ICoreWebView2NavigationStartingEventHandler
+{
+    [PreserveSig]
+    int Invoke(nint sender, nint args);
+}
+
+[GeneratedComInterface]
 [Guid("79110ad3-cd5d-4373-8bc3-c60658f17a5f")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal partial interface ICoreWebView2Profile

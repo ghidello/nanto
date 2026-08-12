@@ -1,0 +1,17 @@
+{
+  "assets": [
+    {
+      "sha256": "F1380C56BC2037ED85D0DBDA97811480522B68EDC6E47D72A986250D27BA6BE5",
+      "length": 27,
+      "resourceName": "Nanto.Core.Tests.Aliases.script",
+      "path": "/assets/app.js"
+    },
+    {
+      "sha256": "7674226093C84E462DE6792FBA0EFE8466309F4B6AB4D0ECE84F9FEB93DDFBB2",
+      "length": 15,
+      "resourceName": "Nanto.Core.Tests.Aliases.document",
+      "path": "/index.html"
+    }
+  ],
+  "schemaVersion": 1
+}

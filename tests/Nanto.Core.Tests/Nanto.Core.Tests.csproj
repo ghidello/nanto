@@ -2,4 +2,11 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="TestAssets/app.js" LogicalName="Nanto.Core.Tests.Assets.app.js" />
+    <EmbeddedResource Include="TestAssets/Aliases/app.js" LogicalName="Nanto.Core.Tests.Aliases.script" />
+    <EmbeddedResource Include="TestAssets/index.html" LogicalName="Nanto.Core.Tests.Assets.index.html" />
+    <EmbeddedResource Include="TestAssets/Aliases/index.html" LogicalName="Nanto.Core.Tests.Aliases.document" />
+    <EmbeddedResource Include="TestManifests/*.json" LogicalName="Nanto.Core.Tests.Manifests.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

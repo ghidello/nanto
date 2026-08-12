@@ -23,19 +23,35 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         ArgumentNullException.ThrowIfNull(failureInjector);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var storage = await Task.Run(() => WindowsApplicationStorage.Prepare(options.Identity), cancellationToken);
-        var assetLease = await options.Assets.PrepareAsync(options.CreateWebAssetPreparationContext(), cancellationToken);
+        var applicationCleanup = new AsyncCleanupRegistry();
+        var environmentCleanup = new AsyncCleanupRegistry();
         IDisposable? assetResourceLease = null;
-        WebView2EnvironmentOwner? environment = null;
         try
         {
+            var storage = await Task.Run(() => WindowsApplicationStorage.Prepare(options.Identity), cancellationToken);
+            var assetLease = await options.Assets.PrepareAsync(
+                options.CreateWebAssetPreparationContext(storage.ApplicationRoot),
+                cancellationToken);
+            applicationCleanup.Push("web-assets.dispose", () =>
+            {
+                DisposeAssetLease(assetLease, assetResourceLease);
+                return ValueTask.CompletedTask;
+            });
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!NavigationPolicy.IsInitialRouteAllowed(options.PrimaryWindow.InitialRoute, assetLease.AssetPaths))
+            {
+                throw new InvalidDataException(
+                    $"The initial route '{options.PrimaryWindow.InitialRoute}' does not resolve to a declared application asset.");
+            }
+
             assetResourceLease = resourceLedger.Acquire(WindowsResourceKind.AssetLease, "WebAssetLease");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.AssetLeasePrepared);
             cancellationToken.ThrowIfCancellationRequested();
-            environment = await WebView2EnvironmentOwner.CreateAsync(
+            var environment = await WebView2EnvironmentOwner.CreateAsync(
                 storage.UserDataDirectory,
                 resourceLedger,
                 cancellationToken);
+            environmentCleanup.Push("webview2.environment.dispose", environment.DisposeAsync);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewEnvironmentCreated);
             cancellationToken.ThrowIfCancellationRequested();
             return new ProductionWindowsWebViewApplication(
@@ -47,22 +63,10 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         }
         catch (Exception creationException)
         {
-            List<Exception>? cleanupExceptions = null;
-            TryCleanup(assetLease.Dispose, ref cleanupExceptions);
-            TryCleanup(() => assetResourceLease?.Dispose(), ref cleanupExceptions);
-            if (environment is not null)
-            {
-                try
-                {
-                    await environment.DisposeAsync();
-                }
-                catch (Exception exception)
-                {
-                    AddCleanupException(ref cleanupExceptions, exception);
-                }
-            }
-
-            if (cleanupExceptions is not null)
+            var cleanupExceptions = new List<Exception>();
+            cleanupExceptions.AddRange(await applicationCleanup.DrainAsync());
+            cleanupExceptions.AddRange(await environmentCleanup.DrainAsync());
+            if (cleanupExceptions.Count != 0)
             {
                 throw new AggregateException(
                     "WebView2 application creation failed and cleanup also failed.",
@@ -70,6 +74,35 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             }
 
             throw;
+        }
+    }
+
+    private static void DisposeAssetLease(IWebAssetLease assetLease, IDisposable? resourceLease)
+    {
+        Exception? assetException = null;
+        try
+        {
+            assetLease.Dispose();
+        }
+        catch (Exception exception)
+        {
+            assetException = exception;
+        }
+
+        try
+        {
+            resourceLease?.Dispose();
+        }
+        catch (Exception resourceException)
+        {
+            throw assetException is null
+                ? resourceException
+                : new AggregateException("The web-asset lease and its resource-ledger entry both failed to close.", assetException, resourceException);
+        }
+
+        if (assetException is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(assetException).Throw();
         }
     }
 

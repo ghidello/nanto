@@ -9,9 +9,8 @@ namespace Nanto.Hosting.Windows;
 
 internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 {
-    private const string ApplicationHostName = "app.nanto.invalid";
-
     private readonly NavigationCompletedHandler _navigationCompletedHandler;
+    private readonly NavigationStartingHandler _navigationStartingHandler;
     private readonly WebMessageReceivedHandler _webMessageReceivedHandler;
     private UniqueComReference<ICoreWebView2Controller>? _controller;
     private IDisposable? _controllerResourceLease;
@@ -19,6 +18,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     private IDisposable? _mappingResourceLease;
     private EventRegistrationToken _navigationCompletedToken;
     private IDisposable? _navigationSubscriptionLease;
+    private EventRegistrationToken _navigationStartingToken;
+    private IDisposable? _navigationStartingSubscriptionLease;
     private UniqueComReference<ICoreWebView2Profile>? _profile;
     private IDisposable? _profileResourceLease;
     private UniqueComReference<ICoreWebView2Settings>? _settings;
@@ -31,9 +32,11 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     public Task Readiness => _webMessageReceivedHandler.Readiness;
 
     private WebView2WindowHost(
+        NavigationStartingHandler navigationStartingHandler,
         NavigationCompletedHandler navigationCompletedHandler,
         WebMessageReceivedHandler webMessageReceivedHandler)
     {
+        _navigationStartingHandler = navigationStartingHandler;
         _navigationCompletedHandler = navigationCompletedHandler;
         _webMessageReceivedHandler = webMessageReceivedHandler;
     }
@@ -55,9 +58,10 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         ArgumentNullException.ThrowIfNull(failureInjector);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var navigationStartingHandler = new NavigationStartingHandler(assetLease.AssetPaths);
         var navigationHandler = new NavigationCompletedHandler();
         var messageHandler = new WebMessageReceivedHandler();
-        var host = new WebView2WindowHost(navigationHandler, messageHandler);
+        var host = new WebView2WindowHost(navigationStartingHandler, navigationHandler, messageHandler);
         try
         {
             host._controller = await environment.CreateControllerAsync(parentWindow, cancellationToken);
@@ -82,7 +86,10 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewSettingsConfigured);
             cancellationToken.ThrowIfCancellationRequested();
 
-            host.AddNavigationSubscription(resourceLedger);
+            host.AddNavigationStartingSubscription(resourceLedger);
+            failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.NavigationStartingSubscriptionAdded);
+            cancellationToken.ThrowIfCancellationRequested();
+            host.AddNavigationCompletedSubscription(resourceLedger);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.NavigationCompletedSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
             host.AddMessageSubscription(resourceLedger);
@@ -92,7 +99,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.VirtualHostMappingAdded);
             cancellationToken.ThrowIfCancellationRequested();
 
-            using var initialUri = new Utf16String($"https://{ApplicationHostName}{options.InitialRoute}");
+            using var initialUri = new Utf16String($"https://{NavigationPolicy.ApplicationHostName}{options.InitialRoute}");
             HResult.ThrowIfFailed(host._webView.Value.Navigate(initialUri.Pointer), "webview2.navigation.begin", NantoFailureStage.Startup);
             await navigationHandler.Completion.WaitAsync(cancellationToken);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.InitialNavigationCompleted);
@@ -150,7 +157,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         List<Exception>? failures = null;
         TryCleanup(RemoveMessageSubscription, ref failures);
-        TryCleanup(RemoveNavigationSubscription, ref failures);
+        TryCleanup(RemoveNavigationCompletedSubscription, ref failures);
+        TryCleanup(RemoveNavigationStartingSubscription, ref failures);
         TryCleanup(RemoveVirtualHostMapping, ref failures);
         TryCleanup(CloseController, ref failures);
         TryCleanup(() => _settings?.Dispose(), ref failures);
@@ -193,7 +201,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         _webMessageSubscriptionLease = resourceLedger.Acquire(WindowsResourceKind.Subscription, "WebMessageReceivedSubscription");
     }
 
-    private unsafe void AddNavigationSubscription(ResourceLedger resourceLedger)
+    private unsafe void AddNavigationCompletedSubscription(ResourceLedger resourceLedger)
     {
         void* handlerPointer = ComInterfaceMarshaller<ICoreWebView2NavigationCompletedEventHandler>.ConvertToUnmanaged(_navigationCompletedHandler);
         try
@@ -213,9 +221,29 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         _navigationSubscriptionLease = resourceLedger.Acquire(WindowsResourceKind.Subscription, "NavigationCompletedSubscription");
     }
 
+    private unsafe void AddNavigationStartingSubscription(ResourceLedger resourceLedger)
+    {
+        void* handlerPointer = ComInterfaceMarshaller<ICoreWebView2NavigationStartingEventHandler>.ConvertToUnmanaged(_navigationStartingHandler);
+        try
+        {
+            var token = default(EventRegistrationToken);
+            HResult.ThrowIfFailed(
+                _webView!.Value.add_NavigationStarting((nint)handlerPointer, (nint)(&token)),
+                "webview2.navigation-starting.subscribe",
+                NantoFailureStage.Startup);
+            _navigationStartingToken = token;
+        }
+        finally
+        {
+            ComInterfaceMarshaller<ICoreWebView2NavigationStartingEventHandler>.Free(handlerPointer);
+        }
+
+        _navigationStartingSubscriptionLease = resourceLedger.Acquire(WindowsResourceKind.Subscription, "NavigationStartingSubscription");
+    }
+
     private void AddVirtualHostMapping(ResourceLedger resourceLedger, string rootDirectory)
     {
-        using var hostName = new Utf16String(ApplicationHostName);
+        using var hostName = new Utf16String(NavigationPolicy.ApplicationHostName);
         using var folderPath = new Utf16String(rootDirectory);
         var mappingWebView = (ICoreWebView2_3)_webView!.Value;
         HResult.ThrowIfFailed(
@@ -305,7 +333,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         }
     }
 
-    private void RemoveNavigationSubscription()
+    private void RemoveNavigationCompletedSubscription()
     {
         if (_navigationSubscriptionLease is null)
         {
@@ -325,6 +353,26 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         }
     }
 
+    private void RemoveNavigationStartingSubscription()
+    {
+        if (_navigationStartingSubscriptionLease is null)
+        {
+            return;
+        }
+
+        try
+        {
+            HResult.ThrowIfFailed(
+                _webView!.Value.remove_NavigationStarting(_navigationStartingToken),
+                "webview2.navigation-starting.unsubscribe",
+                NantoFailureStage.Teardown);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _navigationStartingSubscriptionLease, null)?.Dispose();
+        }
+    }
+
     private void RemoveVirtualHostMapping()
     {
         if (_mappingResourceLease is null)
@@ -334,7 +382,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         try
         {
-            using var hostName = new Utf16String(ApplicationHostName);
+            using var hostName = new Utf16String(NavigationPolicy.ApplicationHostName);
             HResult.ThrowIfFailed(
                 ((ICoreWebView2_3)_webView!.Value).ClearVirtualHostNameToFolderMapping(hostName.Pointer),
                 "webview2.mapping.remove",

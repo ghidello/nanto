@@ -24,6 +24,7 @@ public sealed class HostIntegrationTests
         "WebViewProfileCreated",
         "WebViewSettingsCreated",
         "WebViewSettingsConfigured",
+        "NavigationStartingSubscriptionAdded",
         "NavigationCompletedSubscriptionAdded",
         "WebMessageSubscriptionAdded",
         "VirtualHostMappingAdded",
@@ -45,6 +46,17 @@ public sealed class HostIntegrationTests
             ("Application", "Activated"),
             ("Application", "Closing"),
             ("Application", "Closed"));
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
+    [Fact]
+    public async Task DeclaredNavigationLoadsAndUnsafeOrUndeclaredTopLevelPathsAreCancelled()
+    {
+        var result = await RunAsync(Phase1TestScenario.Navigation);
+        var report = RequireSuccessfulReport(result);
+
         report.ObservedFailure.Should().BeNull();
         AssertFinalLedgerIsZero(report);
         AssertReverseOwnershipCleanup(report);
@@ -141,6 +153,12 @@ public sealed class HostIntegrationTests
             AssertFinalLedgerIsZero(firstReport);
 
             second.IsCompleted.Should().BeFalse("the second host must remain alive after the first host and its browser job exit");
+            var leasePath = Directory.EnumerateFiles(
+                Path.Combine(firstResult.ApplicationRoot, "assets-v1"),
+                "lease.lock",
+                SearchOption.AllDirectories).Should().ContainSingle().Which;
+            var deleteLease = () => File.Delete(leasePath);
+            deleteLease.Should().Throw<IOException>("the surviving host must retain its shared deletion-denying bundle lease");
             File.WriteAllText(Path.Combine(coordinationDirectory, "probe-second"), string.Empty);
             await WaitForMarkerAsync(coordinationDirectory, "second.probed", cancellation.Token);
             File.WriteAllText(Path.Combine(coordinationDirectory, "release-second"), string.Empty);
@@ -218,6 +236,7 @@ public sealed class HostIntegrationTests
         {
             "WebMessageReceivedSubscription",
             "NavigationCompletedSubscription",
+            "NavigationStartingSubscription",
             "ApplicationOriginMapping",
             "WebView2Settings",
             "WebView2Profile",

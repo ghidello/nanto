@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "path": "/index.html",
+      "resourceName": "Nanto.Core.Tests.Assets.index.html",
+      "length": -1,
+      "sha256": "7674226093C84E462DE6792FBA0EFE8466309F4B6AB4D0ECE84F9FEB93DDFBB2"
+    }
+  ]
+}

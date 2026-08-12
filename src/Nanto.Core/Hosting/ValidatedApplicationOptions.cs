@@ -78,10 +78,21 @@ public sealed record ValidatedApplicationOptions
     }
 
     /// <summary>
-    /// Creates the asset-preparation context associated with this validated application identity.
+    /// Creates the asset-preparation context associated with this validated application identity and a host-prepared storage root.
     /// </summary>
-    public WebAssetPreparationContext CreateWebAssetPreparationContext() =>
-        new(Identity.CanonicalId, Identity.StorageKey);
+    public WebAssetPreparationContext CreateWebAssetPreparationContext(string applicationRootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationRootDirectory);
+        if (!Path.IsPathFullyQualified(applicationRootDirectory))
+        {
+            throw new ArgumentException("The application storage root must be an absolute path.", nameof(applicationRootDirectory));
+        }
+
+        return new WebAssetPreparationContext(
+            Identity.CanonicalId,
+            Identity.StorageKey,
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationRootDirectory)));
+    }
 
     private static void ValidateWindowOptions(WindowOptions options)
     {

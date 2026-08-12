@@ -137,6 +137,7 @@ internal static class Program
             Phase1TestScenario.NativeClose => await ScenarioRunner.RunNativeCloseAsync(request, startedAt, stopwatch),
             Phase1TestScenario.RunCancellation => await ScenarioRunner.RunCancellationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.RepeatedClose => await ScenarioRunner.RunRepeatedCloseAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.Navigation => await ScenarioRunner.RunNavigationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.Appearance => await ScenarioRunner.RunAppearanceAsync(request, startedAt, stopwatch),
             Phase1TestScenario.SharedProfile => await ScenarioRunner.RunSharedProfileAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),

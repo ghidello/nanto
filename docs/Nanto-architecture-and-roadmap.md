@@ -552,14 +552,14 @@ The host should maintain a cached per-window DPI and update it only on the UI th
 
 Production assets must be served by an `IWebAssetProvider` abstraction. The Windows host should avoid a loopback HTTP server unless a platform limitation requires it.
 
-The default production implementation materializes embedded/compressed SPA assets into a versioned local cache and maps that directory to `https://app.nanto.invalid` using `SetVirtualHostNameToFolderMapping`. The default access kind is `DenyCors`. This gives the application a secure origin, supports relative resources and browser storage, and lets WebView2 resolve files inside its own processes. The hostname is an internal implementation detail and must not leak into the frontend API.
+The default production implementation materializes explicitly declared embedded SPA assets into a versioned local cache and maps that directory to `https://app.nanto.invalid` using `SetVirtualHostNameToFolderMapping`. The default access kind is `DenyCors`. This gives the application a secure origin, supports relative resources and browser storage, and lets WebView2 resolve files inside its own processes. The hostname is an internal implementation detail and must not leak into the frontend API.
 
-`WebResourceRequested` remains an optional provider for genuinely dynamic or in-memory content. It is not the default for a normal SPA because every intercepted resource crosses into the host UI thread and is slower than virtual-host mapping. A directory deployment can map its output directly; an embedded single-file deployment can extract once per asset version and then use the same serving path ([local content in WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/working-with-local-content)).
+`WebResourceRequested` remains a future option for genuinely dynamic or in-memory content. It is not part of Phase 1 and is not the default for a normal SPA because every intercepted resource crosses into the host UI thread and is slower than virtual-host mapping. A directory deployment can map its output directly; an embedded single-file deployment can extract once per asset version and then use the same serving path ([local content in WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/working-with-local-content)).
 
 The completed feasibility work established these requirements for Nanto:
 
 - a secure application origin;
-- SPA route fallback to `index.html`;
+- exact declared-asset routing with client-side history and hash routing after startup;
 - embedded or linked assets;
 - correct MIME types;
 - fetch, module, worker, and CSP behavior;
@@ -573,7 +573,7 @@ The Windows cache schema is `%LOCALAPPDATA%\Nanto\applications\<application-key>
 
 Phase 1 always uses `%LOCALAPPDATA%\Nanto\applications\<application-key>` as its application data root. The root is write-probed before asset extraction or WebView2 startup, and failure reports the exact path without silently falling back elsewhere. Adjacent runtime configuration, command-line storage overrides, environment overrides, and enterprise storage policy are deferred until deployment requirements justify the additional configuration surface.
 
-Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A short per-application cross-process maintenance lock serializes lease acquisition, validation, quarantine, and publication. A corrupt bundle belonging to the current application is atomically quarantined and reconstructed; an application-identity mismatch fails without modification. Phase 1 does not automatically delete old valid bundles, abandoned staging directories, or quarantined bundles. Age-based retention and cleanup remain future distribution work.
+Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A named per-application cross-process maintenance mutex serializes lease acquisition, structural validation, quarantine, and publication while `maintenance.lock` records the on-disk cache layout. The Windows mutex is machine-global and user-storage-scoped so separate sessions coordinate without coupling unrelated users. Reuse checks declared metadata, the exact regular-file inventory, and file lengths without rehashing every content file. A corrupt bundle belonging to the current application is atomically quarantined and reconstructed; an application-identity mismatch fails without modification even when other structural corruption is present. Phase 1 does not automatically delete old valid bundles, abandoned staging directories, or quarantined bundles. Age-based retention and cleanup remain future distribution work.
 
 ### 6.9 Application appearance
 
@@ -603,8 +603,8 @@ The completed feasibility work established the following inputs to Nanto Phase 1
 
 - A warning-free `win-x64` Native AOT host can use raw Win32, generated COM interop, `DisableRuntimeMarshalling=true`, and WebView2 without WinUI, Windows App SDK, WPF, WinForms, or MAUI.
 - The same narrow host contracts can support CoreCLR and Native AOT while changing only deployment and loader mechanics.
-- A secure virtual HTTPS origin can support exact-origin checks, CSP, modules, workers, service workers, browser storage, and denial of unintended CORS, mixed-content, and filesystem access.
-- A normalized manifest and content hashes can drive deterministic, immutable asset extraction, cache reuse, path/query-preserving SPA fallback, and safe cleanup.
+- A secure virtual HTTPS origin can support exact-origin checks, CSP, modules, dedicated/shared workers, browser storage, and denial of unintended CORS, mixed-content, and filesystem access.
+- A normalized manifest and content hashes can drive deterministic, immutable asset extraction, cache reuse, exact declared-asset navigation, and safe cleanup.
 - Renderer termination, browser-process termination, same-process recreation, deterministic teardown, and bounded failure diagnostics are feasible.
 - Closing the controller while keeping the STA message pump active until a bounded `BrowserProcessExited` notification permits deterministic WebView2 UDF cleanup.
 - Native feasibility was demonstrated on x64 and Arm64. Phase 1 deliberately supports Windows x64 only; Arm64 remains future scope.
@@ -1211,7 +1211,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-031 | Commit only to Windows initially while keeping core contracts free of Windows types. | Focuses delivery while preserving the architectural option—not a promise—to add other hosts later. |
 | D-032 | Propagate W3C Trace Context across the frontend bridge and support opt-in browser telemetry. | Produces end-to-end SPA-to-native-to-service traces while keeping browser SDK and export policy optional. |
 | D-033 | Keep the runtime, generated ESM client, and frontend integration contract framework- and bundler-neutral. | React/Vite can provide the first polished template without restricting Angular, Vue, Svelte, Solid, vanilla TypeScript, or future SPA toolchains. |
-| D-034 | Resolve SPA document routes with a generated asset manifest and an explicit navigation policy; never treat every missing resource as `index.html`. | Preserves static asset correctness and security while allowing clean URLs; exact assets remain mapped directly and only top-level same-origin document routes may fall back. |
+| D-034 | Resolve Phase 1 navigation through an explicit manifest and exact declared-asset policy; never treat a missing resource as `index.html`. | Virtual-host mapping does not raise `WebResourceRequested`, so reliable URL-preserving fallback requires a future custom response-serving asset host. Client-side history and hash routing remain available after `/index.html` starts. |
 | D-035 | Resolve O-001 with a narrow Nanto-owned source-generated WebView2 COM projection derived from the pinned official header. | Feasibility results establish Native AOT, trimming, callbacks, ABI layout, messaging, and teardown without a UI framework or built-in COM interop; deterministic regeneration verification prevents unnoticed projection drift. |
 | D-036 | Resolve O-002 with the internal `https://app.nanto.invalid` origin and application-scoped, content-addressed asset caches with shared process leases. | Secure-origin behavior is proven; stable application identity prevents cross-application collisions, immutable bundles support concurrent releases, and leases prevent deletion while any instance is using a bundle. Automated age-based retention is deferred. |
 | D-037 | Resolve O-003 by supporting Windows 10 22H2/build 19045 or newer on x64 for the initial product. | Completed feasibility and standalone deployment results establish the x64 path. Arm64 joins macOS and Linux as a future platform commitment rather than a Phase 1 gate. |
@@ -1222,6 +1222,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-042 | Applications persist user-selected appearance preferences; Nanto only applies them. | Avoids creating a partial settings subsystem or competing with application configuration. |
 | D-043 | Derive the WebView2 projection from the complete base-interface chain and the required same-interface vtable prefix. | COM slot positions depend on both closures; projecting only named methods would produce an ABI-invalid interface even when every production call appears in the allowlist. |
 | D-044 | Represent every acquired WebView2 interface as one uniquely owned source-generated COM wrapper and release it on the owning STA thread. | Explicit ownership prevents ambiguous RCW lifetimes, double release, thread-affinity violations, and Native AOT reliance on built-in COM interop. |
+| D-045 | Keep virtual-host mapping for Phase 1 and defer clean-path reload fallback, service workers, custom response headers/MIME mappings, and external source maps. | Mapping keeps resource loading native and simple, but cannot intercept mapped requests or serve service-worker scripts. A future custom response-serving host is the robust upgrade; redirect plus history injection is rejected as fragile. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1260,6 +1261,10 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | F-005 | Automatic age-based removal of old asset bundles, abandoned staging directories, and quarantined bundles, including retention customization. | Phase 5 distribution work, after real upgrade and rollback behavior supplies safe retention evidence. |
 | F-006 | Multiple WebView2 runtime lanes in the integration protocol. Phase 1 uses Evergreen only and carries no redundant runtime-lane field. | A Fixed Version or other runtime lane becomes an active product or compatibility gate. |
 | F-007 | Running the exhaustive framework-dependent behavioral/failure matrix again under self-contained CoreCLR and Native AOT. Phase 1 uses focused deployment smoke suites for those modes. | Mode-specific failures, release evidence, or risk justify the additional execution time and duplicate coverage. |
+| F-008 | Full content rehashing whenever a published asset bundle is reused. Phase 1 trusts the current-user storage boundary and detects metadata, inventory, and length corruption rather than same-length external mutation. | The integrity model includes hostile or untrusted local modification. |
+| F-009 | Forced stable-storage flushes and recovery guarantees across sudden power loss during asset publication. | Power-loss durability becomes a product or deployment requirement. |
+| F-010 | Generated embedded-asset manifests and SDK/build integration. Phase 1 uses an explicitly reviewed manifest. | The SDK/tooling milestone defines the frontend build and embedding pipeline. |
+| F-011 | Mutation watching or continuous inventory enforcement for directory-backed development assets. | Development tooling needs live invalidation beyond a fixed prepared URL inventory. |
 
 ---
 

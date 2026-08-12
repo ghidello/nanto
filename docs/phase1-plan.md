@@ -413,7 +413,7 @@ public sealed record WindowOptions
     public WindowBounds InitialBounds { get; init; } = new(100, 100, 1024, 768);
     public bool StartVisible { get; init; } = true;
     public bool Resizable { get; init; } = true;
-    public string InitialRoute { get; init; } = "/";
+    public string InitialRoute { get; init; } = "/index.html";
 }
 
 public sealed record NantoApplicationOptions
@@ -428,7 +428,7 @@ public sealed record NantoApplicationOptions
 }
 ```
 
-Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; `PreferredColorScheme` and `ShutdownMode` must be defined enum values; and `ShutdownTimeout` must be positive and no greater than five minutes. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
+Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; `PreferredColorScheme` and `ShutdownMode` must be defined enum values; and `ShutdownTimeout` must be positive and no greater than five minutes. After asset preparation and before any COM/window acquisition, the Windows host also requires the initial route path to match the lease's declared inventory. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
 
 `ApplicationId` is trimmed, canonicalized to lowercase invariant, and must contain at least two dot-separated ASCII segments. Each segment is 1–63 characters, the complete identifier is at most 253 characters, and segments contain only letters, digits, and interior hyphens. It is a persistent storage and security boundary, not a display label. Nanto derives `<application-key>` from the final readable segment plus the first 128 bits of SHA-256 over the canonical UTF-8 identifier, stores the complete canonical identity in cache metadata, and refuses a metadata mismatch. Renaming an executable, assembly, or product display name does not change this identity; changing `ApplicationId` intentionally starts with a new cache and WebView2 profile.
 
@@ -540,11 +540,13 @@ public sealed class WebAssetPreparationContext
 {
     public string ApplicationId { get; }
     public string ApplicationStorageKey { get; }
+    public string ApplicationRootDirectory { get; }
 
-    internal WebAssetPreparationContext(string applicationId, string applicationStorageKey)
+    internal WebAssetPreparationContext(string applicationId, string applicationStorageKey, string applicationRootDirectory)
     {
         ApplicationId = applicationId;
         ApplicationStorageKey = applicationStorageKey;
+        ApplicationRootDirectory = applicationRootDirectory;
     }
 }
 
@@ -558,7 +560,7 @@ public interface IWebAssetLease : IDisposable
 
 The `Nanto.Hosting` namespace in `Nanto.Core` is the supported, platform-free surface for implementing a host. It exposes `ApplicationIdentity`, `ValidatedApplicationOptions`, `ApplicationLifecycle`, `WindowLifecycle`, and `AsyncCleanupRegistry`. Application code continues to use the contracts in `Nanto`; the host-authoring types are public so first-party and future external platform hosts can share the canonical lifecycle, validation, identity, and cleanup machinery without friend access or duplicated rules.
 
-`ApplicationIdentity` and `ValidatedApplicationOptions` have no public constructors. Hosts call `ApplicationIdentity.Parse` or, normally, `ValidatedApplicationOptions.Create`; validated options then create the corresponding `WebAssetPreparationContext`. This prevents a host or provider from pairing an application ID with an inconsistent storage key. Provider implementations can read the context's public properties but cannot construct it or independently derive a different key. A directory provider may ignore the storage key, while the versioned provider uses it beneath the platform cache root. Route and timestamp validation helpers remain internal implementation details.
+`ApplicationIdentity` and `ValidatedApplicationOptions` have no public constructors. Hosts call `ApplicationIdentity.Parse` or, normally, `ValidatedApplicationOptions.Create`; validated options then call `CreateWebAssetPreparationContext(applicationRootDirectory)` with the already prepared absolute platform storage root. This prevents a provider from deriving `%LOCALAPPDATA%` independently or pairing an application ID with an inconsistent key/root. Provider implementations can read the context's public properties but cannot construct it. A directory provider may ignore the application root, while the versioned provider publishes beneath it. Route and timestamp validation helpers remain internal implementation details.
 
 State-change event arguments contain old state, new state, timestamp, and an optional failure object. Events are raised synchronously on the UI thread after the state field changes. Event handlers are diagnostic notifications: an exception from one handler is logged and does not prevent later handlers or teardown.
 
@@ -652,7 +654,7 @@ The lease returned by `PrepareAsync` must satisfy all of these conditions before
 Provide two built-in providers:
 
 - `DirectoryWebAssetProvider`: validates and leases an existing build-output directory without copying it.
-- `VersionedWebAssetProvider`: the production default, which materializes an embedded declared manifest into the atomic content-addressed cache specified below; a complete valid bundle is reused, while corrupt or incomplete bundles fail rather than being silently repaired.
+- `VersionedWebAssetProvider`: the production default, which materializes an embedded declared manifest into the atomic content-addressed cache specified below; a complete valid bundle is reused, while corrupt or incomplete current-application bundles are quarantined and reconstructed.
 
 #### Manifest, path, and bundle normalization
 
@@ -670,7 +672,7 @@ for each entry ordered by normalized URL path using ordinal comparison:
 
 The hash therefore depends on normalized public paths and content, not JSON formatting, manifest property order, assembly resource names, or application release version. Persisted `manifest.json` records schema version, canonical application identity, bundle hash, and the sorted path/length/hash entries. `complete` contains the bundle hash followed by a newline.
 
-Publication writes only beneath a unique `staging` child, rejects reparse points in every existing path component, flushes and closes all content and metadata, writes `complete` last, and atomically renames the staging directory to `<bundle-sha256>`. A concurrent winner is reusable only after full validation. Validation requires the expected application identity and bundle hash, the exact declared file set with no additional content files, matching lengths and hashes, a matching completion marker, regular non-reparse-point files, and paths that remain beneath the bundle root. An identity mismatch fails without modification; other incomplete or corrupt destinations follow the locked quarantine-and-reconstruct policy below.
+Publication writes only beneath a unique `staging` child, rejects reparse points in every existing path component, closes all content and metadata streams, writes `complete` last, and atomically renames the staging directory to `<bundle-sha256>`. A concurrent winner is reusable only after full validation. Structural reuse requires the expected application identity and bundle hash, the exact declared file set with no additional content files, a cached manifest with matching paths, lengths, and hashes, a matching completion marker, regular non-reparse-point files, and paths that remain beneath the bundle root. It checks content-file lengths but intentionally does not rehash their bytes on every launch. An identity mismatch fails without modification; other incomplete or corrupt destinations follow the locked quarantine-and-reconstruct policy below.
 
 The versioned provider uses this application-scoped schema:
 
@@ -678,6 +680,7 @@ The versioned provider uses this application-scoped schema:
 %LOCALAPPDATA%\Nanto\applications\<application-key>\
 ├── application.json
 ├── assets-v1\
+│   ├── maintenance.lock
 │   ├── <bundle-sha256>\
 │   │   ├── content\...
 │   │   ├── manifest.json
@@ -694,26 +697,26 @@ Phase 1 always uses the application-specific root shown above. It has no adjacen
 
 `<bundle-sha256>` covers the normalized manifest and every declared asset, not the application release version. Bundle content is immutable after atomic publication. Releases with identical frontend content reuse the same bundle, while different releases may keep different bundles concurrently. The stable UDF is application/profile-scoped rather than release-scoped so browser storage survives an upgrade.
 
-Every prepared versioned lease holds a read handle to `lease.lock` with sharing that permits other readers but denies deletion. Multiple processes using the same bundle therefore coexist; the bundle remains protected until the last process releases its handle. The Windows window owns the lease and disposes it only after removing WebView mappings and closing the controller. Windows releases the handle after abnormal process termination.
+Every prepared versioned lease holds a read handle to `lease.lock` with sharing that permits other readers but denies deletion. Multiple processes using the same bundle therefore coexist; the bundle remains protected until the last process releases its handle. The application-level WebView owner holds the lease and disposes it only after every window has removed its WebView subscriptions and mappings and closed its controller. Windows releases the handle after abnormal process termination.
 
-A per-application cross-process maintenance lock serializes lease acquisition, destination validation, quarantine, and publication. A valid complete destination is reused. An incomplete or corrupt destination whose metadata belongs to the current application is atomically renamed to a unique child of `assets-v1\quarantine` before a new staging publication begins; it is never edited or deleted in place. If quarantine or reconstruction fails, startup reports the exact path and error. Identity mismatch always fails without modifying the destination.
+A per-application cross-process named mutex serializes lease acquisition, destination validation, quarantine, and publication; on Windows it uses the machine-global namespace and a SHA-256 scope derived from the canonical application root plus the collision-resistant storage key so instances in separate Windows sessions coordinate without making unrelated users contend. `maintenance.lock` is the on-disk cache-layout marker rather than the synchronization primitive. Mutex acquisition and release occur on the same worker thread, and cancellation interrupts waiting. A valid complete destination is reused. An incomplete or corrupt destination whose metadata belongs to the current application is atomically renamed to a unique child of `assets-v1\quarantine` before a new staging publication begins; it is never edited or deleted in place. If quarantine or reconstruction fails, startup reports the exact path and error. Identity mismatch always fails without modifying the destination, even when the same bundle also has structural corruption.
 
 Phase 1 does not automatically remove old valid bundles, abandoned staging directories, or quarantined bundles. Automatic retention, age-based cleanup, configurable data roots, and enterprise storage policy are deferred and recorded in the architecture roadmap. The immutable bundle layout and leases keep future cleanup possible without changing the asset-provider contract.
 
 #### Request and navigation normalization
 
-The Windows host maps the lease through `https://app.nanto.invalid` with `DenyCors`. URI parsing must succeed as an absolute URI and user information is always rejected. Scheme and host comparison is ordinal-ignore-case; the effective port must match. Queries and fragments do not participate in asset lookup and remain unchanged on an SPA fallback navigation.
+The Windows host maps the lease through `https://app.nanto.invalid` with `DenyCors`. URI parsing must succeed as an absolute URI and user information is always rejected. Scheme and host comparison is ordinal-ignore-case; the effective port must match. Queries and fragments do not participate in asset lookup. Same-origin navigation is allowed only for exact declared assets.
 
 For the application origin, decode each path segment exactly once as UTF-8, normalize it to Unicode Form C, and then apply the manifest path rules. Reject malformed escapes, encoded `/` or `\`, encoded or decoded dot segments, a remaining percent-encoded traversal token after the first decode, control characters, and any path whose decoded and normalized form is ambiguous. Exact ordinal matches in `AssetPaths` are served by WebView2's virtual-host mapping.
 
-A same-origin request falls back to `/index.html` only when it is a top-level document navigation and the final normalized path segment contains no `.`. Subresources and file-like routes never fall back. Wrong-origin HTTP or HTTPS navigation is left to WebView2 and receives no Nanto asset response or future local-origin capability; wrong-origin subresources are likewise left to WebView2 and its CORS policy. `file:`, `data:`, `javascript:`, malformed, credential-bearing, and other schemes are canceled.
+Missing same-origin paths are canceled; Phase 1 performs no host-side SPA fallback. Client-side `history.pushState`, hash routing, and same-document navigation work after `/index.html` loads. Wrong-origin HTTP or HTTPS navigation is left to WebView2 and receives no Nanto asset capability. `file:`, `data:`, `javascript:`, malformed, credential-bearing, and other schemes are canceled.
 
 Golden decisions:
 
 | Candidate | Context | Decision |
 | --- | --- | --- |
 | `https://app.nanto.invalid/assets/app.js?v=1` | Any | Serve exact `/assets/app.js`. |
-| `https://app.nanto.invalid/settings/profile#name` | Top-level document | Fall back to `/index.html`, preserving query/fragment. |
+| `https://app.nanto.invalid/settings/profile#name` | Top-level document | Cancel because the path is not a declared asset. |
 | `https://app.nanto.invalid/settings/profile.json` | Top-level document | Reject fallback because the final segment is file-like. |
 | `https://app.nanto.invalid/missing` | Subresource | Reject fallback. |
 | `https://app.nanto.invalid/%2e%2e/secret` | Any | Reject encoded traversal. |
@@ -745,7 +748,7 @@ WindowsApplicationHost
     └── reverse-order AsyncCleanupRegistry
 ```
 
-`WindowsApplicationHost` owns the UI thread, COM initialization, window class, shared environment, registry, and application cleanup. `WindowsWindow` owns its `HWND`, asset lease, controller, WebView, subscriptions, and window cancellation. Borrowers never release native resources.
+`WindowsApplicationHost` owns the UI thread, COM initialization, window class, registry, and application cleanup. The application-level WebView owner holds application storage, the shared environment, and the asset lease; it releases the lease only after window mappings and controllers are gone. `WindowsWindow` owns its `HWND`, controller-facing presenter, and window cancellation. Borrowers never release native resources.
 
 `WindowRegistry` mutates only on the UI thread and publishes immutable array snapshots through `Volatile.Write`; readers never observe an in-progress mutation. Phase 1 rejects creation of a second window with `NotSupportedException`.
 
@@ -821,12 +824,12 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
    - Apply the application/profile-wide color scheme before navigation and support live changes through standard `prefers-color-scheme` propagation.
    - Use source-generated COM with runtime marshalling disabled.
    - Keep asynchronous environment/controller callbacks rooted through native completion. Cancellation marks the managed operation but does not abandon the native callback; when completion arrives, a returned COM pointer is released on the STA thread and the waiter settles as canceled without resuming initialization.
-   - Teardown by dependency: remove message and navigation subscriptions, clear the mapping, close the controller, release profile/WebView/controller, destroy the `HWND`, unregister its class, dispose the directory lease, release the shared environment, and finally stop the UI thread.
+   - Teardown by dependency: remove message and navigation subscriptions, clear the mapping, close the controller, release profile/WebView/controller, destroy the `HWND`, unregister its class, dispose the application asset lease, release the shared environment, and finally stop the UI thread.
 
 4. **Assets and navigation**
    - Add the versioned extracted asset provider.
    - Add manifest validation, content-addressed publication, shared leases, and quarantine/reconstruction beneath the already established application root.
-   - Add manifest-aware routing, SPA fallback, and navigation normalization.
+   - Add manifest-aware exact routing and navigation normalization; defer clean-path fallback and service workers while virtual-host mapping remains the serving mechanism.
 
 5. **DPI, recovery, and diagnostics**
    - Convert DIPs only at the Windows boundary.
@@ -857,7 +860,8 @@ The canonical unattended integration command is `dotnet test -p:TestScope=All`; 
 - Public host-authoring boundary, canonical application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/close/disposal races, pre-canceled caller waits that still request shutdown, cancellation during initialization, event ordering, timestamping, and failure aggregation.
 - Cleanup ordering, idempotence, continued cleanup after errors, and aggregation.
 - Application-identity trimming/lowercasing, segment and total-length boundaries, invalid-character rejection, and storage-key stability.
-- Portable manifest-path normalization and the complete navigation golden-decision table.
+- Portable manifest-path normalization.
+- Embedded-manifest parsing, resource validation, bundle hashing, materialization, exact-file validation, traversal/reparse-point rejection, concurrent publication, structural reuse, shared leases, corruption quarantine/reconstruction, and identity-mismatch refusal.
 - Dependency checks preventing platform types from entering portable APIs.
 
 `Nanto.Hosting.Windows.Tests` owns:
@@ -867,10 +871,9 @@ The canonical unattended integration command is `dotnet test -p:TestScope=All`; 
 - Short-lived hidden raw-Win32 class and window creation, production `WindowsWindow` lifecycle and snapshot behavior, non-activation, native close delivery, caller-wait cancellation, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
 - Immutable registry snapshots and second-window rejection.
 - DIP conversion at common and fractional DPIs, window-message decoding, and monitor/work-area calculations.
-- Embedded-manifest parsing, resource validation, bundle hashing, materialization, exact-file validation, traversal/reparse-point rejection, and concurrent publication.
-- Cache publication, application identity, shared leases, corrupt-bundle quarantine/reconstruction, quarantine failure, and identity-mismatch refusal.
 - Default `%LOCALAPPDATA%` application-root creation, write probes, path-length boundaries, and unwritable-root diagnostics.
 - Win32/WebView2 ABI declarations and dependency checks preventing UI-framework packages from entering the host.
+- Exact declared-asset navigation, query/fragment handling, malformed URI rejection, and the complete navigation golden-decision table.
 
 `Nanto.Testing.Tests` owns:
 
@@ -907,7 +910,7 @@ dotnet test tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Win
 - Runs scenarios in isolated child processes.
 - Tests navigation, assets, routing, renderer recovery, close races, failure injection, browser exit, and zero-resource teardown.
 - In Milestone 3, specifically proves the exact secure origin, navigation-gated startup, internal readiness diagnostics, initial Dark and Light `matchMedia` observations, live profile switching, System acceptance without OS mutation, every startup acquisition failure/cancellation checkpoint, dependency-ordered cleanup, process exit, unlocked storage, and a zero final ledger.
-- Starts two complete hosts against the same production application root, directory assets, UDF, and profile; requires both to reach readiness and exchange messages; closes the first and proves the second remains usable; then closes the second and verifies Chromium releases the application root for deletion without locked files. Versioned bundle lease-lock and deletion-denial coverage belongs to Milestone 4. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate roots or UDFs.
+- Starts two complete hosts against the same production application root, versioned asset bundle, UDF, and profile; requires both to reach readiness and exchange messages; proves the shared bundle cannot be deleted while either lease remains; closes the first and proves the second remains usable; then closes the second and verifies Chromium and the final asset lease release the application root without locked files. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate roots or UDFs.
 
 This is the CI-safe real-WebView2 project.
 
@@ -1009,7 +1012,7 @@ The generated projection and manifest reproduce byte-for-byte before the host co
 dotnet test -p:TestScope=All
 ```
 
-Manifest validation, content hashing, atomic publication, concurrent reuse, shared leases, corrupt-bundle quarantine/reconstruction, identity-mismatch refusal, secure-origin asset loading, route fallback, and navigation normalization must pass.
+Manifest validation, content hashing, atomic publication, concurrent reuse, shared leases, corrupt-bundle quarantine/reconstruction, identity-mismatch refusal, secure-origin asset loading, exact declared-asset routing, and navigation normalization must pass. Structural reuse validates metadata, exact paths, and lengths without rehashing immutable content on every startup. Clean-path SPA fallback, service workers, custom response headers/MIME mappings, external source maps, full reuse rehashing, forced power-loss durability, cache retention, manifest generation, and directory mutation watching are recorded future improvements; a custom response-serving asset host is the robust route to the deferred web capabilities.
 
 ### Milestone 5 — DPI, recovery, and diagnostics
 

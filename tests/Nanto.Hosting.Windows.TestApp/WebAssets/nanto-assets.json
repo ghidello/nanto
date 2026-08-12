@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "path": "/index.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.index.html",
+      "length": 2109,
+      "sha256": "E247A4FD156D0FE9C20CFF4B46833F36A8CA2777ECE9E7A3090E6ED4979A4771"
+    },
+    {
+      "path": "/navigation.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html",
+      "length": 1549,
+      "sha256": "E70B4F70B4E9F3B026FABD7505F40E7D021541ED0967FA2E369DFDAFF25A41B0"
+    },
+    {
+      "path": "/assets/app.css",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.assets.app.css",
+      "length": 48,
+      "sha256": "1D8CB8AD6C44178B4F1C3FBEC99099FE47BC58BFDA03EEC10A8F809FD592AD3C"
+    },
+    {
+      "path": "/assets/data.json",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.assets.data.json",
+      "length": 13,
+      "sha256": "F7AF7AE44BB8FBAE8EA089BA5101C1DDD8816FBDCC29ABD2235C18669AE0B5A8"
+    },
+    {
+      "path": "/assets/module.js",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.assets.module.js",
+      "length": 25,
+      "sha256": "2496DF5F88B82A3A0DCD34E29CE9BDAFE95FD15DA04695C3CD99F74FAC55E761"
+    },
+    {
+      "path": "/assets/shared-worker.js",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.assets.shared-worker.js",
+      "length": 145,
+      "sha256": "B12F028339F93CC36B746A4E6B0567DB8F520BFA50A8A8FFA9BE96D8BEF288C8"
+    },
+    {
+      "path": "/assets/worker.js",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.assets.worker.js",
+      "length": 61,
+      "sha256": "54E15DA5D722379A6AE8A72C24ECC6ADB27F57705952B7CA421FD278EA040BE6"
+    }
+  ]
+}

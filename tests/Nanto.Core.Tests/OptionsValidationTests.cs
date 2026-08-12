@@ -19,9 +19,11 @@ public sealed class OptionsValidationTests
         validated.LoggerFactory.Should().BeSameAs(NullLoggerFactory.Instance);
         validated.PrimaryWindow.Should().BeSameAs(options.PrimaryWindow);
         validated.PreferredColorScheme.Should().Be(ColorSchemePreference.System);
-        var preparationContext = validated.CreateWebAssetPreparationContext();
+        var applicationRoot = Path.Combine(Path.GetTempPath(), "nanto-options-test");
+        var preparationContext = validated.CreateWebAssetPreparationContext(applicationRoot);
         preparationContext.ApplicationId.Should().Be(validated.Identity.CanonicalId);
         preparationContext.ApplicationStorageKey.Should().Be(validated.Identity.StorageKey);
+        preparationContext.ApplicationRootDirectory.Should().Be(Path.GetFullPath(applicationRoot));
     }
 
     [Theory]

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "path": "/assets/app.js",
+      "resourceName": "Nanto.Core.Tests.Assets.app.js",
+      "length": 27,
+      "sha256": "F1380C56BC2037ED85D0DBDA97811480522B68EDC6E47D72A986250D27BA6BE5"
+    }
+  ]
+}

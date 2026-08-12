@@ -15,6 +15,7 @@ internal enum Phase1AcquisitionCheckpoint
     WebViewProfileCreated,
     WebViewSettingsCreated,
     WebViewSettingsConfigured,
+    NavigationStartingSubscriptionAdded,
     NavigationCompletedSubscriptionAdded,
     WebMessageSubscriptionAdded,
     VirtualHostMappingAdded,

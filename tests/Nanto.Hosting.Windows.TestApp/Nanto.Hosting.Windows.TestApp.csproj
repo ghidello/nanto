@@ -12,7 +12,14 @@
     <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="WebAssets/**" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="WebAssets/assets/app.css" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.app.css" />
+    <EmbeddedResource Include="WebAssets/assets/data.json" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.data.json" />
+    <EmbeddedResource Include="WebAssets/assets/module.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.module.js" />
+    <EmbeddedResource Include="WebAssets/assets/shared-worker.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.shared-worker.js" />
+    <EmbeddedResource Include="WebAssets/assets/worker.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.worker.js" />
+    <EmbeddedResource Include="WebAssets/index.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.index.html" />
+    <EmbeddedResource Include="WebAssets/navigation.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html" />
+    <EmbeddedResource Include="WebAssets/nanto-assets.json" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json" />
   </ItemGroup>
   <Target Name="GetNantoTestAppExecutablePath" Returns="@(_NantoTestAppExecutablePath)">
     <ItemGroup>

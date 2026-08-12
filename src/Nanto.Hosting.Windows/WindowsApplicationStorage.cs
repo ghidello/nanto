@@ -50,7 +50,13 @@ internal sealed class WindowsApplicationStorage
         var temporaryPath = Path.Combine(applicationRoot, $".application-{Guid.NewGuid():N}.tmp");
         try
         {
-            var json = $"{{\"schemaVersion\":{IdentitySchemaVersion},\"applicationId\":\"{applicationId}\"}}\n";
+            var document = new WindowsApplicationIdentityDocument
+            {
+                SchemaVersion = IdentitySchemaVersion,
+                ApplicationId = applicationId,
+            };
+            var json = JsonSerializer.Serialize(document, WindowsApplicationStorageJsonContext.Default.WindowsApplicationIdentityDocument);
+            json += "\n";
             File.WriteAllText(temporaryPath, json);
             try
             {
@@ -96,13 +102,13 @@ internal sealed class WindowsApplicationStorage
     {
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(identityPath));
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("schemaVersion", out var schemaVersion)
-                || schemaVersion.GetInt32() != IdentitySchemaVersion
-                || !root.TryGetProperty("applicationId", out var applicationId)
-                || !string.Equals(applicationId.GetString(), expectedApplicationId, StringComparison.Ordinal))
+            using var stream = File.OpenRead(identityPath);
+            var document = JsonSerializer.Deserialize(
+                stream,
+                WindowsApplicationStorageJsonContext.Default.WindowsApplicationIdentityDocument);
+            if (document is null
+                || document.SchemaVersion != IdentitySchemaVersion
+                || !string.Equals(document.ApplicationId, expectedApplicationId, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
                     $"Application identity metadata at '{identityPath}' does not match '{expectedApplicationId}'.");

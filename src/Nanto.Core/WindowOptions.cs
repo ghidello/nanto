@@ -10,5 +10,9 @@ public sealed record WindowOptions
 
     public bool Resizable { get; init; } = true;
 
-    public string InitialRoute { get; init; } = "/";
+    /// <summary>
+    /// Gets the root-relative URI of the declared asset used for initial navigation.
+    /// </summary>
+    /// <remarks>Query strings and fragments are permitted but do not participate in asset lookup.</remarks>
+    public string InitialRoute { get; init; } = "/index.html";
 }

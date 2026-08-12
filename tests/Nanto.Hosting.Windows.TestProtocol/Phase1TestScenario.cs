@@ -8,6 +8,7 @@ public enum Phase1TestScenario
     NativeClose,
     RunCancellation,
     RepeatedClose,
+    Navigation,
     Appearance,
     SharedProfile,
     ContainmentTimeout,

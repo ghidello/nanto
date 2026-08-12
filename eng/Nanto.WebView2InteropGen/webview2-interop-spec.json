@@ -11,6 +11,10 @@
       "methods": ["Invoke"]
     },
     {
+      "name": "ICoreWebView2NavigationStartingEventHandler",
+      "methods": ["Invoke"]
+    },
+    {
       "name": "ICoreWebView2NavigationCompletedEventHandler",
       "methods": ["Invoke"]
     },
@@ -41,6 +45,10 @@
     {
       "name": "ICoreWebView2Settings",
       "methods": ["put_IsWebMessageEnabled", "put_IsStatusBarEnabled", "put_AreDevToolsEnabled", "put_AreDefaultContextMenusEnabled", "put_AreHostObjectsAllowed"]
+    },
+    {
+      "name": "ICoreWebView2NavigationStartingEventArgs",
+      "methods": ["get_Uri", "put_Cancel"]
     },
     {
       "name": "ICoreWebView2NavigationCompletedEventArgs",

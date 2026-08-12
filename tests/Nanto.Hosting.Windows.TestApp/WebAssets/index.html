@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; worker-src 'self'">
   <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="/assets/app.css">
   <title>Nanto integration fixture</title>
 </head>
 <body>
@@ -12,7 +14,35 @@
     const reportAppearance = () => window.chrome.webview.postMessage(`nanto:test:appearance:${dark.matches ? "Dark" : "Light"}`);
     dark.addEventListener("change", reportAppearance);
     reportAppearance();
-    window.chrome.webview.postMessage("nanto:ready:v1");
+    const verifyAssets = async () => {
+      const module = await import("/assets/module.js");
+      const data = await fetch("/assets/data.json").then(response => response.json());
+      const workerValue = await new Promise((resolve, reject) => {
+        const worker = new Worker("/assets/worker.js", { type: "module" });
+        worker.onmessage = event => { worker.terminate(); resolve(event.data); };
+        worker.onerror = reject;
+        worker.postMessage(20);
+      });
+      const sharedWorkerValue = await new Promise((resolve, reject) => {
+        const worker = new SharedWorker("/assets/shared-worker.js");
+        worker.port.onmessage = event => { worker.port.close(); resolve(event.data); };
+        worker.onerror = reject;
+        worker.port.start();
+        worker.port.postMessage(21);
+      });
+      if (module.value !== 42
+          || data.value !== 42
+          || workerValue !== 42
+          || sharedWorkerValue !== 42
+          || document.styleSheets.length !== 1
+          || document.styleSheets[0].cssRules.length !== 1) {
+        throw new Error("Mapped asset verification failed.");
+      }
+
+      localStorage.setItem("nanto-test-storage", "available");
+      window.chrome.webview.postMessage("nanto:ready:v1");
+    };
+    verifyAssets().catch(error => window.chrome.webview.postMessage(`nanto:test:asset-error:${error.message}`));
   </script>
 </body>
 </html>

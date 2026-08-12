@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'">
+  <title>Nanto navigation fixture</title>
+</head>
+<body>
+  <main>Nanto navigation policy fixture</main>
+  <script>
+    const attemptBlockedNavigation = candidate => new Promise((resolve, reject) => {
+      location.assign(candidate);
+      setTimeout(() => {
+        if (location.pathname !== "/navigation.html" || location.search !== "?step=declared" || location.hash !== "#fixture") {
+          reject(new Error(`Navigation was not cancelled: ${candidate}`));
+          return;
+        }
+
+        resolve();
+      }, 50);
+    });
+
+    const verifyNavigation = async () => {
+      if (location.search === "?step=initial") {
+        location.replace("/navigation.html?step=declared#fixture");
+        return;
+      }
+
+      if (location.search !== "?step=declared" || location.hash !== "#fixture") {
+        throw new Error("Declared navigation did not preserve its query and fragment.");
+      }
+
+      await attemptBlockedNavigation("/missing.html");
+      await attemptBlockedNavigation("/%2e%2e/index.html");
+      await attemptBlockedNavigation("https://app.nanto.invalid./index.html");
+      await attemptBlockedNavigation("file:///C:/nanto-blocked");
+      window.chrome.webview.postMessage("nanto:ready:v1");
+    };
+    verifyNavigation().catch(error => window.chrome.webview.postMessage(`nanto:test:navigation-error:${error.message}`));
+  </script>
+</body>
+</html>

@@ -153,6 +153,72 @@ internal sealed partial class ControllerCreatedHandler : ICoreWebView2CreateCore
 }
 
 [GeneratedComClass]
+internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2NavigationStartingEventHandler
+{
+    private readonly IReadOnlySet<string> _assetPaths;
+
+    public NavigationStartingHandler(IReadOnlySet<string> assetPaths)
+    {
+        _assetPaths = assetPaths ?? throw new ArgumentNullException(nameof(assetPaths));
+    }
+
+    public int Invoke(nint sender, nint args)
+    {
+        try
+        {
+            using var eventArgs = UniqueComReference<ICoreWebView2NavigationStartingEventArgs>.FromPointer(args);
+            return Evaluate(_assetPaths, () => ReadUri(eventArgs.Value), eventArgs.Value.put_Cancel);
+        }
+        catch (Exception exception)
+        {
+            return Marshal.GetHRForException(exception);
+        }
+    }
+
+    internal static int Evaluate(
+        IReadOnlySet<string> assetPaths,
+        Func<(int Result, string Uri)> readUri,
+        Func<int, int> setCancel)
+    {
+        var cancelResult = setCancel(1);
+        if (cancelResult < 0)
+        {
+            return cancelResult;
+        }
+
+        var (uriResult, uri) = readUri();
+        if (uriResult < 0)
+        {
+            return uriResult;
+        }
+
+        return NavigationPolicy.IsAllowed(uri, assetPaths) ? setCancel(0) : 0;
+    }
+
+    private static (int Result, string Uri) ReadUri(ICoreWebView2NavigationStartingEventArgs eventArgs)
+    {
+        nint uriPointer = 0;
+        var result = eventArgs.get_Uri((nint)(&uriPointer));
+        if (result < 0)
+        {
+            return (result, string.Empty);
+        }
+
+        try
+        {
+            return (result, Marshal.PtrToStringUni(uriPointer) ?? string.Empty);
+        }
+        finally
+        {
+            if (uriPointer != 0)
+            {
+                Marshal.FreeCoTaskMem(uriPointer);
+            }
+        }
+    }
+}
+
+[GeneratedComClass]
 internal sealed unsafe partial class NavigationCompletedHandler : ICoreWebView2NavigationCompletedEventHandler
 {
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);

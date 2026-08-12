@@ -160,6 +160,16 @@ internal static class ScenarioRunner
         DateTimeOffset startedAt,
         Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.RepeatedClose);
 
+    public static async Task<Phase1TestReport> RunNavigationAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(
+            request,
+            startedAt,
+            stopwatch,
+            ShutdownAction.Stop,
+            "/navigation.html?step=initial");
+
     public static async Task<Phase1TestReport> RunAppearanceAsync(
         Phase1TestRequest request,
         DateTimeOffset startedAt,
@@ -383,7 +393,8 @@ internal static class ScenarioRunner
     private static NantoApplicationOptions CreateOptions(Phase1TestRequest request) => new()
     {
         ApplicationId = request.ApplicationId,
-        Assets = new DirectoryWebAssetProvider(Path.Combine(AppContext.BaseDirectory, "WebAssets")),
+        Assets = VersionedWebAssetProvider.FromAssembly<TestAppAssetMarker>(
+            "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json"),
         PrimaryWindow = new WindowOptions
         {
             InitialRoute = "/index.html",
@@ -445,6 +456,7 @@ internal static class ScenarioRunner
         {
             "WebMessageReceivedSubscription",
             "NavigationCompletedSubscription",
+            "NavigationStartingSubscription",
             "ApplicationOriginMapping",
             "WebView2Settings",
             "WebView2Profile",
@@ -476,7 +488,8 @@ internal static class ScenarioRunner
         Phase1TestRequest request,
         DateTimeOffset startedAt,
         Stopwatch stopwatch,
-        ShutdownAction shutdownAction)
+        ShutdownAction shutdownAction,
+        string initialRoute = "/index.html")
     {
         var failureInjector = new RecordingFailureInjector(null);
         var transitions = new List<Phase1LifecycleTransition>();
@@ -501,7 +514,10 @@ internal static class ScenarioRunner
         Exception? observedFailure = null;
         var presentationMatched = false;
         var peakResources = initialResources;
-        var run = host.RunAsync(CreateOptions(request), runCancellation.Token);
+        var options = CreateOptions(request);
+        var run = host.RunAsync(
+            options with { PrimaryWindow = options.PrimaryWindow with { InitialRoute = initialRoute } },
+            runCancellation.Token);
         try
         {
             await activated.Task.WaitAsync(Program.ActivationTimeout);
@@ -608,3 +624,5 @@ internal static class ScenarioRunner
         RepeatedClose,
     }
 }
+
+internal sealed class TestAppAssetMarker;
