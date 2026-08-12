@@ -89,6 +89,7 @@ internal static class Program
             FinalResources = emptyResources,
             ResourceOwnershipEvents = [],
             RendererRecoveryResult = "NotApplicable",
+            AppearanceObservations = [],
             RetainedArtifactPaths = [],
             ObservedFailure = CreateObservedFailure(exception),
         };
@@ -132,9 +133,12 @@ internal static class Program
         {
             Phase1TestScenario.HostLifecycle => await ScenarioRunner.RunHostLifecycleAsync(request, startedAt, stopwatch),
             Phase1TestScenario.AcquisitionFailure => await ScenarioRunner.RunAcquisitionFailureAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.StartupCancellation => await ScenarioRunner.RunStartupCancellationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.NativeClose => await ScenarioRunner.RunNativeCloseAsync(request, startedAt, stopwatch),
             Phase1TestScenario.RunCancellation => await ScenarioRunner.RunCancellationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.RepeatedClose => await ScenarioRunner.RunRepeatedCloseAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.Appearance => await ScenarioRunner.RunAppearanceAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.SharedProfile => await ScenarioRunner.RunSharedProfileAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),
         };

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <title>Nanto integration fixture</title>
+</head>
+<body>
+  <main>Nanto WebView2 integration fixture</main>
+  <script>
+    const dark = window.matchMedia("(prefers-color-scheme: dark)");
+    const reportAppearance = () => window.chrome.webview.postMessage(`nanto:test:appearance:${dark.matches ? "Dark" : "Light"}`);
+    dark.addEventListener("change", reportAppearance);
+    reportAppearance();
+    window.chrome.webview.postMessage("nanto:ready:v1");
+  </script>
+</body>
+</html>

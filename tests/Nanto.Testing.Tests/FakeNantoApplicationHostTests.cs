@@ -39,6 +39,58 @@ public sealed class FakeNantoApplicationHostTests
     }
 
     [Fact]
+    public async Task PreferredColorSchemeUsesTheInitialOptionAndChangesThroughTheDispatcher()
+    {
+        using var dispatcher = new ManualUiDispatcher();
+        var host = new FakeNantoApplicationHost(dispatcher, TimeProvider.System);
+        var options = TestingFixture.CreateOptions() with { PreferredColorScheme = ColorSchemePreference.Dark };
+        var run = host.RunAsync(options, TestContext.Current.CancellationToken);
+        await TestingFixture.DriveUntilAsync(dispatcher, () => host.State == ApplicationState.Activated);
+
+        host.PreferredColorScheme.Should().Be(ColorSchemePreference.Dark);
+        var change = host.SetPreferredColorSchemeAsync(ColorSchemePreference.Light, TestContext.Current.CancellationToken);
+        await dispatcher.RunNextAsync();
+        await change;
+        host.PreferredColorScheme.Should().Be(ColorSchemePreference.Light);
+
+        var stop = host.StopAsync(TestContext.Current.CancellationToken);
+        await TestingFixture.DriveUntilAsync(dispatcher, () => run.IsCompleted);
+        await stop;
+        await run;
+    }
+
+    [Fact]
+    public async Task PreferredColorSchemeCannotChangeOutsideTheCreatedLifecycleOrAfterStopIsRequested()
+    {
+        using var dispatcher = new ManualUiDispatcher();
+        var host = new FakeNantoApplicationHost(dispatcher, TimeProvider.System);
+        host.StopGate.Close();
+
+        var beforeRun = () => host.SetPreferredColorSchemeAsync(ColorSchemePreference.Dark, TestContext.Current.CancellationToken);
+        beforeRun.Should().Throw<InvalidOperationException>();
+
+        var run = host.RunAsync(TestingFixture.CreateOptions(), TestContext.Current.CancellationToken);
+        await TestingFixture.DriveUntilAsync(dispatcher, () => host.State == ApplicationState.Activated);
+        var queuedChange = host.SetPreferredColorSchemeAsync(ColorSchemePreference.Light, TestContext.Current.CancellationToken);
+        var stop = host.StopAsync(TestContext.Current.CancellationToken);
+        await host.StopGate.WaitUntilReachedAsync(TestContext.Current.CancellationToken);
+
+        var afterStopRequest = () => host.SetPreferredColorSchemeAsync(ColorSchemePreference.Dark, TestContext.Current.CancellationToken);
+        afterStopRequest.Should().Throw<ObjectDisposedException>();
+        (await dispatcher.RunNextAsync()).Should().BeTrue();
+        await queuedChange.AsTask().Invoking(static task => task).Should().ThrowAsync<ObjectDisposedException>();
+        host.PreferredColorScheme.Should().Be(ColorSchemePreference.System);
+
+        host.StopGate.Open();
+        await TestingFixture.DriveUntilAsync(dispatcher, () => run.IsCompleted);
+        await stop;
+        await run;
+
+        var afterClose = () => host.SetPreferredColorSchemeAsync(ColorSchemePreference.Dark, TestContext.Current.CancellationToken);
+        afterClose.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
     public async Task LifecycleGatesPauseAtEveryOrderlyCheckpoint()
     {
         using var dispatcher = new ManualUiDispatcher();

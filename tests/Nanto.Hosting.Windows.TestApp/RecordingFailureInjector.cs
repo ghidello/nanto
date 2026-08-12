@@ -2,7 +2,8 @@ namespace Nanto.Hosting.Windows.TestApp;
 
 internal sealed class RecordingFailureInjector(
     Phase1AcquisitionCheckpoint? failureCheckpoint,
-    Func<ResourceLedgerSnapshot>? captureFailureSnapshot = null) : IPhase1FailureInjector
+    Func<ResourceLedgerSnapshot>? captureFailureSnapshot = null,
+    Action<Phase1AcquisitionCheckpoint>? checkpointAction = null) : IPhase1FailureInjector
 {
     private readonly List<Phase1AcquisitionCheckpoint> _reachedCheckpoints = [];
 
@@ -15,6 +16,7 @@ internal sealed class RecordingFailureInjector(
     public void OnAcquired(Phase1AcquisitionCheckpoint checkpoint)
     {
         _reachedCheckpoints.Add(checkpoint);
+        checkpointAction?.Invoke(checkpoint);
         if (checkpoint == failureCheckpoint)
         {
             SnapshotAtFailure = captureFailureSnapshot?.Invoke();

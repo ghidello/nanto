@@ -30,13 +30,31 @@ public static class Phase1TestRequestValidator
             throw new ArgumentException("The artifact directory must be an absolute path.", nameof(request));
         }
 
-        if (request.Scenario == Phase1TestScenario.AcquisitionFailure)
+        if (request.Scenario is Phase1TestScenario.AcquisitionFailure or Phase1TestScenario.StartupCancellation)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(request.FailureCheckpoint);
         }
         else if (request.FailureCheckpoint is not null)
         {
-            throw new ArgumentException("A failure checkpoint is valid only for the acquisition-failure scenario.", nameof(request));
+            throw new ArgumentException("A checkpoint is valid only for acquisition-failure and startup-cancellation scenarios.", nameof(request));
+        }
+
+        if (request.Scenario == Phase1TestScenario.SharedProfile)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(request.CoordinationDirectory);
+            if (!Path.IsPathFullyQualified(request.CoordinationDirectory))
+            {
+                throw new ArgumentException("The shared-profile coordination directory must be absolute.", nameof(request));
+            }
+
+            if (request.ParticipantId is not ("first" or "second"))
+            {
+                throw new ArgumentException("A shared-profile participant must be named 'first' or 'second'.", nameof(request));
+            }
+        }
+        else if (request.CoordinationDirectory is not null || request.ParticipantId is not null)
+        {
+            throw new ArgumentException("Coordination settings are valid only for the shared-profile scenario.", nameof(request));
         }
     }
 }

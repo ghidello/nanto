@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "namespace": "Nanto.Hosting.Windows.Interop",
+  "interfaces": [
+    {
+      "name": "ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2WebMessageReceivedEventHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2Environment",
+      "methods": ["CreateCoreWebView2Controller"]
+    },
+    {
+      "name": "ICoreWebView2Controller",
+      "methods": ["put_IsVisible", "put_Bounds", "get_CoreWebView2", "Close"]
+    },
+    {
+      "name": "ICoreWebView2",
+      "methods": ["get_Settings", "Navigate", "add_NavigationCompleted", "remove_NavigationCompleted", "add_WebMessageReceived", "remove_WebMessageReceived"]
+    },
+    {
+      "name": "ICoreWebView2_3",
+      "methods": ["SetVirtualHostNameToFolderMapping", "ClearVirtualHostNameToFolderMapping"]
+    },
+    {
+      "name": "ICoreWebView2_13",
+      "methods": ["get_Profile"]
+    },
+    {
+      "name": "ICoreWebView2Settings",
+      "methods": ["put_IsWebMessageEnabled", "put_IsStatusBarEnabled", "put_AreDevToolsEnabled", "put_AreDefaultContextMenusEnabled", "put_AreHostObjectsAllowed"]
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventArgs",
+      "methods": ["get_IsSuccess", "get_WebErrorStatus"]
+    },
+    {
+      "name": "ICoreWebView2WebMessageReceivedEventArgs",
+      "methods": ["get_Source", "TryGetWebMessageAsString"]
+    },
+    {
+      "name": "ICoreWebView2Profile",
+      "methods": ["put_PreferredColorScheme"]
+    }
+  ],
+  "types": [
+    "COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND",
+    "COREWEBVIEW2_PREFERRED_COLOR_SCHEME",
+    "COREWEBVIEW2_WEB_ERROR_STATUS",
+    "EventRegistrationToken",
+    "RECT"
+  ],
+  "loaderFunctions": ["CreateCoreWebView2EnvironmentWithOptions"]
+}

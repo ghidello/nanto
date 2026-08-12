@@ -10,5 +10,6 @@ internal enum WindowsResourceKind
     Subscription,
     DispatcherItem,
     AssetLease,
+    VirtualHostMapping,
     BrowserProcess,
 }

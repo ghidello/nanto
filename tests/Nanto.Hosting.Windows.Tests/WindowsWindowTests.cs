@@ -17,10 +17,10 @@ public sealed class WindowsWindowTests
         {
             var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
             await dispatcher.InvokeAsync(
-                () =>
+                async _ =>
                 {
                     windowClass = new Win32WindowClass(ledger, dispatcher);
-                    window = CreateHiddenWindow(windowClass, ledger, dispatcher);
+                    window = await CreateHiddenWindowAsync(windowClass, ledger, dispatcher);
                 },
                 TestContext.Current.CancellationToken);
 
@@ -63,10 +63,10 @@ public sealed class WindowsWindowTests
         {
             var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
             await dispatcher.InvokeAsync(
-                () =>
+                async _ =>
                 {
                     windowClass = new Win32WindowClass(ledger, dispatcher);
-                    window = CreateHiddenWindow(windowClass, ledger, dispatcher);
+                    window = await CreateHiddenWindowAsync(windowClass, ledger, dispatcher);
                     window.StateChanged += (_, eventArgs) => states.Add(eventArgs.NewState);
                 },
                 TestContext.Current.CancellationToken);
@@ -97,10 +97,10 @@ public sealed class WindowsWindowTests
         {
             var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
             await dispatcher.InvokeAsync(
-                () =>
+                async _ =>
                 {
                     windowClass = new Win32WindowClass(ledger, dispatcher);
-                    window = CreateHiddenWindow(windowClass, ledger, dispatcher);
+                    window = await CreateHiddenWindowAsync(windowClass, ledger, dispatcher);
                     window.StateChanged += static (_, _) => throw new InvalidOperationException("handler failed");
                     window.StateChanged += (_, _) => laterHandlerCount++;
                 },
@@ -130,10 +130,10 @@ public sealed class WindowsWindowTests
         {
             var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
             await dispatcher.InvokeAsync(
-                () =>
+                async _ =>
                 {
                     windowClass = new Win32WindowClass(ledger, dispatcher);
-                    window = CreateHiddenWindow(windowClass, ledger, dispatcher);
+                    window = await CreateHiddenWindowAsync(windowClass, ledger, dispatcher);
                 },
                 TestContext.Current.CancellationToken);
 
@@ -153,13 +153,113 @@ public sealed class WindowsWindowTests
         ledger.CaptureSnapshot().TotalActive.Should().Be(0);
     }
 
-    private static WindowsWindow CreateHiddenWindow(Win32WindowClass windowClass, ResourceLedger ledger, IUiDispatcher dispatcher) => new(
-        windowClass,
-        ledger,
-        dispatcher,
-        new WindowOptions
+    [Fact]
+    public async Task PartialCreationAggregatesTheCreationAndCleanupFailures()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        Win32WindowClass? windowClass = null;
+        var cleanupFailure = new InvalidOperationException("WebView cleanup failed");
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            using var cancellation = new CancellationTokenSource();
+            var creation = () => dispatcher.InvokeAsync(
+                async _ =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    await WindowsWindow.CreateAsync(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        new CancelingWebViewApplication(cancellation, cleanupFailure),
+                        new WindowOptions { Title = "Partial creation" },
+                        ColorSchemePreference.System,
+                        cancellationToken: cancellation.Token);
+                },
+                TestContext.Current.CancellationToken).AsTask();
+
+            var exception = (await creation.Should().ThrowAsync<AggregateException>()).Which;
+            exception.Flatten().InnerExceptions.Should().ContainSingle(static failure => failure is OperationCanceledException);
+            exception.Flatten().InnerExceptions.Should().Contain(cleanupFailure);
+            await dispatcher.InvokeAsync(windowClass!.Dispose, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    private static async ValueTask<WindowsWindow> CreateHiddenWindowAsync(
+        Win32WindowClass windowClass,
+        ResourceLedger ledger,
+        IUiDispatcher dispatcher)
+    {
+        var options = new WindowOptions
         {
             Title = "Nanto hidden production window",
             StartVisible = false,
+        };
+        var validatedOptions = Nanto.Hosting.ValidatedApplicationOptions.Create(new NantoApplicationOptions
+        {
+            ApplicationId = "com.example.nanto-window-tests",
+            Assets = new UnusedAssetProvider(),
+            PrimaryWindow = options,
         });
+        var webViewApplication = await NoOpWindowsWebViewApplicationFactory.Instance.CreateAsync(
+            validatedOptions,
+            ledger,
+            NoOpPhase1FailureInjector.Instance,
+            TestContext.Current.CancellationToken);
+        return await WindowsWindow.CreateAsync(
+            windowClass,
+            ledger,
+            dispatcher,
+            webViewApplication,
+            options,
+            ColorSchemePreference.System,
+            cancellationToken: TestContext.Current.CancellationToken);
+    }
+
+    private sealed class UnusedAssetProvider : IWebAssetProvider
+    {
+        public ValueTask<IWebAssetLease> PrepareAsync(WebAssetPreparationContext context, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class CancelingWebViewApplication(CancellationTokenSource cancellation, Exception cleanupFailure) : IWindowsWebViewApplication
+    {
+        public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
+            global::Windows.Win32.Foundation.HWND parentWindow,
+            WindowOptions options,
+            ColorSchemePreference preferredColorScheme,
+            CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            return ValueTask.FromResult<IWindowsWebViewWindow>(new FailingCleanupWebViewWindow(cleanupFailure));
+        }
+
+        public ValueTask SetPreferredColorSchemeAsync(ColorSchemePreference preferredColorScheme, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask WaitForReadinessAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromCanceled<string>(cancellationToken.IsCancellationRequested ? cancellationToken : new CancellationToken(canceled: true));
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FailingCleanupWebViewWindow(Exception cleanupFailure) : IWindowsWebViewWindow
+    {
+        public Task Readiness => Task.CompletedTask;
+
+        public void SetBounds(int width, int height)
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.FromException(cleanupFailure);
+    }
 }

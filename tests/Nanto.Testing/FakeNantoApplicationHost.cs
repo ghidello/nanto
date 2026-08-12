@@ -24,6 +24,7 @@ public sealed class FakeNantoApplicationHost : INantoApplicationHost
     private ILogger _logger = NullLogger.Instance;
     private FakeNantoWindow? _ownedWindow;
     private INantoWindow? _primaryWindow;
+    private int _preferredColorScheme;
     private ShutdownMode _shutdownMode;
     private Exception? _windowFailure;
 
@@ -46,6 +47,8 @@ public sealed class FakeNantoApplicationHost : INantoApplicationHost
     }
 
     public INantoWindow? PrimaryWindow => Volatile.Read(ref _primaryWindow);
+
+    public ColorSchemePreference PreferredColorScheme => (ColorSchemePreference)Volatile.Read(ref _preferredColorScheme);
 
     public ManualAsyncGate CreationGate { get; } = new();
 
@@ -85,11 +88,42 @@ public sealed class FakeNantoApplicationHost : INantoApplicationHost
             }
 
             _logger = validatedOptions.LoggerFactory.CreateLogger<FakeNantoApplicationHost>();
+            Volatile.Write(ref _preferredColorScheme, (int)validatedOptions.PreferredColorScheme);
             _runClaimed = true;
         }
 
         _ = RunCoreAsync(validatedOptions, cancellationToken);
         return _runCompletion.Task;
+    }
+
+    public ValueTask SetPreferredColorSchemeAsync(
+        ColorSchemePreference preferredColorScheme,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(preferredColorScheme))
+        {
+            throw new ArgumentOutOfRangeException(nameof(preferredColorScheme), preferredColorScheme, "The preferred color scheme is not supported.");
+        }
+
+        var state = State;
+        if (state is ApplicationState.NotStarted or ApplicationState.Creating)
+        {
+            throw new InvalidOperationException("The preferred color scheme cannot be changed before the application is created.");
+        }
+
+        ObjectDisposedException.ThrowIf(
+            _stopRequested.Task.IsCompleted || state is ApplicationState.Failed or ApplicationState.Closing or ApplicationState.Closed,
+            this);
+        return _dispatcher.InvokeAsync(
+            () =>
+            {
+                ObjectDisposedException.ThrowIf(_stopRequested.Task.IsCompleted, this);
+                if (PreferredColorScheme != preferredColorScheme)
+                {
+                    Volatile.Write(ref _preferredColorScheme, (int)preferredColorScheme);
+                }
+            },
+            cancellationToken);
     }
 
     public ValueTask StopAsync(CancellationToken cancellationToken = default)

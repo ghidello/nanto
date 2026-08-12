@@ -18,6 +18,7 @@ public sealed class OptionsValidationTests
         validated.Identity.CanonicalId.Should().Be("com.example.nanto");
         validated.LoggerFactory.Should().BeSameAs(NullLoggerFactory.Instance);
         validated.PrimaryWindow.Should().BeSameAs(options.PrimaryWindow);
+        validated.PreferredColorScheme.Should().Be(ColorSchemePreference.System);
         var preparationContext = validated.CreateWebAssetPreparationContext();
         preparationContext.ApplicationId.Should().Be(validated.Identity.CanonicalId);
         preparationContext.ApplicationStorageKey.Should().Be(validated.Identity.StorageKey);
@@ -48,6 +49,19 @@ public sealed class OptionsValidationTests
         var options = CreateOptions() with
         {
             PrimaryWindow = CreateOptions().PrimaryWindow with { InitialBounds = default },
+        };
+
+        var action = () => ValidatedApplicationOptions.Create(options);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void CreateRejectsUnknownColorSchemePreference()
+    {
+        var options = CreateOptions() with
+        {
+            PreferredColorScheme = (ColorSchemePreference)int.MaxValue,
         };
 
         var action = () => ValidatedApplicationOptions.Create(options);

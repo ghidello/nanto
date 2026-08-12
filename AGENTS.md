@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Feasibility and the Phase 1 Win32-host milestone are complete; the immediate focus is Milestone 3 in `docs/phase1-plan.md`: add deterministic WebView2 interop generation and then the minimal production WebView2 host. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Milestones 1 and 2 are complete; Milestone 3 in `docs/phase1-plan.md` is the current acceptance target. Its implementation includes deterministic WebView2 interop generation, application storage, directory assets, the minimal production WebView2 host, navigation-gated startup, application-wide appearance, real startup cancellation checkpoints, shared-profile multi-instance coverage, and dependency-ordered zero-resource teardown. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 
@@ -17,8 +17,9 @@ Work from the roadmap in order. Feasibility and the Phase 1 Win32-host milestone
 - Prefer generated, pinned interop definitions (not hand-copied signatures or raw OS magic numbers), and use `DisableRuntimeMarshalling=true` for the AOT path.
 - Generate commands, serializers, plugin registries, capabilities, and TypeScript bindings at compile time. Avoid runtime assembly scanning, dynamic proxies, runtime code emission, and unbounded reflection.
 - Treat frontend content as untrusted. Command access is default-deny and must be checked against the calling origin and window/WebView identity.
-- Give every native handle, COM object, subscription, cancellation source, and process one clear owner. Teardown must be deterministic, idempotent, cancellation-first, and reverse creation order.
+- Give every native handle, COM object, subscription, cancellation source, and process one clear owner. Teardown must be deterministic, idempotent, cancellation-first, and reverse dependency order. Do not force unrelated application-, window-, and thread-scoped resources into one artificial global stack.
 - Keep WebView2 work on the STA UI thread. Never synchronously block on an operation whose completion requires that thread.
+- Keep appearance application/profile-scoped. Apply `System`, `Light`, or `Dark` through the platform WebView profile and standard `prefers-color-scheme`; do not add a theme-specific frontend protocol or a Nanto-owned preference store.
 - Keep frontend integration framework-neutral: a development command and URL, a production build command and asset directory, and generated ESM bindings. Vite is a reference adapter, not a core dependency.
 - Development may use CoreCLR, but it must exercise the same generated registries, serialization, authorization, lifecycle, and host contracts as Native AOT.
 - Use standard .NET, npm, OpenTelemetry, and optional Aspire concepts instead of opaque project-specific machinery.
@@ -81,7 +82,7 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, the three fast test projects, and the current TestProtocol, TestApp, IntegrationTestKit, and hidden integration project. Only the three fast test projects execute tests by default.
+Both commands cover the two production assemblies, the offline interop generator, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, IntegrationTestKit, hidden WebView2 integration, and interop-generation integration projects. Only the three fast test projects execute tests by default.
 
 Test scope is independent from build configuration. Use:
 
@@ -92,7 +93,7 @@ dotnet test -p:TestScope=Integration     # unattended integration tests only
 dotnet test -c Release -p:TestScope=All  # complete suite using Release builds
 ```
 
-`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the Milestone 2 gate: it covers the fast suite plus contained hidden-process tests for clean startup, every implemented acquisition failure, native close, run cancellation, repeated close, scenario timeout, zero final ledgers, and exact reverse release of checkpoint-owned resources.
+`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the Milestone 3 gate: it covers deterministic interop regeneration plus contained hidden WebView2 processes for secure navigation, appearance propagation, every acquisition failure and cancellation checkpoint, close races, scenario timeout, shared-profile multi-instance behavior, dependency-ordered cleanup, unlocked storage, and zero final ledgers.
 
 Once the manual projects exist, their commands are:
 

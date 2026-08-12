@@ -6,6 +6,8 @@ public sealed record Phase1TestRunResult
 {
     public required string ApplicationId { get; init; }
 
+    public required string ApplicationRoot { get; init; }
+
     public required string ArtifactDirectory { get; init; }
 
     public required bool ArtifactsRetained { get; init; }

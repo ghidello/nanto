@@ -1,0 +1,80 @@
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
+
+namespace Nanto.Hosting.Windows.Interop;
+
+internal static class HResult
+{
+    public static void ThrowIfFailed(int value, string operation, NantoFailureStage stage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        if (value >= 0)
+        {
+            return;
+        }
+
+        var failure = Marshal.GetExceptionForHR(value) ?? new InvalidOperationException($"An unknown COM failure 0x{value:X8} occurred.");
+        throw new NantoHostException($"The native operation '{operation}' failed with HRESULT 0x{value:X8}.", failure)
+        {
+            Stage = stage,
+            Operation = operation,
+            NativeErrorCode = value,
+        };
+    }
+}
+
+internal sealed unsafe class UniqueComReference<T> : IDisposable
+    where T : class
+{
+    private T? _value;
+
+    public T Value => _value ?? throw new ObjectDisposedException(typeof(T).Name);
+
+    private UniqueComReference(T value)
+    {
+        _value = value;
+    }
+
+    public static UniqueComReference<T> FromPointer(nint pointer)
+    {
+        if (pointer == 0)
+        {
+            throw new InvalidOperationException($"Native code returned a null {typeof(T).Name} pointer.");
+        }
+
+        var value = UniqueComInterfaceMarshaller<T>.ConvertToManaged((void*)pointer)
+            ?? throw new InvalidOperationException($"Nanto could not create a managed {typeof(T).Name} wrapper.");
+        return new UniqueComReference<T>(value);
+    }
+
+    public void Dispose()
+    {
+        var value = Interlocked.Exchange(ref _value, null);
+        if (value is not null)
+        {
+            ((ComObject)(object)value).FinalRelease();
+        }
+    }
+}
+
+internal sealed class Utf16String : IDisposable
+{
+    private nint _pointer;
+
+    public nint Pointer => _pointer;
+
+    public Utf16String(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        _pointer = Marshal.StringToCoTaskMemUni(value);
+    }
+
+    public void Dispose()
+    {
+        var pointer = Interlocked.Exchange(ref _pointer, 0);
+        if (pointer != 0)
+        {
+            Marshal.FreeCoTaskMem(pointer);
+        }
+    }
+}

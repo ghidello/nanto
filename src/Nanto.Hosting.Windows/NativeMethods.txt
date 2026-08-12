@@ -4,6 +4,7 @@ DefWindowProc
 DestroyWindow
 GetCurrentThreadId
 GetActiveWindow
+GetClientRect
 GetMessage
 GetModuleHandle
 GetWindowRect
@@ -26,6 +27,7 @@ SHOW_WINDOW_CMD
 WINDOW_EX_STYLE
 WINDOW_STYLE
 WM_CLOSE
+WM_SIZE
 WM_DESTROY
 WM_NCDESTROY
 WM_APP

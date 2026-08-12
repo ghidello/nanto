@@ -20,9 +20,13 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
     private readonly WindowLifecycle _lifecycle;
     private readonly ILogger _logger;
     private readonly Win32Window _nativeWindow;
+    private IWindowsWebViewWindow? _webViewWindow;
+    private Exception? _closeFailure;
     private EventHandler<RendererFailedEventArgs>? _rendererFailed;
     private WindowsWindowSnapshot _snapshot;
+    private int _closeCleanupInProgress;
     private int _closeRequested;
+    private int _nativeWindowCreated;
 
     public WindowId Id { get; }
 
@@ -44,7 +48,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         remove => _rendererFailed -= value;
     }
 
-    public WindowsWindow(
+    private WindowsWindow(
         Win32WindowClass windowClass,
         ResourceLedger resourceLedger,
         IUiDispatcher dispatcher,
@@ -92,14 +96,67 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             {
                 CloseRequested = CloseOnUiThread,
                 Destroyed = OnNativeDestroyed,
+                Resized = OnNativeResized,
             },
             failureInjector);
+        Volatile.Write(ref _nativeWindowCreated, 1);
+    }
 
-        TransitionTo(WindowState.Running);
-        if (options.StartVisible)
+    public static async ValueTask<WindowsWindow> CreateAsync(
+        Win32WindowClass windowClass,
+        ResourceLedger resourceLedger,
+        IUiDispatcher dispatcher,
+        IWindowsWebViewApplication webViewApplication,
+        WindowOptions options,
+        ColorSchemePreference preferredColorScheme,
+        IPhase1FailureInjector? failureInjector = null,
+        TimeProvider? timeProvider = null,
+        ILoggerFactory? loggerFactory = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(webViewApplication);
+        var window = new WindowsWindow(
+            windowClass,
+            resourceLedger,
+            dispatcher,
+            options,
+            failureInjector,
+            timeProvider,
+            loggerFactory);
+        try
         {
-            _nativeWindow.Activate();
-            PublishSnapshot(title: null, bounds: null, state: null, isVisible: true);
+            cancellationToken.ThrowIfCancellationRequested();
+            window._webViewWindow = await webViewApplication.CreateWindowAsync(
+                window.Handle,
+                options,
+                preferredColorScheme,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            window.TransitionTo(WindowState.Running);
+            if (options.StartVisible)
+            {
+                window._nativeWindow.Activate();
+                window.PublishSnapshot(title: null, bounds: null, state: null, isVisible: true);
+            }
+
+            return window;
+        }
+        catch (Exception creationException)
+        {
+            try
+            {
+                await window.CloseCoreAsync();
+                await window._closeCompletion.Task;
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "Windows window creation failed and cleanup also failed.",
+                    creationException,
+                    cleanupException);
+            }
+
+            throw;
         }
     }
 
@@ -176,15 +233,69 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             return;
         }
 
+        Interlocked.Exchange(ref _closeRequested, 1);
         TransitionTo(WindowState.Closing);
+        _ = ObserveCloseCoreDispatchAsync(
+            _dispatcher.InvokeAsync(_ => new ValueTask(CloseCoreAsync()), CancellationToken.None));
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        Volatile.Write(ref _closeCleanupInProgress, 1);
+        if (State is not WindowState.Closing and not WindowState.Closed)
+        {
+            TransitionTo(WindowState.Closing);
+        }
+
+        List<Exception>? failures = null;
+        var webViewWindow = Interlocked.Exchange(ref _webViewWindow, null);
+        if (webViewWindow is not null)
+        {
+            try
+            {
+                await webViewWindow.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                failures = [exception];
+            }
+        }
+
+        _closeFailure = failures switch
+        {
+            null => null,
+            [var failure] => failure,
+            _ => new AggregateException("The Windows window encountered multiple cleanup failures.", failures),
+        };
+
         try
         {
             _nativeWindow.Dispose();
         }
         catch (Exception exception)
         {
+            failures ??= [];
+            failures.Add(exception);
+            _closeFailure = failures switch
+            {
+                [var failure] => failure,
+                _ => new AggregateException("The Windows window encountered multiple cleanup failures.", failures),
+            };
+        }
+
+        Volatile.Write(ref _closeCleanupInProgress, 0);
+        CompleteClose();
+    }
+
+    private async Task ObserveCloseCoreDispatchAsync(ValueTask dispatch)
+    {
+        try
+        {
+            await dispatch.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
             _closeCompletion.TrySetException(exception);
-            throw;
         }
     }
 
@@ -208,7 +319,32 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         }
 
         TransitionTo(WindowState.Closed);
-        _closeCompletion.TrySetResult();
+        if (Volatile.Read(ref _nativeWindowCreated) != 0 && Volatile.Read(ref _closeCleanupInProgress) == 0)
+        {
+            CompleteClose();
+        }
+    }
+
+    private void OnNativeResized(int width, int height)
+    {
+        _webViewWindow?.SetBounds(width, height);
+    }
+
+    private void CompleteClose()
+    {
+        if (!_nativeWindow.IsDestroyed && _closeFailure is null)
+        {
+            return;
+        }
+
+        if (_closeFailure is null)
+        {
+            _closeCompletion.TrySetResult();
+        }
+        else
+        {
+            _closeCompletion.TrySetException(_closeFailure);
+        }
     }
 
     private void PublishSnapshot(string? title, WindowBounds? bounds, WindowState? state, bool? isVisible)

@@ -10,6 +10,14 @@ public sealed record NantoApplicationOptions
 
     public required IWebAssetProvider Assets { get; init; }
 
+    /// <summary>
+    /// Gets the application-wide color-scheme preference. The application owns persistence of a user-selected value.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ColorSchemePreference.System" /> delegates to the platform and remains responsive to operating-system changes.
+    /// </remarks>
+    public ColorSchemePreference PreferredColorScheme { get; init; } = ColorSchemePreference.System;
+
     public ShutdownMode ShutdownMode { get; init; } = ShutdownMode.OnPrimaryWindowClosed;
 
     public ILoggerFactory? LoggerFactory { get; init; }

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using Nanto.Hosting.Windows.TestProtocol;
@@ -14,7 +16,8 @@ public static class Phase1TestProcessRunner
         ValidateOptions(options);
 
         var runId = Guid.NewGuid().ToString("N");
-        var applicationId = $"com.nanto.phase1.{runId}";
+        var applicationId = options.ApplicationId ?? $"com.nanto.phase1.{runId}";
+        var applicationRoot = GetApplicationRoot(applicationId);
         var artifactDirectory = Path.Combine(Path.GetFullPath(options.ArtifactRoot), runId);
         Directory.CreateDirectory(artifactDirectory);
         var requestPath = Path.Combine(artifactDirectory, "request.json");
@@ -29,6 +32,8 @@ public static class Phase1TestProcessRunner
             FailureCheckpoint = options.FailureCheckpoint,
             IterationCount = options.IterationCount,
             ArtifactDirectory = artifactDirectory,
+            CoordinationDirectory = options.CoordinationDirectory,
+            ParticipantId = options.ParticipantId,
         };
         Phase1TestRequestValidator.Validate(request);
 
@@ -37,15 +42,23 @@ public static class Phase1TestProcessRunner
         Task<string>? standardOutput = null;
         Task<string>? standardError = null;
         var timedOut = false;
+        var ownsJob = options.ProcessGroup is null;
         try
         {
-            job = WindowsProcessJob.CreateKillOnClose();
+            job = options.ProcessGroup?.GetJob() ?? WindowsProcessJob.CreateKillOnClose();
             process = StartProcess(options.TestAppPath, requestPath, reportPath);
             standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
             standardError = process.StandardError.ReadToEndAsync(cancellationToken);
             try
             {
-                job.Assign(process);
+                if (options.ProcessGroup is null)
+                {
+                    job.Assign(process);
+                }
+                else
+                {
+                    options.ProcessGroup.Assign(process);
+                }
             }
             catch (Exception assignmentException)
             {
@@ -73,7 +86,7 @@ public static class Phase1TestProcessRunner
                 timedOut = true;
                 try
                 {
-                    await StopContainedProcessAsync(process, job).ConfigureAwait(false);
+                    await StopContainedProcessAsync(process, job, ownsJob).ConfigureAwait(false);
                 }
                 catch (Exception stopException)
                 {
@@ -84,7 +97,7 @@ public static class Phase1TestProcessRunner
             {
                 try
                 {
-                    await StopContainedProcessAsync(process, job).ConfigureAwait(false);
+                    await StopContainedProcessAsync(process, job, ownsJob).ConfigureAwait(false);
                 }
                 catch (Exception stopException)
                 {
@@ -95,13 +108,17 @@ public static class Phase1TestProcessRunner
             }
 
             // Root-process exit does not prove that every contained descendant exited or released inherited output handles.
-            job.Dispose();
+            if (ownsJob)
+            {
+                job.Dispose();
+            }
             var output = await standardOutput.ConfigureAwait(false);
             var error = await standardError.ConfigureAwait(false);
             var report = await ReadReportAsync(reportPath, request, cancellationToken).ConfigureAwait(false);
             var result = new Phase1TestRunResult
             {
                 ApplicationId = applicationId,
+                ApplicationRoot = applicationRoot,
                 ArtifactDirectory = artifactDirectory,
                 ArtifactsRetained = true,
                 ExitCode = process.ExitCode,
@@ -115,6 +132,11 @@ public static class Phase1TestProcessRunner
                 return result;
             }
 
+            if (options.CleanupApplicationRootOnSuccess && Directory.Exists(applicationRoot))
+            {
+                await DeleteApplicationRootAsync(applicationRoot, CancellationToken.None).ConfigureAwait(false);
+            }
+
             Directory.Delete(artifactDirectory, recursive: true);
             return result with { ArtifactsRetained = false };
         }
@@ -122,7 +144,7 @@ public static class Phase1TestProcessRunner
         {
             try
             {
-                await StopContainedProcessAsync(process, job).ConfigureAwait(false);
+                await StopContainedProcessAsync(process, job, ownsJob).ConfigureAwait(false);
             }
             catch (Exception stopException)
             {
@@ -133,8 +155,41 @@ public static class Phase1TestProcessRunner
         }
         finally
         {
-            job?.Dispose();
+            if (ownsJob)
+            {
+                job?.Dispose();
+            }
             process?.Dispose();
+        }
+    }
+
+    public static async Task DeleteApplicationRootAsync(string applicationRoot, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationRoot);
+        var applicationsRoot = Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Nanto",
+            "applications"));
+        var fullApplicationRoot = Path.GetFullPath(applicationRoot);
+        if (!string.Equals(Path.GetDirectoryName(fullApplicationRoot), applicationsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The application root must be a direct child of Nanto's production applications directory.", nameof(applicationRoot));
+        }
+
+        var startedAt = Stopwatch.GetTimestamp();
+        while (Directory.Exists(fullApplicationRoot))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                Directory.Delete(fullApplicationRoot, recursive: true);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                && Stopwatch.GetElapsedTime(startedAt) < _terminationTimeout)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -187,7 +242,7 @@ public static class Phase1TestProcessRunner
         return Process.Start(startInfo) ?? throw new InvalidOperationException("The Phase 1 TestApp process did not start.");
     }
 
-    private static async Task StopContainedProcessAsync(Process process, WindowsProcessJob job)
+    private static async Task StopContainedProcessAsync(Process process, WindowsProcessJob job, bool disposeJob)
     {
         Exception? terminationFailure = null;
         try
@@ -199,7 +254,10 @@ public static class Phase1TestProcessRunner
             terminationFailure = exception;
         }
 
-        job.Dispose();
+        if (disposeJob)
+        {
+            job.Dispose();
+        }
         await process.WaitForExitAsync(CancellationToken.None).WaitAsync(_terminationTimeout, CancellationToken.None).ConfigureAwait(false);
         if (terminationFailure is not null)
         {
@@ -237,6 +295,21 @@ public static class Phase1TestProcessRunner
         {
             throw new ArgumentOutOfRangeException(nameof(options), options.Timeout, "The scenario timeout must be positive and no greater than five minutes.");
         }
+
+        if (options.CoordinationDirectory is not null && !Path.IsPathFullyQualified(options.CoordinationDirectory))
+        {
+            throw new ArgumentException("The coordination directory must be an absolute path.", nameof(options));
+        }
+    }
+
+    private static string GetApplicationRoot(string applicationId)
+    {
+        var canonicalId = applicationId.Trim().ToLowerInvariant();
+        var finalSegment = canonicalId.Split('.')[^1];
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalId));
+        var storageKey = $"{finalSegment}-{Convert.ToHexStringLower(hash.AsSpan(0, 16))}";
+        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localApplicationData, "Nanto", "applications", storageKey);
     }
 
     private static async Task WriteRequestAsync(string pendingRequestPath, Phase1TestRequest request, CancellationToken cancellationToken)

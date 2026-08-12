@@ -15,4 +15,8 @@ public sealed record Phase1TestRequest
     public required int IterationCount { get; init; }
 
     public required string ArtifactDirectory { get; init; }
+
+    public string? CoordinationDirectory { get; init; }
+
+    public string? ParticipantId { get; init; }
 }

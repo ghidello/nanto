@@ -84,8 +84,9 @@ Initial portable API:
 - `ShutdownMode`: primary-window, last-surface, or explicit shutdown.
 - `INantoWindow`: state, title, bounds, activation, close, and renderer-failure notification.
 - `IUiDispatcher`: access check and asynchronous invocation without synchronous UI waits.
-- `INantoApplicationHost`: state, dispatcher, primary-window snapshot, lifecycle events, single-use run, and idempotent stop.
-- `IWebAssetProvider`: prepares an immutable versioned asset lease.
+- `ColorSchemePreference`: application/profile-wide `System`, `Light`, or `Dark` preference.
+- `INantoApplicationHost`: state, dispatcher, primary-window and color-scheme snapshots, lifecycle events, single-use run, appearance mutation, and idempotent stop.
+- `IWebAssetProvider`: prepares a fixed validated URL-path inventory with provider-specific content-stability guarantees.
 
 Phase 1 supports one primary window. Multi-window and tray behavior remain later phases.
 
@@ -241,6 +242,7 @@ The production project includes `WebView2Interop.g.cs` as normal compiled source
 - generated C# relative path, byte length, SHA-256, encoding, and line-ending policy.
 
 The manifest does not hash itself and contains no absolute path or generation time. A package upgrade that changes either official input therefore produces a reviewable manifest diff even when the selected C# surface happens not to change.
+The generator derives the recorded version from the resolved NuGet package root and rejects a root that does not end in a valid package version; the manifest never relies on a separately hard-coded version string.
 
 #### Update command
 
@@ -419,13 +421,14 @@ public sealed record NantoApplicationOptions
     public required string ApplicationId { get; init; }
     public required WindowOptions PrimaryWindow { get; init; }
     public required IWebAssetProvider Assets { get; init; }
+    public ColorSchemePreference PreferredColorScheme { get; init; } = ColorSchemePreference.System;
     public ShutdownMode ShutdownMode { get; init; } = ShutdownMode.OnPrimaryWindowClosed;
     public ILoggerFactory? LoggerFactory { get; init; }
     public TimeSpan ShutdownTimeout { get; init; } = TimeSpan.FromSeconds(15);
 }
 ```
 
-Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; and `ShutdownTimeout` must be positive and no greater than five minutes. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
+Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; `PreferredColorScheme` and `ShutdownMode` must be defined enum values; and `ShutdownTimeout` must be positive and no greater than five minutes. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
 
 `ApplicationId` is trimmed, canonicalized to lowercase invariant, and must contain at least two dot-separated ASCII segments. Each segment is 1–63 characters, the complete identifier is at most 253 characters, and segments contain only letters, digits, and interior hyphens. It is a persistent storage and security boundary, not a display label. Nanto derives `<application-key>` from the final readable segment plus the first 128 bits of SHA-256 over the canonical UTF-8 identifier, stores the complete canonical identity in cache metadata, and refuses a metadata mismatch. Renaming an executable, assembly, or product display name does not change this identity; changing `ApplicationId` intentionally starts with a new cache and WebView2 profile.
 
@@ -521,8 +524,10 @@ public interface INantoApplicationHost : IAsyncDisposable
     ApplicationState State { get; }
     IUiDispatcher Dispatcher { get; }
     INantoWindow? PrimaryWindow { get; }
+    ColorSchemePreference PreferredColorScheme { get; }
     event EventHandler<ApplicationStateChangedEventArgs>? StateChanged;
     Task RunAsync(NantoApplicationOptions options, CancellationToken cancellationToken = default);
+    ValueTask SetPreferredColorSchemeAsync(ColorSchemePreference preferredColorScheme, CancellationToken cancellationToken = default);
     ValueTask StopAsync(CancellationToken cancellationToken = default);
 }
 
@@ -561,14 +566,16 @@ State-change event arguments contain old state, new state, timestamp, and an opt
 
 `WindowsApplicationHost` is the public sealed implementation of `INantoApplicationHost` and has a public parameterless constructor. Construction stores no native resources and starts no thread; the dedicated UI thread and dispatcher are created by the first and only `RunAsync` call. Before that point, reading `Dispatcher` throws `InvalidOperationException`. After shutdown it returns the same dispatcher instance in its disposed state. `PrimaryWindow` is null before creation and after teardown and otherwise returns the current window reference through a safely published snapshot.
 
-`INantoApplicationHost.State`, `PrimaryWindow`, and every `INantoWindow` property are safe to read from any thread. Implementations publish immutable snapshots with explicit memory visibility; callers never dispatch merely to inspect state. Mutating methods remain asynchronous and marshal to the owning dispatcher internally. Lifecycle and renderer events are raised synchronously on the UI thread as specified above.
+`INantoApplicationHost.State`, `PrimaryWindow`, `PreferredColorScheme`, and every `INantoWindow` property are safe to read from any thread. Implementations publish immutable snapshots with explicit memory visibility; callers never dispatch merely to inspect state. Mutating methods remain asynchronous and marshal to the owning dispatcher internally. Lifecycle and renderer events are raised synchronously on the UI thread as specified above.
+
+`PreferredColorScheme` is application/profile-scoped because WebView2 applies the corresponding preference to every WebView that shares the profile. `System` follows the operating-system preference; `Light` and `Dark` override it. The application owns persistence and supplies its saved preference on the next run. `SetPreferredColorSchemeAsync` is valid after application creation, updates the snapshot only after the platform accepts the change, treats the existing value as a no-op, throws `InvalidOperationException` before creation, and throws `ObjectDisposedException` during or after closure. Web content observes the effective result through standard CSS `prefers-color-scheme` and `matchMedia`; Nanto does not add a theme-specific frontend protocol.
 
 The built-in asset providers use these construction entry points:
 
 - `DirectoryWebAssetProvider(string rootDirectory)` captures an absolute directory path and validates its lease contents during `PrepareAsync`.
 - `VersionedWebAssetProvider.FromAssembly<TMarker>(string manifestResourceName)` uses `typeof(TMarker).Assembly` as an explicit AOT-safe resource owner and loads the named manifest resource without assembly scanning. The returned provider opens only the exact manifest and resource names declared by that manifest.
 
-Neither provider acquires a lease or mutates the filesystem in its constructor or factory. `PrepareAsync` owns validation and acquisition, and the returned lease owns any filesystem handle it creates.
+Neither provider acquires a lease or mutates the filesystem in its constructor or factory. `PrepareAsync` owns validation and acquisition, and the returned lease owns any filesystem handle it creates. Every lease fixes its validated URL-path inventory. A `DirectoryWebAssetProvider` lease does not copy, hash, watch, or make the underlying file bytes immutable; callers must not add, remove, or rename files while it is active. Strict byte immutability belongs to the versioned provider.
 
 ### Portable testing toolkit
 
@@ -628,7 +635,7 @@ Any transition not listed above throws `InvalidOperationException` in tests and 
 - `StopAsync` before `RunAsync` is a completed no-op. Once `RunAsync` has atomically claimed the host, every `StopAsync` call requests application shutdown exactly once. Its cancellation token cancels only that caller's wait, including when the token was already canceled; the shutdown request is still recorded, teardown continues, and completion remains observable through `RunAsync`. `StopAsync` after `Closed` completes immediately.
 - `INantoWindow.CloseAsync` independently requests that window's close exactly once. Its cancellation token likewise cancels only the caller's wait, including when already canceled. A primary-window close and an application stop may race safely and converge on the same idempotent window and application teardown paths.
 - `DisposeAsync` before `RunAsync` marks the host disposed without starting a UI thread or raising lifecycle events; `State` remains `NotStarted`. During execution it requests stop and waits without caller cancellation for the same completion as `RunAsync`. After closure and on repeated or concurrent calls it observes that same completion immediately.
-- The validated `ShutdownTimeout` is one deadline spanning the transition to `Closing`, native and managed cleanup, the transition to `Closed`, dispatcher/UI-thread termination, and final host-lease release. If that deadline expires, `RunAsync`, `StopAsync`, and `DisposeAsync` observe a teardown `NantoHostException` promptly; the host retains ownership and continues observing cleanup in the background, logs any later teardown failure, and still attempts to reach `Closed` and release every resource. The external integration scenario timeout remains the final process-containment backstop for code that cannot be interrupted cooperatively.
+- The validated `ShutdownTimeout` is one deadline beginning with the first shutdown request and spanning application-lifetime cancellation callbacks, any still-pending native startup callback, the transition to `Closing`, native and managed cleanup, the transition to `Closed`, dispatcher/UI-thread termination, and final host-lease release. Stop signaling and the deadline begin before cancellation callbacks are invoked. A callback failure is preserved in the host failure result without preventing shutdown progress; a callback that does not return remains subject to the same deadline. If that deadline expires, `RunAsync`, `StopAsync`, and `DisposeAsync` observe a teardown `NantoHostException` promptly; the host retains ownership and continues observing cleanup in the background, logs any later teardown failure, and still attempts to reach `Closed` and release every resource. A pending WebView2 callback remains rooted and keeps its STA alive after public timeout until native completion permits safe rollback. The external integration scenario timeout remains the final process-containment backstop for code that cannot be interrupted cooperatively.
 - Startup/runtime/teardown failure is represented by `NantoHostException`, retaining the first failure and any later distinct cleanup failures. Except for the configured shutdown-timeout case above, the host attempts to reach `Closed` before `RunAsync` throws.
 - With `OnPrimaryWindowClosed`, closing the primary window requests application shutdown. With `Explicit`, the application message loop remains active with no primary window until `StopAsync` or cancellation.
 - No new window or WebView operation may begin after its lifetime enters `Closing`.
@@ -758,7 +765,7 @@ The production presenter calls `ShowWindow`, activation, and foreground APIs onl
 
 Use source-generated `LoggerMessage` methods with stable numeric event IDs grouped by application lifecycle, window lifecycle, dispatcher, WebView, assets, and teardown. Log symbolic operation names, states, window IDs, HRESULTs, and elapsed durations. Never log web-message bodies, command payloads, cookies, local-storage values, or file contents.
 
-The internal debug ledger tracks application hosts, UI threads, windows, native handles, COM objects, subscriptions, dispatcher items, asset leases, and browser processes. Each lease receives a stable process-local ID. Acquisition and release are paired in the owning component. Counts remain available without retaining an unbounded history; TestApp explicitly enables the diagnostic ownership trace and serializes named acquisitions and releases in order alongside the initial, peak, and final snapshots. A successful or expected-failure scenario requires every owned count except the process's baseline OS handle count to return to zero. The external oracle verifies exact reverse release for checkpoint-owned host, UI-thread, and native resources; dispatcher items remain independently scoped queue operations and are instead required to be paired and zero at completion.
+The internal debug ledger tracks application hosts, UI threads, windows, native handles, COM objects, subscriptions, dispatcher items, asset leases, virtual-host mappings, and browser processes. Each lease receives a stable process-local ID. Acquisition and release are paired in the owning component. Counts remain available without retaining an unbounded history; TestApp explicitly enables the diagnostic ownership trace and serializes named acquisitions and releases in order alongside the initial, peak, and final snapshots. A successful or expected-failure scenario requires every owned count except the process's baseline OS handle count to return to zero. The external oracle verifies the documented dependency order within and across scopes: subscriptions and mapping precede controller/COM release; the controller precedes its parent `HWND`; window class follows the window; the application asset lease precedes the shared environment; and the UI thread stops last. Dispatcher items remain independently scoped queue operations and are instead required to be paired and zero at completion.
 
 ### Failure-injection checkpoints
 
@@ -766,7 +773,7 @@ Define `Phase1AcquisitionCheckpoint` and the failure-injector interface as inter
 
 Every implementation change that introduces an owned acquisition adds a named checkpoint in creation order and its corresponding failure-path assertion in the same commit. The expected areas include UI-thread/COM setup, dispatcher and Win32 registration, `HWND`, asset lease, WebView2 environment/controller/control, settings, subscriptions and filters, virtual-host mapping, and initial navigation. The definitive enum names and count evolve with the implementation rather than being frozen before the ownership graph exists.
 
-The failure matrix enumerates the implemented checkpoints, runs one external process per applicable checkpoint, and asserts that all earlier acquisitions are released in exact reverse ownership order. A checkpoint without an executable failure scenario fails coverage; a checkpoint that genuinely does not apply to a scenario is reported as not reached rather than silently passing.
+The failure and cancellation matrices enumerate the implemented checkpoints, run one external process per applicable checkpoint, prevent every later acquisition, and assert that all earlier acquisitions are released in documented dependency order. Failure scenarios throw from the injector; cancellation scenarios only cancel the real run token, and production must observe that cancellation after the checkpoint before performing another acquisition. A checkpoint without an executable scenario fails coverage; a checkpoint that genuinely does not apply to a scenario is reported as not reached rather than silently passing.
 
 ### Integration harness protocol
 
@@ -786,7 +793,7 @@ IntegrationTestKit must:
 - copy the minimal host payload into a unique launch directory for deployment scenarios and never mutate a shared build or publish directory;
 - provide a production multi-instance scenario in which two processes share the same `ApplicationId`, default application root, asset cache, profile, and UDF while using byte-identical WebView2 environment options;
 - launch TestApp without a shell and capture stdout/stderr asynchronously;
-- assign TestApp and inherited Chromium children to a kill-on-close Job Object;
+- assign each isolated TestApp and its inherited Chromium children to a kill-on-close Job Object; the multi-instance scenario assigns both participants to one parent-owned job so one participant exiting cannot terminate browser processes still shared by the survivor;
 - use a 45-second default scenario timeout, 15-second renderer recovery timeout, 15-second shutdown timeout, and 10-second browser-exit timeout;
 - kill the job on timeout and report it as failure;
 - delete the successful scenario's complete test application root only after browser exit and asset-lease release, while retaining failure roots and artifacts;
@@ -809,13 +816,16 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 
 3. **WebView2 interop and minimal host**
    - Add the offline interop generator, reviewed projection specification, committed source/manifest, and byte-for-byte interop-generation gate before production host code consumes the projection.
-   - Add shared environment and per-window controller ownership.
+   - Add application identity metadata, the fixed application root and WebView2 UDF, the directory asset provider, shared environment, and per-window controller ownership.
    - Navigate a minimal directory fixture through the secure virtual HTTPS origin with `DenyCors` and exact-origin validation.
+   - Apply the application/profile-wide color scheme before navigation and support live changes through standard `prefers-color-scheme` propagation.
    - Use source-generated COM with runtime marshalling disabled.
+   - Keep asynchronous environment/controller callbacks rooted through native completion. Cancellation marks the managed operation but does not abandon the native callback; when completion arrives, a returned COM pointer is released on the STA thread and the waiter settles as canceled without resuming initialization.
+   - Teardown by dependency: remove message and navigation subscriptions, clear the mapping, close the controller, release profile/WebView/controller, destroy the `HWND`, unregister its class, dispose the directory lease, release the shared environment, and finally stop the UI thread.
 
 4. **Assets and navigation**
-   - Add directory and versioned extracted asset providers.
-   - Add manifest validation, content-addressed publication, shared leases, quarantine/reconstruction, and fixed default application storage.
+   - Add the versioned extracted asset provider.
+   - Add manifest validation, content-addressed publication, shared leases, and quarantine/reconstruction beneath the already established application root.
    - Add manifest-aware routing, SPA fallback, and navigation normalization.
 
 5. **DPI, recovery, and diagnostics**
@@ -823,6 +833,7 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
    - Handle resize, DPI changes, minimum sizes, work areas, activation, focus, and negative monitor coordinates.
    - Keep cached DPI UI-thread-owned.
    - Raise a portable renderer-failure event, attempt one reload, and close normally if recovery fails.
+   - Synchronize the Win32 title bar and non-client frame with explicit color preferences and operating-system changes while using `System`.
    - Complete subscription removal, controller closure, COM release, browser-exit synchronization, `HWND` destruction, and dispatcher shutdown.
    - Add structured logging and a development resource ledger without logging frontend payloads.
 
@@ -895,7 +906,8 @@ dotnet test tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Win
 - Uses the normal non-composition WebView2 controller.
 - Runs scenarios in isolated child processes.
 - Tests navigation, assets, routing, renderer recovery, close races, failure injection, browser exit, and zero-resource teardown.
-- Starts two complete hosts against the same production application root, asset bundle, UDF, and profile; requires both to reach readiness and exchange messages; proves the asset lease denies deletion while either process is alive; closes the first and proves the second remains usable; then closes the second and verifies Chromium and the asset lease release the complete test root without locked files. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate roots or UDFs.
+- In Milestone 3, specifically proves the exact secure origin, navigation-gated startup, internal readiness diagnostics, initial Dark and Light `matchMedia` observations, live profile switching, System acceptance without OS mutation, every startup acquisition failure/cancellation checkpoint, dependency-ordered cleanup, process exit, unlocked storage, and a zero final ledger.
+- Starts two complete hosts against the same production application root, directory assets, UDF, and profile; requires both to reach readiness and exchange messages; closes the first and proves the second remains usable; then closes the second and verifies Chromium releases the application root for deletion without locked files. Versioned bundle lease-lock and deletion-denial coverage belongs to Milestone 4. Failure requires an explicit single-instance or per-instance-profile policy decision; the test must not silently switch to separate roots or UDFs.
 
 This is the CI-safe real-WebView2 project.
 
@@ -989,7 +1001,7 @@ dotnet test tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto
 dotnet test -p:TestScope=All
 ```
 
-The generated projection and manifest reproduce byte-for-byte before the host consumes them. A hidden production presenter creates the environment, controller, and WebView, navigates the minimal directory fixture through `https://app.nanto.invalid`, exchanges a readiness message, and returns every implemented acquisition to zero.
+The generated projection and manifest reproduce byte-for-byte before the host consumes them. The generator proves base-interface and same-interface vtable-prefix closure, IDL/header agreement, deterministic bytes, manifest hashes, and fail-closed behavior for missing inputs, ABI disagreement, unsupported selections, and blocked output. A hidden production presenter creates the environment, controller, WebView, profile, secure settings, subscriptions, and `DenyCors` mapping; navigates the minimal directory fixture through `https://app.nanto.invalid`; enters `Running` only after successful navigation; observes Dark/Light and live switching through `matchMedia`; accepts System without changing OS settings; cancels cleanly after every acquisition without an injected exception; returns every implemented resource to zero in dependency order; and proves that two hosts can share the production UDF while the survivor remains usable after the first exits. Successful isolated roots are deleted only after process-tree exit, so deletion is also the storage-unlock assertion.
 
 ### Milestone 4 — assets and navigation
 

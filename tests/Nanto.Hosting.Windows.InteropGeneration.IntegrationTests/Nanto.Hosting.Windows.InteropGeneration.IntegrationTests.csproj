@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj" />
+    <PackageReference Include="Microsoft.Web.WebView2"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all"
+                      ExcludeAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="Nanto.RepositoryRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))" />
+    <AssemblyMetadata Include="Nanto.WebView2PackageRoot" Value="$(PkgMicrosoft_Web_WebView2)" />
+    <AssemblyMetadata Include="Nanto.InteropVerificationDirectory" Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/obj/interop-verification/$(Configuration)'))" />
+  </ItemGroup>
+</Project>

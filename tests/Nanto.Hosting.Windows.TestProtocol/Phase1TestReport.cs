@@ -30,6 +30,8 @@ public sealed record Phase1TestReport
 
     public required string RendererRecoveryResult { get; init; }
 
+    public required string[] AppearanceObservations { get; init; }
+
     public required string[] RetainedArtifactPaths { get; init; }
 
     public Phase1ObservedFailure? ObservedFailure { get; init; }

@@ -16,6 +16,8 @@ public sealed record ValidatedApplicationOptions
 
     public IWebAssetProvider Assets { get; }
 
+    public ColorSchemePreference PreferredColorScheme { get; }
+
     public ShutdownMode ShutdownMode { get; }
 
     public ILoggerFactory LoggerFactory { get; }
@@ -26,6 +28,7 @@ public sealed record ValidatedApplicationOptions
         ApplicationIdentity identity,
         WindowOptions primaryWindow,
         IWebAssetProvider assets,
+        ColorSchemePreference preferredColorScheme,
         ShutdownMode shutdownMode,
         ILoggerFactory loggerFactory,
         TimeSpan shutdownTimeout)
@@ -33,6 +36,7 @@ public sealed record ValidatedApplicationOptions
         Identity = identity;
         PrimaryWindow = primaryWindow;
         Assets = assets;
+        PreferredColorScheme = preferredColorScheme;
         ShutdownMode = shutdownMode;
         LoggerFactory = loggerFactory;
         ShutdownTimeout = shutdownTimeout;
@@ -50,6 +54,11 @@ public sealed record ValidatedApplicationOptions
         var identity = ApplicationIdentity.Parse(options.ApplicationId);
         ValidateWindowOptions(options.PrimaryWindow);
 
+        if (!Enum.IsDefined(options.PreferredColorScheme))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), options.PreferredColorScheme, "The preferred color scheme is not supported.");
+        }
+
         if (!Enum.IsDefined(options.ShutdownMode))
         {
             throw new ArgumentOutOfRangeException(nameof(options), options.ShutdownMode, "The shutdown mode is not supported.");
@@ -62,6 +71,7 @@ public sealed record ValidatedApplicationOptions
             identity,
             options.PrimaryWindow,
             options.Assets,
+            options.PreferredColorScheme,
             options.ShutdownMode,
             options.LoggerFactory ?? NullLoggerFactory.Instance,
             options.ShutdownTimeout);

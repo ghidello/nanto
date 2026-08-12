@@ -528,6 +528,9 @@ The same operations must be safe when entered from user close, application shutd
 - Report unreleased resources at process exit in development builds.
 - Catch only documented/understood native or COM errors at teardown boundaries; do not broadly swallow exceptions.
 - Make failed startup testable by injecting a failure after every acquisition step.
+- Test cancellation without turning it into injected failure: after each acquisition checkpoint, production must observe cancellation before performing the next acquisition.
+- Start the shutdown deadline with the first stop request, including when a WebView2 environment or controller callback is still pending; public completion may time out, but callback ownership and the STA remain alive until late native completion can release or roll back safely.
+- Exercise two complete processes against the same application/profile UDF in one parent-owned containment job; after one exits, the survivor must remain usable and the shared root must be deletable after both stop.
 
 ### 6.7 DPI and window messages
 
@@ -572,7 +575,13 @@ Phase 1 always uses `%LOCALAPPDATA%\Nanto\applications\<application-key>` as its
 
 Each process holds a shared, non-deleteable handle to the selected bundle's `lease.lock` until mappings and the WebView2 controller are released. Multiple instances may hold the lease concurrently. A short per-application cross-process maintenance lock serializes lease acquisition, validation, quarantine, and publication. A corrupt bundle belonging to the current application is atomically quarantined and reconstructed; an application-identity mismatch fails without modification. Phase 1 does not automatically delete old valid bundles, abandoned staging directories, or quarantined bundles. Age-based retention and cleanup remain future distribution work.
 
-### 6.9 Critical Native AOT risk: COM
+### 6.9 Application appearance
+
+Nanto models color scheme as an application/profile-wide preference with `System`, `Light`, and `Dark` values. The application owns persistence of a user-selected value and supplies it on the next run; Nanto does not introduce a competing general settings store. On Windows, the host applies the preference to the WebView2 profile before initial navigation and supports live mutation on the owning STA thread.
+
+WebView2 exposes the effective preference to browser chrome and web content through the standard `prefers-color-scheme` media feature. SPAs use CSS or `matchMedia` and need no Nanto-specific theme message, framework adapter, or JavaScript API. `System` continues to follow operating-system changes, while explicit values override them. Synchronizing the native Win32 title bar and non-client frame is Milestone 5 presentation work; it must use the same portable preference rather than introduce a second source of truth.
+
+### 6.10 Critical Native AOT risk: COM
 
 WebView2 is COM-based, while .NET Native AOT on Windows does not provide built-in COM support. This is the most important technical risk in the Windows MVP.
 
@@ -1183,7 +1192,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-012 | Use source-generated dispatch and JSON metadata. | Avoid reflection and enable trimming/AOT. |
 | D-013 | Capability-based authorization is default-deny. | The frontend is a separate trust domain. |
 | D-014 | Delegate frontend HMR to the selected SPA development server and orchestrate it alongside .NET Hot Reload/restart. | Preserve each frontend ecosystem's normal workflow; use Vite as the reference, not a dependency. |
-| D-015 | Resource ownership and reverse-order teardown are architectural requirements. | Native lifetime bugs are correctness issues, not polish. Phase 1 Milestone 2 proves the initial Win32 ownership chain through stable ledger lease IDs, external checkpoint-failure processes, exact reverse release, and zero final counts. |
+| D-015 | Resource ownership and reverse-dependency teardown are architectural requirements. | Native lifetime bugs are correctness issues, not polish. Each scope releases dependents before prerequisites; unrelated application-, window-, and thread-scoped leases need not form one artificial global LIFO stack. Stable ledger lease IDs, external checkpoint processes, dependency-order assertions, and zero final counts provide the evidence. |
 | D-016 | Use the Evergreen WebView2 Runtime in ordinary Windows distribution. | Share the installed runtime and avoid bundling Chromium. |
 | D-017 | Windows is the first and only currently committed complete host. | It proves the product, smallest-host, and AOT/COM risks while platform-neutral contracts preserve—not promise—future options. |
 | D-018 | Use CsWin32 plus Microsoft's Win32 metadata for ordinary Windows APIs. | Generate correct typed declarations, constants, handles, and cleanup metadata without shipping a wrapper runtime. |
@@ -1209,6 +1218,10 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-038 | Resolve O-012 by making embedded, versioned extraction the default production asset deployment; retain directory mapping for development and externally managed assets. | Feasibility results establish single-file-compatible embedding, atomic extraction, secure virtual-host mapping, and content-hash cache reuse on Windows 10. |
 | D-039 | Resolve O-006 by supporting explicit framework-dependent and self-contained CoreCLR compatibility publishes while keeping Native AOT the default. | Users with non-AOT dependencies need a deliberate fallback, but deployment ownership differs by environment. All modes use the same AOT-compatible host contracts and no mode is selected through silent publish fallback. |
 | D-040 | Use only `%LOCALAPPDATA%\Nanto\applications\<application-key>` as the Phase 1 application data root. | A single deterministic location keeps the initial host and test protocol small. Configurable roots remain a future deployment feature rather than an undocumented override. |
+| D-041 | Model color scheme as one application/profile-wide `System`, `Light`, or `Dark` preference and propagate it to SPAs through `prefers-color-scheme`. | Matches WebView2 profile semantics and web standards without a framework-specific frontend protocol. |
+| D-042 | Applications persist user-selected appearance preferences; Nanto only applies them. | Avoids creating a partial settings subsystem or competing with application configuration. |
+| D-043 | Derive the WebView2 projection from the complete base-interface chain and the required same-interface vtable prefix. | COM slot positions depend on both closures; projecting only named methods would produce an ABI-invalid interface even when every production call appears in the allowlist. |
+| D-044 | Represent every acquired WebView2 interface as one uniquely owned source-generated COM wrapper and release it on the owning STA thread. | Explicit ownership prevents ambiguous RCW lifetimes, double release, thread-affinity violations, and Native AOT reliance on built-in COM interop. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 

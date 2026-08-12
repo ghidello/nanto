@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Nanto.WebView2InteropGen</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all"
+                      ExcludeAssets="all" />
+  </ItemGroup>
+
+  <Target Name="UpdateWebView2Interop" DependsOnTargets="Build">
+    <PropertyGroup>
+      <WebView2InteropSpecPath>$(MSBuildProjectDirectory)\webview2-interop-spec.json</WebView2InteropSpecPath>
+      <WebView2InteropUpdateDirectory>$(MSBuildProjectDirectory)\obj\update\$(Configuration)\Generated</WebView2InteropUpdateDirectory>
+      <WebView2InteropCommittedDirectory>$(MSBuildProjectDirectory)\..\..\src\Nanto.Hosting.Windows\Interop\Generated</WebView2InteropCommittedDirectory>
+    </PropertyGroup>
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; --package-root &quot;$(PkgMicrosoft_Web_WebView2)&quot; --spec &quot;$(WebView2InteropSpecPath)&quot; --output &quot;$(WebView2InteropUpdateDirectory)&quot;" />
+    <ItemGroup>
+      <_GeneratedInterop Include="$(WebView2InteropUpdateDirectory)\WebView2Interop.g.cs" />
+      <_GeneratedInterop Include="$(WebView2InteropUpdateDirectory)\webview2-interop-manifest.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_GeneratedInterop)" DestinationFolder="$(WebView2InteropCommittedDirectory)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

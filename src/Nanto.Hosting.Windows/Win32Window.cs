@@ -211,6 +211,16 @@ internal sealed unsafe class Win32Window : IDisposable
         return true;
     }
 
+    private void OnNativeResized(LPARAM lParam)
+    {
+        var width = unchecked((ushort)(long)lParam);
+        var height = unchecked((ushort)((long)lParam >> 16));
+        if (width > 0 && height > 0)
+        {
+            _callbacks?.Resized?.Invoke(width, height);
+        }
+    }
+
     private void RecordCallbackFailure(Exception exception)
     {
         lock (_callbackFailureGate)
@@ -251,6 +261,18 @@ internal sealed unsafe class Win32Window : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static LRESULT ProcessWindowMessage(HWND windowHandle, uint message, WPARAM wParam, LPARAM lParam)
     {
+        if (message == PInvoke.WM_SIZE && Windows.TryGetValue(windowHandle, out var resizedWindow))
+        {
+            try
+            {
+                resizedWindow.OnNativeResized(lParam);
+            }
+            catch (Exception exception)
+            {
+                resizedWindow.RecordCallbackFailure(exception);
+            }
+        }
+
         if (message == PInvoke.WM_CLOSE && Windows.TryGetValue(windowHandle, out var closingWindow))
         {
             try

@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "generatorFormatVersion": 1,
+  "packageId": "Microsoft.Web.WebView2",
+  "packageVersion": "1.0.4129.50",
+  "inputs": [
+    {
+      "path": "WebView2.idl",
+      "sha256": "57b35d4b63c25f656d04559c5692e1d9a622d77ad25fb556406c348a496d0e24"
+    },
+    {
+      "path": "build/native/include/WebView2.h",
+      "sha256": "dff1e3181ec7ec203a34ef6efa966590e0ef0ba1a5c3fe3b69da6508c2f8a02e"
+    },
+    {
+      "path": "eng/Nanto.WebView2InteropGen/webview2-interop-spec.json",
+      "sha256": "535cce271fe4a282381806f735218db367fc0087d7ec9a7cba3d4b33553730f0"
+    }
+  ],
+  "interfaces": [
+    {
+      "name": "ICoreWebView2",
+      "iid": "76eceacb-0462-4d94-ac83-423a6793775e",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 58
+    },
+    {
+      "name": "ICoreWebView2Controller",
+      "iid": "4d00c0d1-9434-4eb6-8078-8697a560334f",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 23
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+      "iid": "6c4819f3-c9b7-4260-8127-c9f5bde7f68c",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+      "iid": "4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2Environment",
+      "iid": "b96d755e-0319-4e92-a296-23436f46a1fc",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventArgs",
+      "iid": "30d68b7d-20d9-4752-a9ca-ec8448fbb5c1",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 2
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventHandler",
+      "iid": "d33a35bf-1c49-4f98-93ab-006e0533fe1c",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2Profile",
+      "iid": "79110ad3-cd5d-4373-8bc3-c60658f17a5f",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 7
+    },
+    {
+      "name": "ICoreWebView2Settings",
+      "iid": "e562e4f0-d7fa-43ac-8d71-c05150499f00",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 14
+    },
+    {
+      "name": "ICoreWebView2WebMessageReceivedEventArgs",
+      "iid": "0f99a40c-e962-4207-9e92-e3d542eff849",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 3
+    },
+    {
+      "name": "ICoreWebView2WebMessageReceivedEventHandler",
+      "iid": "57213f19-00e6-49fa-8e07-898ea01ecbd2",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2_2",
+      "iid": "9e8f0cf8-e670-4b5e-b2bc-73e061e3184c",
+      "baseInterface": "ICoreWebView2",
+      "emittedMethodCount": 7
+    },
+    {
+      "name": "ICoreWebView2_3",
+      "iid": "a0d6df20-3b92-416d-aa0c-437a9c727857",
+      "baseInterface": "ICoreWebView2_2",
+      "emittedMethodCount": 5
+    },
+    {
+      "name": "ICoreWebView2_4",
+      "iid": "20d02d59-6df2-42dc-bd06-f98a694b1302",
+      "baseInterface": "ICoreWebView2_3",
+      "emittedMethodCount": 4
+    },
+    {
+      "name": "ICoreWebView2_5",
+      "iid": "bedb11b8-d63c-11eb-b8bc-0242ac130003",
+      "baseInterface": "ICoreWebView2_4",
+      "emittedMethodCount": 2
+    },
+    {
+      "name": "ICoreWebView2_6",
+      "iid": "499aadac-d92c-4589-8a75-111bfc167795",
+      "baseInterface": "ICoreWebView2_5",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2_7",
+      "iid": "79c24d83-09a3-45ae-9418-487f32a58740",
+      "baseInterface": "ICoreWebView2_6",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2_8",
+      "iid": "e9632730-6e1e-43ab-b7b8-7b2c9e62e094",
+      "baseInterface": "ICoreWebView2_7",
+      "emittedMethodCount": 7
+    },
+    {
+      "name": "ICoreWebView2_9",
+      "iid": "4d7b2eab-9fdc-468d-b998-a9260b5ed651",
+      "baseInterface": "ICoreWebView2_8",
+      "emittedMethodCount": 9
+    },
+    {
+      "name": "ICoreWebView2_10",
+      "iid": "b1690564-6f5a-4983-8e48-31d1143fecdb",
+      "baseInterface": "ICoreWebView2_9",
+      "emittedMethodCount": 2
+    },
+    {
+      "name": "ICoreWebView2_11",
+      "iid": "0be78e56-c193-4051-b943-23b460c08bdb",
+      "baseInterface": "ICoreWebView2_10",
+      "emittedMethodCount": 3
+    },
+    {
+      "name": "ICoreWebView2_12",
+      "iid": "35d69927-bcfa-4566-9349-6b3e0d154cac",
+      "baseInterface": "ICoreWebView2_11",
+      "emittedMethodCount": 3
+    },
+    {
+      "name": "ICoreWebView2_13",
+      "iid": "f75f09a8-667e-4983-88d6-c8773f315e84",
+      "baseInterface": "ICoreWebView2_12",
+      "emittedMethodCount": 1
+    }
+  ],
+  "output": {
+    "path": "src/Nanto.Hosting.Windows/Interop/Generated/WebView2Interop.g.cs",
+    "byteLength": 19137,
+    "sha256": "4f4eec4e175f1207e80b68b5dcda28cf9a576aa8b22c11cdd533f5fd1783cbef",
+    "encoding": "utf-8",
+    "lineEndings": "lf"
+  }
+}

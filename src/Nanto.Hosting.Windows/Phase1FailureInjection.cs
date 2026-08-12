@@ -6,8 +6,19 @@ internal enum Phase1AcquisitionCheckpoint
     UiThreadStarted,
     NativeMessageQueueCreated,
     DispatcherCreated,
+    AssetLeasePrepared,
+    WebViewEnvironmentCreated,
     WindowClassRegistered,
     WindowCreated,
+    WebViewControllerCreated,
+    WebViewCreated,
+    WebViewProfileCreated,
+    WebViewSettingsCreated,
+    WebViewSettingsConfigured,
+    NavigationCompletedSubscriptionAdded,
+    WebMessageSubscriptionAdded,
+    VirtualHostMappingAdded,
+    InitialNavigationCompleted,
 }
 
 internal interface IPhase1FailureInjector
