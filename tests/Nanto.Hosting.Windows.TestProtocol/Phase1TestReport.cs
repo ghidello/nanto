@@ -26,6 +26,8 @@ public sealed record Phase1TestReport
 
     public required Phase1ResourceLedgerReport FinalResources { get; init; }
 
+    public required Phase1ResourceOwnershipEvent[] ResourceOwnershipEvents { get; init; }
+
     public required string RendererRecoveryResult { get; init; }
 
     public required string[] RetainedArtifactPaths { get; init; }

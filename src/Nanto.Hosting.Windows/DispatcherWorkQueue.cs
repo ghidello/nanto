@@ -62,7 +62,7 @@ internal sealed class DispatcherWorkQueue : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_shutdownRequested && _activeOperations == 0, this);
-            _workItems.Enqueue(new ContinuationWorkItem(callback, state, _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem)));
+            _workItems.Enqueue(new ContinuationWorkItem(callback, state, _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem, "DispatcherItem")));
         }
     }
 
@@ -173,7 +173,7 @@ internal sealed class DispatcherWorkQueue : IDisposable
             {
                 workItem = new WorkItem<T>(
                     action,
-                    _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem),
+                    _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem, "DispatcherItem"),
                     OnOperationCompleted,
                     cancellationToken,
                     _lifetimeCancellation.Token);
@@ -201,7 +201,7 @@ internal sealed class DispatcherWorkQueue : IDisposable
             {
                 workItem = new WorkItem<T>(
                     action,
-                    _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem),
+                    _resourceLedger.Acquire(WindowsResourceKind.DispatcherItem, "DispatcherItem"),
                     OnOperationCompleted,
                     cancellationToken,
                     _lifetimeCancellation.Token);

@@ -758,7 +758,7 @@ The production presenter calls `ShowWindow`, activation, and foreground APIs onl
 
 Use source-generated `LoggerMessage` methods with stable numeric event IDs grouped by application lifecycle, window lifecycle, dispatcher, WebView, assets, and teardown. Log symbolic operation names, states, window IDs, HRESULTs, and elapsed durations. Never log web-message bodies, command payloads, cookies, local-storage values, or file contents.
 
-The internal debug ledger tracks application hosts, UI threads, windows, native handles, COM objects, subscriptions, dispatcher items, asset leases, and browser processes. Acquisition and release are paired in the owning component. TestApp serializes initial, peak, and final snapshots. A successful or expected-failure scenario requires every owned count except the process's baseline OS handle count to return to zero.
+The internal debug ledger tracks application hosts, UI threads, windows, native handles, COM objects, subscriptions, dispatcher items, asset leases, and browser processes. Each lease receives a stable process-local ID. Acquisition and release are paired in the owning component. Counts remain available without retaining an unbounded history; TestApp explicitly enables the diagnostic ownership trace and serializes named acquisitions and releases in order alongside the initial, peak, and final snapshots. A successful or expected-failure scenario requires every owned count except the process's baseline OS handle count to return to zero. The external oracle verifies exact reverse release for checkpoint-owned host, UI-thread, and native resources; dispatcher items remain independently scoped queue operations and are instead required to be paired and zero at completion.
 
 ### Failure-injection checkpoints
 
@@ -778,7 +778,7 @@ TestApp accepts only:
 
 TestProtocol owns the source-generated JSON context and versioned DTOs used by both TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), canonical test `ApplicationId`, optional case-sensitive failure-checkpoint name, iteration count, and artifact directory. TestApp derives the production cache and UDF paths from the fixed default application root; the request cannot override them. TestApp always uses the installed Evergreen WebView2 Runtime in Phase 1, so the protocol has no runtime-lane field until multiple lanes exist.
 
-The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, renderer recovery result, retained artifact paths, and a structured observed failure with every cleanup failure. Protocol DTOs expose no internal production enum or exception type.
+The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, the ordered resource-ownership trace, renderer recovery result, retained artifact paths, and a structured observed failure with every cleanup failure. Protocol DTOs expose no internal production enum or exception type.
 
 IntegrationTestKit must:
 

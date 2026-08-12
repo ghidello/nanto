@@ -29,7 +29,7 @@ dotnet build
 dotnet test
 ```
 
-Test inventory is selected independently from the `Debug` or `Release` build configuration. Once the Phase 1 integration projects are introduced, the canonical commands will be:
+Test inventory is selected independently from the `Debug` or `Release` build configuration. The canonical commands are:
 
 ```powershell
 dotnet test                              # fast tests only
@@ -37,7 +37,7 @@ dotnet test -p:TestScope=All             # fast and unattended integration tests
 dotnet test -p:TestScope=Integration     # unattended integration tests only
 ```
 
-Every `*IntegrationTests` assembly receives its integration trait from repository build configuration; individual tests do not need to repeat it. Visible and long-running projects remain separately opted in and are never part of unattended scopes. The integration scopes are not phase gates until those test projects exist.
+Every `*IntegrationTests` assembly receives its integration trait from repository build configuration; individual tests do not need to repeat it. Visible and long-running projects remain separately opted in and are never part of unattended scopes. The current complete scope is the Milestone 2 gate and runs the fast suite plus the hidden raw-Win32 external-process integration project.
 
 Once introduced, manual integration tests must be run by naming exactly one project and supplying both opt-ins:
 
@@ -48,4 +48,4 @@ dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hostin
 
 Visible tests interact with the desktop; long-running tests may occupy the machine for substantial time. Passing `RunManualTests=true` through `Nanto.slnx` is rejected so the two categories cannot start together accidentally. Automated agents must not run either project as routine verification. When a manual test is needed to validate relevant behavior, the agent must explain why and obtain explicit user approval before running that specific project.
 
-The raw-Win32 host now has an external, versioned TestProtocol/TestApp foundation that exercises clean hidden startup and checkpoint-injected failure cleanup through the production host. Process containment, automated integration-test projects, WebView2 integration, and deployment modes have not been implemented yet.
+The raw-Win32 host milestone is complete. TestApp processes are assigned to kill-on-close Windows Job Objects before their requests are published; the automated suite covers clean hidden startup, every implemented acquisition checkpoint, native close, run cancellation, repeated close, scenario timeout, zero-ledger cleanup, and exact reverse release of checkpoint-owned resources. The next milestone is deterministic WebView2 interop generation followed by the minimal WebView2 host. WebView2 hosting and deployment modes have not been implemented yet.

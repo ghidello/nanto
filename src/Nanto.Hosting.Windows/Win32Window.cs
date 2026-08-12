@@ -55,7 +55,7 @@ internal sealed unsafe class Win32Window : IDisposable
 
         failureInjector ??= NoOpPhase1FailureInjector.Instance;
         destroyWindow ??= static handle => PInvoke.DestroyWindow(handle);
-        _windowLease = resourceLedger.Acquire(WindowsResourceKind.Window);
+        _windowLease = resourceLedger.Acquire(WindowsResourceKind.Window, "Window");
         var isRegistered = false;
         try
         {
@@ -83,7 +83,7 @@ internal sealed unsafe class Win32Window : IDisposable
             }
 
             isRegistered = true;
-            _nativeHandleLease = resourceLedger.Acquire(WindowsResourceKind.NativeHandle);
+            _nativeHandleLease = resourceLedger.Acquire(WindowsResourceKind.NativeHandle, "WindowHandle");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WindowCreated);
         }
         catch (Exception creationException)

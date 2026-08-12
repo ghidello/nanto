@@ -21,7 +21,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
     private readonly IPhase1FailureInjector _failureInjector;
     private readonly Lock _gate = new();
     private readonly ApplicationLifecycle _lifecycle;
-    private readonly ResourceLedger _resourceLedger = new();
+    private readonly ResourceLedger _resourceLedger;
     private readonly TaskCompletionSource _runCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stopRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _teardownCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -54,11 +54,15 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
     {
     }
 
-    internal WindowsApplicationHost(TimeProvider timeProvider, IPhase1FailureInjector? failureInjector = null)
+    internal WindowsApplicationHost(
+        TimeProvider timeProvider,
+        IPhase1FailureInjector? failureInjector = null,
+        bool captureResourceOwnershipEvents = false)
     {
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _lifecycle = new ApplicationLifecycle(timeProvider);
         _failureInjector = failureInjector ?? NoOpPhase1FailureInjector.Instance;
+        _resourceLedger = new ResourceLedger(captureResourceOwnershipEvents);
     }
 
     public Task RunAsync(NantoApplicationOptions options, CancellationToken cancellationToken = default)
@@ -126,7 +130,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
 
         try
         {
-            hostLease = _resourceLedger.Acquire(WindowsResourceKind.ApplicationHost);
+            hostLease = _resourceLedger.Acquire(WindowsResourceKind.ApplicationHost, "ApplicationHost");
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.ApplicationHostStarted);
 
             uiThread = new WindowsUiThread(_resourceLedger, _failureInjector);

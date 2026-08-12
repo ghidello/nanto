@@ -3,6 +3,7 @@ namespace Nanto.Hosting.Windows;
 internal sealed class ResourceLedgerSnapshot
 {
     private readonly int[] _activeCounts;
+    private readonly ResourceLedgerEvent[] _events;
     private readonly int[] _peakCounts;
 
     public long TotalAcquired { get; }
@@ -11,10 +12,18 @@ internal sealed class ResourceLedgerSnapshot
 
     public int TotalActive => _activeCounts.Sum();
 
-    internal ResourceLedgerSnapshot(int[] activeCounts, int[] peakCounts, long totalAcquired, long totalReleased)
+    public IReadOnlyList<ResourceLedgerEvent> Events => _events;
+
+    internal ResourceLedgerSnapshot(
+        int[] activeCounts,
+        int[] peakCounts,
+        long totalAcquired,
+        long totalReleased,
+        IReadOnlyList<ResourceLedgerEvent> events)
     {
         _activeCounts = (int[])activeCounts.Clone();
         _peakCounts = (int[])peakCounts.Clone();
+        _events = [.. events];
         TotalAcquired = totalAcquired;
         TotalReleased = totalReleased;
     }

@@ -2,6 +2,8 @@ using System.Diagnostics;
 
 using Nanto.Hosting.Windows.TestProtocol;
 
+using Windows.Win32;
+
 namespace Nanto.Hosting.Windows.TestApp;
 
 internal static class ScenarioRunner
@@ -15,7 +17,7 @@ internal static class ScenarioRunner
         WindowsApplicationHost? host = null;
         var failureInjector = new RecordingFailureInjector(failureCheckpoint, () => host!.ResourceSnapshot);
         var transitions = new List<Phase1LifecycleTransition>();
-        host = new WindowsApplicationHost(TimeProvider.System, failureInjector);
+        host = new WindowsApplicationHost(TimeProvider.System, failureInjector, captureResourceOwnershipEvents: true);
         var initialResources = CaptureResources(host.ResourceSnapshot);
         host.StateChanged += (_, eventArgs) => transitions.Add(CreateTransition("Application", eventArgs));
 
@@ -45,6 +47,7 @@ internal static class ScenarioRunner
         }
 
         var finalResources = CaptureResources(host.ResourceSnapshot);
+        var resourceOwnershipEvents = CaptureOwnershipEvents(host.ResourceSnapshot);
         var reachedCheckpoints = failureInjector.ReachedCheckpoints.Select(static checkpoint => checkpoint.ToString()).ToArray();
         var succeeded = observedFailure is not null
             && ReferenceEquals(observedFailure.InnerException, failureInjector.InjectedFailure)
@@ -53,7 +56,8 @@ internal static class ScenarioRunner
             && failureInjector.ReachedCheckpoints.Count > 0
             && failureInjector.ReachedCheckpoints[^1] == failureCheckpoint
             && host.State == ApplicationState.Closed
-            && finalResources.TotalActive == 0;
+            && finalResources.TotalActive == 0
+            && HasReverseOwnershipCleanup(host.ResourceSnapshot);
         Exception? reportedFailure = observedFailure;
         if (disposalFailure is not null)
         {
@@ -72,81 +76,40 @@ internal static class ScenarioRunner
             initialResources,
             peakResources,
             finalResources,
+            resourceOwnershipEvents,
             reportedFailure);
     }
 
     public static async Task<Phase1TestReport> RunHostLifecycleAsync(
         Phase1TestRequest request,
         DateTimeOffset startedAt,
-        Stopwatch stopwatch)
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.Stop);
+
+    public static async Task<Phase1TestReport> RunNativeCloseAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.NativeClose);
+
+    public static async Task<Phase1TestReport> RunCancellationAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.CancelRun);
+
+    public static async Task<Phase1TestReport> RunRepeatedCloseAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.RepeatedClose);
+
+    private static Phase1ResourceOwnershipEvent[] CaptureOwnershipEvents(ResourceLedgerSnapshot snapshot)
     {
-        var failureInjector = new RecordingFailureInjector(null);
-        var transitions = new List<Phase1LifecycleTransition>();
-        var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var host = new WindowsApplicationHost(TimeProvider.System, failureInjector);
-        var initialResources = CaptureResources(host.ResourceSnapshot);
-        host.StateChanged += (_, eventArgs) =>
+        return snapshot.Events.Select(static ownershipEvent => new Phase1ResourceOwnershipEvent
         {
-            transitions.Add(CreateTransition("Application", eventArgs));
-            if (eventArgs.NewState == ApplicationState.Created && host.PrimaryWindow is { } window)
-            {
-                window.StateChanged += (_, windowEventArgs) => transitions.Add(CreateTransition("PrimaryWindow", windowEventArgs));
-            }
-
-            if (eventArgs.NewState == ApplicationState.Activated)
-            {
-                activated.TrySetResult();
-            }
-        };
-
-        Exception? observedFailure = null;
-        var presentationMatched = false;
-        var peakResources = initialResources;
-        var run = host.RunAsync(CreateOptions(request));
-        try
-        {
-            await activated.Task.WaitAsync(Program.ActivationTimeout);
-            presentationMatched = host.PrimaryWindow?.IsVisible == (request.PresentationMode == Phase1TestPresentationMode.Visible);
-            peakResources = CaptureResources(host.ResourceSnapshot);
-            await host.StopAsync();
-            await run;
-        }
-        catch (Exception exception)
-        {
-            observedFailure = exception;
-            try
-            {
-                await host.StopAsync();
-            }
-            catch (Exception stopException)
-            {
-                observedFailure = new AggregateException("The scenario and its stop request both failed.", exception, stopException);
-            }
-        }
-
-        try
-        {
-            await host.DisposeAsync();
-        }
-        catch (Exception disposeException)
-        {
-            observedFailure = observedFailure is null
-                ? disposeException
-                : new AggregateException("The scenario and host disposal both failed.", observedFailure, disposeException);
-        }
-
-        var finalResources = CaptureResources(host.ResourceSnapshot);
-        return CreateReport(
-            request,
-            startedAt,
-            stopwatch,
-            observedFailure is null && presentationMatched && host.State == ApplicationState.Closed && finalResources.TotalActive == 0,
-            failureInjector.ReachedCheckpoints.Select(static checkpoint => checkpoint.ToString()).ToArray(),
-            transitions,
-            initialResources,
-            peakResources,
-            finalResources,
-            observedFailure);
+            Sequence = ownershipEvent.Sequence,
+            LeaseId = ownershipEvent.LeaseId,
+            Kind = ownershipEvent.Kind.ToString(),
+            Name = ownershipEvent.Name,
+            Action = ownershipEvent.Acquired ? "Acquired" : "Released",
+        }).ToArray();
     }
 
     private static Phase1ResourceLedgerReport CaptureResources(ResourceLedgerSnapshot snapshot) => new()
@@ -174,6 +137,7 @@ internal static class ScenarioRunner
         Phase1ResourceLedgerReport initialResources,
         Phase1ResourceLedgerReport peakResources,
         Phase1ResourceLedgerReport finalResources,
+        Phase1ResourceOwnershipEvent[] resourceOwnershipEvents,
         Exception? observedFailure)
     {
         stopwatch.Stop();
@@ -197,6 +161,7 @@ internal static class ScenarioRunner
             InitialResources = initialResources,
             PeakResources = peakResources,
             FinalResources = finalResources,
+            ResourceOwnershipEvents = resourceOwnershipEvents,
             RendererRecoveryResult = "NotApplicable",
             RetainedArtifactPaths = [],
             ObservedFailure = observedFailure is null ? null : Program.DescribeFailure(observedFailure),
@@ -232,6 +197,20 @@ internal static class ScenarioRunner
         OccurredAt = eventArgs.OccurredAt,
     };
 
+    private static bool HasReverseOwnershipCleanup(ResourceLedgerSnapshot snapshot)
+    {
+        var ownershipEvents = snapshot.Events.Where(static ownershipEvent => ownershipEvent.Kind != WindowsResourceKind.DispatcherItem).ToArray();
+        var acquiredLeaseIds = ownershipEvents
+            .Where(static ownershipEvent => ownershipEvent.Acquired)
+            .Select(static ownershipEvent => ownershipEvent.LeaseId)
+            .ToArray();
+        var releasedLeaseIds = ownershipEvents
+            .Where(static ownershipEvent => !ownershipEvent.Acquired)
+            .Select(static ownershipEvent => ownershipEvent.LeaseId)
+            .ToArray();
+        return acquiredLeaseIds.Length > 0 && releasedLeaseIds.SequenceEqual(acquiredLeaseIds.Reverse());
+    }
+
     private static Phase1AcquisitionCheckpoint ParseFailureCheckpoint(string value)
     {
         if (!Enum.TryParse(value, ignoreCase: false, out Phase1AcquisitionCheckpoint checkpoint) || !Enum.IsDefined(checkpoint))
@@ -240,6 +219,117 @@ internal static class ScenarioRunner
         }
 
         return checkpoint;
+    }
+
+    private static async Task<Phase1TestReport> RunOrderlyShutdownAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch,
+        ShutdownAction shutdownAction)
+    {
+        var failureInjector = new RecordingFailureInjector(null);
+        var transitions = new List<Phase1LifecycleTransition>();
+        var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var runCancellation = new CancellationTokenSource();
+        var host = new WindowsApplicationHost(TimeProvider.System, failureInjector, captureResourceOwnershipEvents: true);
+        var initialResources = CaptureResources(host.ResourceSnapshot);
+        host.StateChanged += (_, eventArgs) =>
+        {
+            transitions.Add(CreateTransition("Application", eventArgs));
+            if (eventArgs.NewState == ApplicationState.Created && host.PrimaryWindow is { } window)
+            {
+                window.StateChanged += (_, windowEventArgs) => transitions.Add(CreateTransition("PrimaryWindow", windowEventArgs));
+            }
+
+            if (eventArgs.NewState == ApplicationState.Activated)
+            {
+                activated.TrySetResult();
+            }
+        };
+
+        Exception? observedFailure = null;
+        var presentationMatched = false;
+        var peakResources = initialResources;
+        var run = host.RunAsync(CreateOptions(request), runCancellation.Token);
+        try
+        {
+            await activated.Task.WaitAsync(Program.ActivationTimeout);
+            presentationMatched = host.PrimaryWindow?.IsVisible == (request.PresentationMode == Phase1TestPresentationMode.Visible);
+            peakResources = CaptureResources(host.ResourceSnapshot);
+            await RequestShutdownAsync(host, runCancellation, shutdownAction);
+            await run;
+        }
+        catch (Exception exception)
+        {
+            observedFailure = exception;
+            try
+            {
+                await host.StopAsync();
+            }
+            catch (Exception stopException)
+            {
+                observedFailure = new AggregateException("The scenario and its stop request both failed.", exception, stopException);
+            }
+        }
+
+        try
+        {
+            await host.DisposeAsync();
+        }
+        catch (Exception disposeException)
+        {
+            observedFailure = observedFailure is null
+                ? disposeException
+                : new AggregateException("The scenario and host disposal both failed.", observedFailure, disposeException);
+        }
+
+        var finalSnapshot = host.ResourceSnapshot;
+        var finalResources = CaptureResources(finalSnapshot);
+        return CreateReport(
+            request,
+            startedAt,
+            stopwatch,
+            observedFailure is null
+                && presentationMatched
+                && host.State == ApplicationState.Closed
+                && finalResources.TotalActive == 0
+                && HasReverseOwnershipCleanup(finalSnapshot),
+            failureInjector.ReachedCheckpoints.Select(static checkpoint => checkpoint.ToString()).ToArray(),
+            transitions,
+            initialResources,
+            peakResources,
+            finalResources,
+            CaptureOwnershipEvents(finalSnapshot),
+            observedFailure);
+    }
+
+    private static async Task RequestShutdownAsync(
+        WindowsApplicationHost host,
+        CancellationTokenSource runCancellation,
+        ShutdownAction shutdownAction)
+    {
+        var window = (WindowsWindow?)host.PrimaryWindow ?? throw new InvalidOperationException("The primary Windows window was not published.");
+        switch (shutdownAction)
+        {
+            case ShutdownAction.Stop:
+                await host.StopAsync();
+                break;
+            case ShutdownAction.NativeClose:
+                if (!PInvoke.PostMessage(window.Handle, PInvoke.WM_CLOSE, default, default))
+                {
+                    throw new InvalidOperationException("Posting WM_CLOSE to the primary window failed.");
+                }
+
+                break;
+            case ShutdownAction.CancelRun:
+                runCancellation.Cancel();
+                break;
+            case ShutdownAction.RepeatedClose:
+                await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => window.CloseAsync().AsTask()));
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(shutdownAction), shutdownAction, "The shutdown action is not supported.");
+        }
     }
 
     private sealed class UnusedAssetProvider : IWebAssetProvider
@@ -254,5 +344,13 @@ internal static class ScenarioRunner
         {
             throw new InvalidOperationException("Milestone 2 does not acquire web assets.");
         }
+    }
+
+    private enum ShutdownAction
+    {
+        Stop,
+        NativeClose,
+        CancelRun,
+        RepeatedClose,
     }
 }

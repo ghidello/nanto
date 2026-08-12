@@ -11,6 +11,7 @@ internal static class Program
     private const int FailedExitCode = 1;
     private const int InvalidInvocationExitCode = 2;
     private static readonly TimeSpan _activationTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan _requestPublicationTimeout = TimeSpan.FromSeconds(15);
 
     internal static TimeSpan ActivationTimeout => _activationTimeout;
 
@@ -33,7 +34,7 @@ internal static class Program
         Phase1TestReport report;
         try
         {
-            await using var requestStream = File.OpenRead(commandLine.RequestPath);
+            await using var requestStream = await OpenRequestAsync(commandLine.RequestPath);
             request = await JsonSerializer.DeserializeAsync(requestStream, Phase1TestJsonContext.Default.Phase1TestRequest)
                 ?? throw new InvalidDataException("The request document contains JSON null.");
             Phase1TestRequestValidator.Validate(request);
@@ -86,6 +87,7 @@ internal static class Program
             InitialResources = emptyResources,
             PeakResources = emptyResources,
             FinalResources = emptyResources,
+            ResourceOwnershipEvents = [],
             RendererRecoveryResult = "NotApplicable",
             RetainedArtifactPaths = [],
             ObservedFailure = CreateObservedFailure(exception),
@@ -130,8 +132,34 @@ internal static class Program
         {
             Phase1TestScenario.HostLifecycle => await ScenarioRunner.RunHostLifecycleAsync(request, startedAt, stopwatch),
             Phase1TestScenario.AcquisitionFailure => await ScenarioRunner.RunAcquisitionFailureAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.NativeClose => await ScenarioRunner.RunNativeCloseAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.RunCancellation => await ScenarioRunner.RunCancellationAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.RepeatedClose => await ScenarioRunner.RunRepeatedCloseAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),
         };
+    }
+
+    private static async Task<Phase1TestReport> WaitForContainmentAsync()
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+        throw new UnreachableException();
+    }
+
+    private static async Task<FileStream> OpenRequestAsync(string requestPath)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        while (!File.Exists(requestPath))
+        {
+            if (Stopwatch.GetElapsedTime(startedAt) >= _requestPublicationTimeout)
+            {
+                throw new TimeoutException($"The request document was not published within {_requestPublicationTimeout}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        return new FileStream(requestPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
     }
 
     private static async Task WriteReportAsync(string reportPath, Phase1TestReport report)

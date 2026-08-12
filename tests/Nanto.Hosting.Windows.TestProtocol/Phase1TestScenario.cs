@@ -4,4 +4,8 @@ public enum Phase1TestScenario
 {
     HostLifecycle,
     AcquisitionFailure,
+    NativeClose,
+    RunCancellation,
+    RepeatedClose,
+    ContainmentTimeout,
 }

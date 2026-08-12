@@ -71,7 +71,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
         IDisposable? threadLease = null;
         try
         {
-            threadLease = _resourceLedger.Acquire(WindowsResourceKind.UiThread);
+            threadLease = _resourceLedger.Acquire(WindowsResourceKind.UiThread, "UiThread");
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.UiThreadStarted);
             _nativeThreadId = PInvoke.GetCurrentThreadId();
             _ = PInvoke.PeekMessage(out _, default, 0, 0, PEEK_MESSAGE_REMOVE_TYPE.PM_NOREMOVE);

@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Feasibility is complete; the immediate focus is Phase 1 as specified in `docs/phase1-plan.md`: establish portable lifecycle contracts and tests, then bring the validated raw-Win32/WebView2 x64 approach into production through narrow vertical milestones. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Feasibility and the Phase 1 Win32-host milestone are complete; the immediate focus is Milestone 3 in `docs/phase1-plan.md`: add deterministic WebView2 interop generation and then the minimal production WebView2 host. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 
@@ -81,9 +81,9 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, the three fast test projects, and the current TestProtocol/TestApp integration support. Only the three fast test projects execute tests by default. IntegrationTestKit and the integration-test projects have not been introduced yet; do not treat an integration-scope command as a phase gate until that graph exists.
+Both commands cover the two production assemblies, repository-local `Nanto.Testing` support, the three fast test projects, and the current TestProtocol, TestApp, IntegrationTestKit, and hidden integration project. Only the three fast test projects execute tests by default.
 
-Test scope is independent from build configuration. Once the integration projects exist, use:
+Test scope is independent from build configuration. Use:
 
 ```powershell
 dotnet test                              # fast tests only
@@ -92,7 +92,7 @@ dotnet test -p:TestScope=Integration     # unattended integration tests only
 dotnet test -c Release -p:TestScope=All  # complete suite using Release builds
 ```
 
-`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. Until the first integration-test project is introduced, only the default fast command is a meaningful test gate.
+`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the Milestone 2 gate: it covers the fast suite plus contained hidden-process tests for clean startup, every implemented acquisition failure, native close, run cancellation, repeated close, scenario timeout, zero final ledgers, and exact reverse release of checkpoint-owned resources.
 
 Once the manual projects exist, their commands are:
 

@@ -11,4 +11,9 @@
     <ProjectReference Include="../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
     <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
   </ItemGroup>
+  <Target Name="GetNantoTestAppExecutablePath" Returns="@(_NantoTestAppExecutablePath)">
+    <ItemGroup>
+      <_NantoTestAppExecutablePath Include="$(TargetDir)$(TargetName).exe" />
+    </ItemGroup>
+  </Target>
 </Project>

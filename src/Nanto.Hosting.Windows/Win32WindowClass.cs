@@ -59,7 +59,7 @@ internal sealed unsafe class Win32WindowClass : IDisposable
                 isRegistered = true;
             }
 
-            _resourceLease = resourceLedger.Acquire(WindowsResourceKind.NativeHandle);
+            _resourceLease = resourceLedger.Acquire(WindowsResourceKind.NativeHandle, "WindowClassRegistration");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WindowClassRegistered);
         }
         catch (Exception registrationException)

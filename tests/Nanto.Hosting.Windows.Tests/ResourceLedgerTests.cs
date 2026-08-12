@@ -8,9 +8,9 @@ public sealed class ResourceLedgerTests
     public void LeaseTracksActivePeakAndFinalCounts()
     {
         var ledger = new ResourceLedger();
-        var firstWindow = ledger.Acquire(WindowsResourceKind.Window);
-        using var secondWindow = ledger.Acquire(WindowsResourceKind.Window);
-        using var handle = ledger.Acquire(WindowsResourceKind.NativeHandle);
+        var firstWindow = ledger.Acquire(WindowsResourceKind.Window, "FirstWindow");
+        using var secondWindow = ledger.Acquire(WindowsResourceKind.Window, "SecondWindow");
+        using var handle = ledger.Acquire(WindowsResourceKind.NativeHandle, "Handle");
 
         firstWindow.Dispose();
         firstWindow.Dispose();
@@ -28,8 +28,8 @@ public sealed class ResourceLedgerTests
     public void DisposingEveryLeaseReturnsTheLedgerToZero()
     {
         var ledger = new ResourceLedger();
-        var thread = ledger.Acquire(WindowsResourceKind.UiThread);
-        var dispatcherItem = ledger.Acquire(WindowsResourceKind.DispatcherItem);
+        var thread = ledger.Acquire(WindowsResourceKind.UiThread, "UiThread");
+        var dispatcherItem = ledger.Acquire(WindowsResourceKind.DispatcherItem, "DispatcherItem");
 
         dispatcherItem.Dispose();
         thread.Dispose();
@@ -47,10 +47,41 @@ public sealed class ResourceLedgerTests
         var ledger = new ResourceLedger();
         var unknownKind = (WindowsResourceKind)int.MaxValue;
 
-        var acquire = () => ledger.Acquire(unknownKind);
+        var acquire = () => ledger.Acquire(unknownKind, "Unknown");
         var read = () => ledger.CaptureSnapshot().GetActiveCount(unknownKind);
 
         acquire.Should().Throw<ArgumentOutOfRangeException>();
         read.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void SnapshotRecordsStableLeaseIdentityAndReleaseOrder()
+    {
+        var ledger = new ResourceLedger(captureOwnershipEvents: true);
+        var application = ledger.Acquire(WindowsResourceKind.ApplicationHost, "ApplicationHost");
+        var window = ledger.Acquire(WindowsResourceKind.Window, "Window");
+
+        window.Dispose();
+        application.Dispose();
+        var events = ledger.CaptureSnapshot().Events;
+
+        events.Select(static ledgerEvent => ledgerEvent.Sequence).Should().Equal(1, 2, 3, 4);
+        events.Select(static ledgerEvent => (ledgerEvent.Name, ledgerEvent.Acquired)).Should().Equal(
+            ("ApplicationHost", true),
+            ("Window", true),
+            ("Window", false),
+            ("ApplicationHost", false));
+        events[0].LeaseId.Should().Be(events[3].LeaseId);
+        events[1].LeaseId.Should().Be(events[2].LeaseId);
+    }
+
+    [Fact]
+    public void SnapshotDoesNotRetainOwnershipEventsByDefault()
+    {
+        var ledger = new ResourceLedger();
+
+        ledger.Acquire(WindowsResourceKind.DispatcherItem, "DispatcherItem").Dispose();
+
+        ledger.CaptureSnapshot().Events.Should().BeEmpty();
     }
 }

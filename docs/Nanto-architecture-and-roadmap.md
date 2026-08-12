@@ -1183,7 +1183,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-012 | Use source-generated dispatch and JSON metadata. | Avoid reflection and enable trimming/AOT. |
 | D-013 | Capability-based authorization is default-deny. | The frontend is a separate trust domain. |
 | D-014 | Delegate frontend HMR to the selected SPA development server and orchestrate it alongside .NET Hot Reload/restart. | Preserve each frontend ecosystem's normal workflow; use Vite as the reference, not a dependency. |
-| D-015 | Resource ownership and reverse-order teardown are architectural requirements. | Native lifetime bugs are correctness issues, not polish. |
+| D-015 | Resource ownership and reverse-order teardown are architectural requirements. | Native lifetime bugs are correctness issues, not polish. Phase 1 Milestone 2 proves the initial Win32 ownership chain through stable ledger lease IDs, external checkpoint-failure processes, exact reverse release, and zero final counts. |
 | D-016 | Use the Evergreen WebView2 Runtime in ordinary Windows distribution. | Share the installed runtime and avoid bundling Chromium. |
 | D-017 | Windows is the first and only currently committed complete host. | It proves the product, smallest-host, and AOT/COM risks while platform-neutral contracts preserve—not promise—future options. |
 | D-018 | Use CsWin32 plus Microsoft's Win32 metadata for ordinary Windows APIs. | Generate correct typed declarations, constants, handles, and cleanup metadata without shipping a wrapper runtime. |
