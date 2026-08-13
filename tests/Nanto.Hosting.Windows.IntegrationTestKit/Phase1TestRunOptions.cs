@@ -20,6 +20,8 @@ public sealed record Phase1TestRunOptions
 
     public bool CleanupApplicationRootOnSuccess { get; init; } = true;
 
+    public bool RetainArtifactsOnSuccess { get; init; }
+
     public string? CoordinationDirectory { get; init; }
 
     public string? ParticipantId { get; init; }

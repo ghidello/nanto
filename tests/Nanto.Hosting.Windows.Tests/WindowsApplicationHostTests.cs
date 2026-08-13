@@ -731,6 +731,10 @@ public sealed class WindowsApplicationHostTests
 
         public Task Readiness => Task.CompletedTask;
 
+        public void MoveFocus()
+        {
+        }
+
         public void SetBounds(int width, int height)
         {
         }
@@ -783,6 +787,10 @@ public sealed class WindowsApplicationHostTests
     private sealed class FailingCleanupWebViewWindow(Exception cleanupFailure) : IWindowsWebViewWindow
     {
         public Task Readiness => Task.CompletedTask;
+
+        public void MoveFocus()
+        {
+        }
 
         public void SetBounds(int width, int height)
         {
@@ -893,6 +901,10 @@ public sealed class WindowsApplicationHostTests
         public static ThreadRecordingWebViewWindow Instance { get; } = new();
 
         public Task Readiness => Task.CompletedTask;
+
+        public void MoveFocus()
+        {
+        }
 
         public void SetBounds(int width, int height)
         {

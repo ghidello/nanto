@@ -90,6 +90,9 @@ internal static class Program
             ResourceOwnershipEvents = [],
             RendererRecoveryResult = "NotApplicable",
             AppearanceObservations = [],
+            VisibleAcceptanceStatus = Phase1VisibleAcceptanceStatus.NotApplicable,
+            MonitorTopology = [],
+            WindowObservations = [],
             RetainedArtifactPaths = [],
             ObservedFailure = CreateObservedFailure(exception),
         };
@@ -142,6 +145,8 @@ internal static class Program
             Phase1TestScenario.RendererRecovery => await ScenarioRunner.RunRendererRecoveryAsync(request, startedAt, stopwatch),
             Phase1TestScenario.BrowserProcessExit => await ScenarioRunner.RunBrowserProcessExitAsync(request, startedAt, stopwatch),
             Phase1TestScenario.SharedProfile => await ScenarioRunner.RunSharedProfileAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.VisibleDesktop => await ScenarioRunner.RunVisibleDesktopAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.VisibleCrossMonitorDpi => await ScenarioRunner.RunVisibleCrossMonitorDpiAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),
         };

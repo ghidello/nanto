@@ -6,5 +6,7 @@ internal sealed class Win32WindowCallbacks
 
     public Action? Destroyed { get; init; }
 
+    public Action? Focused { get; init; }
+
     public Action<int, int, uint>? Resized { get; init; }
 }

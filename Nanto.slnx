@@ -22,8 +22,10 @@
     <Project Path="tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj" />
+    <Project Path="tests/Nanto.Hosting.Windows.TestApp.Interop/Nanto.Hosting.Windows.TestApp.Interop.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj" />
+    <Project Path="tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj" />
     <Project Path="tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj" />
     <Project Path="tests/Nanto.Testing/Nanto.Testing.csproj" />
   </Folder>

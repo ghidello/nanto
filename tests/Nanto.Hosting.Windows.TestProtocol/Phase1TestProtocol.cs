@@ -2,5 +2,5 @@ namespace Nanto.Hosting.Windows.TestProtocol;
 
 public static class Phase1TestProtocol
 {
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 }

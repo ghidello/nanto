@@ -351,6 +351,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             }
         }
 
+        public void MoveFocus() =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow))).MoveFocus();
+
         public void SetBounds(int width, int height) =>
             (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow))).SetBounds(width, height);
 

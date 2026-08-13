@@ -93,6 +93,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             {
                 CloseRequested = CloseOnUiThread,
                 Destroyed = OnNativeDestroyed,
+                Focused = OnNativeFocused,
                 Resized = OnNativeResized,
             },
             failureInjector);
@@ -315,6 +316,14 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         if (_nativeWindowCreated && Volatile.Read(ref _closeCleanupInProgress) == 0)
         {
             CompleteClose();
+        }
+    }
+
+    private void OnNativeFocused()
+    {
+        if (State == WindowState.Running)
+        {
+            _webViewWindow?.MoveFocus();
         }
     }
 

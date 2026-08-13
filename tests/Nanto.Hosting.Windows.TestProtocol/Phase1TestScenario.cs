@@ -14,4 +14,6 @@ public enum Phase1TestScenario
     BrowserProcessExit,
     SharedProfile,
     ContainmentTimeout,
+    VisibleDesktop,
+    VisibleCrossMonitorDpi,
 }

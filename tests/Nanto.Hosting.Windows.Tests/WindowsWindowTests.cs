@@ -169,6 +169,46 @@ public sealed class WindowsWindowTests
     }
 
     [Fact]
+    public async Task NativeFocusMovesKeyboardFocusIntoTheWebView()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        Win32WindowClass? windowClass = null;
+        WindowsWindow? window = null;
+        var webViewApplication = new ReportingWebViewApplication();
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            await dispatcher.InvokeAsync(
+                async _ =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    window = await WindowsWindow.CreateAsync(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        webViewApplication,
+                        new WindowOptions { Title = "Focus test", StartVisible = false },
+                        ColorSchemePreference.System,
+                        cancellationToken: TestContext.Current.CancellationToken);
+
+                    PInvoke.SendMessage(window.Handle, PInvoke.WM_SETFOCUS, default, default);
+                },
+                TestContext.Current.CancellationToken);
+
+            webViewApplication.Window.MoveFocusCount.Should().Be(1);
+            await window!.DisposeAsync();
+            await dispatcher.InvokeAsync(windowClass!.Dispose, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
     public async Task UnrepresentableSizeFailsBeforeNativeMutation()
     {
         var ledger = new ResourceLedger();
@@ -311,6 +351,10 @@ public sealed class WindowsWindowTests
     {
         public Task Readiness => Task.CompletedTask;
 
+        public void MoveFocus()
+        {
+        }
+
         public void SetBounds(int width, int height)
         {
         }
@@ -327,6 +371,8 @@ public sealed class WindowsWindowTests
     {
         private Action<RendererFailureKind, string, bool>? _reportRendererFailure;
 
+        public ReportingWebViewWindow Window { get; } = new();
+
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             global::Windows.Win32.Foundation.HWND parentWindow,
             WindowId windowId,
@@ -338,7 +384,7 @@ public sealed class WindowsWindowTests
             CancellationToken cancellationToken)
         {
             _reportRendererFailure = reportRendererFailure;
-            return ValueTask.FromResult<IWindowsWebViewWindow>(ReportingWebViewWindow.Instance);
+            return ValueTask.FromResult<IWindowsWebViewWindow>(Window);
         }
 
         public ValueTask SetPreferredColorSchemeAsync(ColorSchemePreference preferredColorScheme, CancellationToken cancellationToken) =>
@@ -360,12 +406,13 @@ public sealed class WindowsWindowTests
 
     private sealed class ReportingWebViewWindow : IWindowsWebViewWindow
     {
-        public static ReportingWebViewWindow Instance { get; } = new();
-
         public Task Readiness => Task.CompletedTask;
 
-        private ReportingWebViewWindow()
+        public int MoveFocusCount { get; private set; }
+
+        public void MoveFocus()
         {
+            MoveFocusCount++;
         }
 
         public void SetBounds(int width, int height)

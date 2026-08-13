@@ -114,6 +114,11 @@ public static class Phase1TestProcessRunner
             }
             var output = await standardOutput.ConfigureAwait(false);
             var error = await standardError.ConfigureAwait(false);
+            if (options.RetainArtifactsOnSuccess)
+            {
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stdout.txt"), output, cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stderr.txt"), error, cancellationToken).ConfigureAwait(false);
+            }
             var report = await ReadReportAsync(reportPath, request, cancellationToken).ConfigureAwait(false);
             var result = new Phase1TestRunResult
             {
@@ -137,8 +142,13 @@ public static class Phase1TestProcessRunner
                 await DeleteApplicationRootAsync(applicationRoot, CancellationToken.None).ConfigureAwait(false);
             }
 
-            Directory.Delete(artifactDirectory, recursive: true);
-            return result with { ArtifactsRetained = false };
+            if (!options.RetainArtifactsOnSuccess)
+            {
+                Directory.Delete(artifactDirectory, recursive: true);
+                return result with { ArtifactsRetained = false };
+            }
+
+            return result;
         }
         catch (Exception processException) when (process is { HasExited: false } && job is not null)
         {

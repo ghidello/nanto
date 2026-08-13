@@ -5,5 +5,7 @@ namespace Nanto.Hosting.Windows.TestProtocol;
 
 [JsonSerializable(typeof(Phase1TestReport))]
 [JsonSerializable(typeof(Phase1TestRequest))]
+[JsonSerializable(typeof(Phase1MonitorObservation[]))]
+[JsonSerializable(typeof(Phase1WindowObservation[]))]
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true, WriteIndented = true)]
 public sealed partial class Phase1TestJsonContext : JsonSerializerContext;

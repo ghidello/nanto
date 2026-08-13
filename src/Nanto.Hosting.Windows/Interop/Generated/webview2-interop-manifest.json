@@ -14,7 +14,7 @@
     },
     {
       "path": "eng/Nanto.WebView2InteropGen/webview2-interop-spec.json",
-      "sha256": "ba1d9912c6751d9b48879d1c9a66fec2d8eebfd7c92b7387a5d5a9c575045be5"
+      "sha256": "f0f2771ffd838bf7f2fef9a2f5820a4eb99d3e7b6a3cf1f3313db8a053b5161a"
     }
   ],
   "interfaces": [
@@ -189,8 +189,8 @@
   ],
   "output": {
     "path": "src/Nanto.Hosting.Windows/Interop/Generated/WebView2Interop.g.cs",
-    "byteLength": 21446,
-    "sha256": "5b6fd063b30932f17851c434f9b0720ea08f72641267b87ae7eb6ec18c373cdb",
+    "byteLength": 21643,
+    "sha256": "1043ce34fbd78d78dc6832d915f993f95004ce130cc4964be3bd6bee4cdc066c",
     "encoding": "utf-8",
     "lineEndings": "lf"
   }

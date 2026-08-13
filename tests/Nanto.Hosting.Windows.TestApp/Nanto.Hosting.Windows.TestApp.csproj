@@ -4,12 +4,14 @@
     <OutputType>Exe</OutputType>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
     <ProjectReference Include="../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
     <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
+    <ProjectReference Include="../Nanto.Hosting.Windows.TestApp.Interop/Nanto.Hosting.Windows.TestApp.Interop.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebAssets/assets/app.css" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.app.css" />

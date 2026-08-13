@@ -6,7 +6,7 @@ using Windows.Win32;
 
 namespace Nanto.Hosting.Windows.TestApp;
 
-internal static class ScenarioRunner
+internal static partial class ScenarioRunner
 {
     public static async Task<Phase1TestReport> RunAcquisitionFailureAsync(
         Phase1TestRequest request,
@@ -503,7 +503,11 @@ internal static class ScenarioRunner
         Phase1ResourceOwnershipEvent[] resourceOwnershipEvents,
         Exception? observedFailure,
         string[]? appearanceObservations = null,
-        string rendererRecoveryResult = "NotApplicable")
+        string rendererRecoveryResult = "NotApplicable",
+        Phase1VisibleAcceptanceStatus visibleAcceptanceStatus = Phase1VisibleAcceptanceStatus.NotApplicable,
+        Phase1MonitorObservation[]? monitorTopology = null,
+        Phase1WindowObservation[]? windowObservations = null,
+        string[]? retainedArtifactPaths = null)
     {
         stopwatch.Stop();
         return new Phase1TestReport
@@ -529,7 +533,10 @@ internal static class ScenarioRunner
             ResourceOwnershipEvents = resourceOwnershipEvents,
             RendererRecoveryResult = rendererRecoveryResult,
             AppearanceObservations = appearanceObservations ?? [],
-            RetainedArtifactPaths = [],
+            VisibleAcceptanceStatus = visibleAcceptanceStatus,
+            MonitorTopology = monitorTopology ?? [],
+            WindowObservations = windowObservations ?? [],
+            RetainedArtifactPaths = retainedArtifactPaths ?? [],
             ObservedFailure = observedFailure is null ? null : Program.DescribeFailure(observedFailure),
         };
     }

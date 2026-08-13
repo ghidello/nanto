@@ -228,6 +228,15 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
         _webMessageReceivedHandler.WaitForMessageAsync(cancellationToken);
 
+    public void MoveFocus()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        HResult.ThrowIfFailed(
+            _controller!.Value.MoveFocus((int)COREWEBVIEW2_MOVE_FOCUS_REASON.COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC),
+            "webview2.controller.move-focus",
+            NantoFailureStage.Runtime);
+    }
+
     public void SetBounds(int width, int height)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

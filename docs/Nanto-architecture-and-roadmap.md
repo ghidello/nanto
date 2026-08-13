@@ -535,7 +535,7 @@ The same operations must be safe when entered from user close, application shutd
 
 ### 6.7 DPI and window messages
 
-Nanto's portable API describes the client content size in device-independent pixels. The Windows host owns conversion to physical pixels based on the current window DPI and uses `AdjustWindowRectExForDpi` so native non-client chrome does not reduce the requested WebView content area. `INantoWindow.Size` is a thread-safe snapshot of the actual client size; `WM_SIZE` updates the snapshot and WebView controller from the same native client rectangle.
+Nanto's portable API describes the client content size in device-independent pixels. The Windows host owns conversion to physical pixels based on the current window DPI and uses `AdjustWindowRectExForDpi` so native non-client chrome does not reduce the requested WebView content area. `INantoWindow.Size` is a thread-safe snapshot of the actual client size; `WM_SIZE` updates the snapshot and WebView controller from the same native client rectangle. When the Nanto-owned parent receives `WM_SETFOCUS`, the host transfers keyboard focus into WebView2 with `ICoreWebView2Controller.MoveFocus(Programmatic)` so activation and later focus restoration reach the web content rather than stopping at the frame window.
 
 The private Windows UI thread enters Per-Monitor-V2 awareness before it creates its message queue or any `HWND`. Initial placement is automatic in Phase 1: Windows selects the screen position, then Nanto sizes the client area for the selected window DPI. On `WM_DPICHANGED`, Nanto updates its UI-thread-owned DPI before applying Windows' suggested rectangle. This preserves the intended apparent size without creating a second coordinate system.
 

@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `docs/phase1-plan.md` is the current acceptance target. Its client-size/DPI, multi-monitor, native-appearance, and renderer/process-recovery batches are complete; structured diagnostics is the current review batch, followed by visible acceptance. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `docs/phase1-plan.md` is the current acceptance target. Its client-size/DPI, multi-monitor, native-appearance, renderer/process-recovery, and structured-diagnostics implementation batches are complete. The self-driving visible project covers the ordinary desktop on one monitor and records an explicit skip when mixed-DPI displays are unavailable; a passing run with two active monitors using different effective DPI is the remaining Milestone 5 gate. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 
@@ -19,6 +19,7 @@ Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `d
 - Treat frontend content as untrusted. Command access is default-deny and must be checked against the calling origin and window/WebView identity.
 - Give every native handle, COM object, subscription, cancellation source, and process one clear owner. Teardown must be deterministic, idempotent, cancellation-first, and reverse dependency order. Do not force unrelated application-, window-, and thread-scoped resources into one artificial global stack.
 - Keep WebView2 work on the STA UI thread. Never synchronously block on an operation whose completion requires that thread.
+- When the Nanto-owned parent `HWND` receives `WM_SETFOCUS`, transfer focus into WebView2 with `ICoreWebView2Controller.MoveFocus(Programmatic)`; activation must leave keyboard focus in the hosted content.
 - Keep appearance application/profile-scoped. Apply `System`, `Light`, or `Dark` through the platform WebView profile and standard `prefers-color-scheme`; do not add a theme-specific frontend protocol or a Nanto-owned preference store.
 - Treat public window sizes as client-area DIPs. The Windows UI thread is Per-Monitor-V2 aware and owns native placement and DPI. Phase 1 lets Windows choose initial placement and does not expose programmatic X/Y until a real display model exists.
 - On display or work-area changes, enumerate current monitor work areas and move a normal window only when it has no positive intersection with any of them. Preserve partially visible placement and native size; align an oversized window to the nearest work-area origin. Use `GetWindowPlacement`/`SetWindowPlacement` to preserve minimized and maximized state while Windows corrects the normal restore placement. Windows reports hidden windows as `SW_SHOWNORMAL`; correct their current rectangle through non-showing `SetWindowPos` so they remain hidden.
@@ -87,7 +88,7 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, the offline interop generator, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, IntegrationTestKit, hidden WebView2 integration, and interop-generation integration projects. Only the three fast test projects execute tests by default.
+Both commands cover the two production assemblies, the offline interop generator, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, TestApp-only native interop, IntegrationTestKit, hidden WebView2 integration, interop-generation integration, and visible integration projects. Only the three fast test projects execute tests by default.
 
 Test scope is independent from build configuration. Use:
 
@@ -98,13 +99,12 @@ dotnet test -p:TestScope=Integration     # unattended integration tests only
 dotnet test -c Release -p:TestScope=All  # complete suite using Release builds
 ```
 
-`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the cumulative Milestone 5 gate: it retains deterministic interop and Milestone 4 asset/navigation coverage while adding hidden DPI, appearance, renderer-recovery, browser-process-exit, failure/cancellation, dependency-ordered cleanup, unlocked-storage, and zero-ledger evidence as those batches land.
+`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the cumulative unattended Milestone 5 gate: it retains deterministic interop and Milestone 4 asset/navigation coverage while adding hidden DPI, appearance, renderer-recovery, browser-process-exit, failure/cancellation, dependency-ordered cleanup, unlocked-storage, zero-ledger evidence, and diagnostics. It builds but must not execute the visible project.
 
-Once the manual projects exist, their commands are:
+The visible project command is:
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
-dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
-Do not run either manual project as routine verification or infer permission from a general request to build, test, continue implementation, or complete a milestone. When one is necessary to validate relevant behavior, explain why that manual test is needed and ask the user for explicit approval to run the specific project, including its effects: desktop interaction for visible tests or substantial machine time for long-running tests. After approval, name only that project; never opt manual tests into the solution-level command.
+Do not run a manual project as routine verification or infer permission from a general request to build, test, continue implementation, or complete a milestone. When the visible project is necessary, explain that it temporarily steals foreground focus (using TestApp-only input-queue attachment if Windows denies the background-launched activation), resizes and may move its own window, sends `F6`, captures screenshots, and retains artifacts, then obtain explicit user approval. A one-monitor run is useful evidence but its mixed-DPI scenario skips and does not complete Milestone 5. After approval, name only that project; never opt manual tests into the solution-level command.

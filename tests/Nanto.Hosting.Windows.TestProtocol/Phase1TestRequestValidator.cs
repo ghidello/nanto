@@ -22,6 +22,12 @@ public static class Phase1TestRequestValidator
             throw new ArgumentOutOfRangeException(nameof(request), request.PresentationMode, "The presentation mode is not supported.");
         }
 
+        if (request.Scenario is Phase1TestScenario.VisibleDesktop or Phase1TestScenario.VisibleCrossMonitorDpi
+            && request.PresentationMode != Phase1TestPresentationMode.Visible)
+        {
+            throw new ArgumentException("Visible acceptance scenarios require visible presentation mode.", nameof(request));
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ApplicationId);
         ArgumentOutOfRangeException.ThrowIfLessThan(request.IterationCount, 1);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ArtifactDirectory);

@@ -106,6 +106,7 @@ Use the following exact project layout:
 | `tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj` | `net10.0` | References Core and the repository-local Testing support library. |
 | `tests/Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj` | `net10.0` | Integration-only versioned request/report DTOs, scenario names, and serialized checkpoint names; references no production or test-framework assembly and is not a test project. |
 | `tests/Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj` | `net10.0-windows10.0.19041.0` executable | References Core, Windows hosting, and TestProtocol; external process used by every native integration project; publishable as CoreCLR or Native AOT. |
+| `tests/Nanto.Hosting.Windows.TestApp.Interop/Nanto.Hosting.Windows.TestApp.Interop.csproj` | `net10.0-windows10.0.19041.0` | TestApp-only CsWin32 projection and managed automation boundary for monitor enumeration, focus, keyboard input, DWM inspection, window movement, and BMP capture; it does not expand production interop. |
 | `tests/Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj` | `net10.0-windows10.0.19041.0` | References TestProtocol; contains the process runner, artifact handling, job-object containment, and integration assertions; it is not a test project. |
 | `eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj` | `net10.0` executable | Offline deterministic generator for the narrow WebView2 COM projection; consumes official inputs from the pinned SDK package and has no production runtime role. |
 | `tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj` | `net10.0` | References the generator, regenerates into its own `obj` tree, and compares committed outputs byte-for-byte without creating a window or WebView2 process. |
@@ -785,9 +786,9 @@ TestApp accepts only:
 --request <absolute-json-path> --report <absolute-json-path>
 ```
 
-TestProtocol owns the source-generated JSON context and versioned DTOs used by both TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), canonical test `ApplicationId`, optional case-sensitive failure-checkpoint name, iteration count, and artifact directory. TestApp derives the production cache and UDF paths from the fixed default application root; the request cannot override them. TestApp always uses the installed Evergreen WebView2 Runtime in Phase 1, so the protocol has no runtime-lane field until multiple lanes exist.
+TestProtocol protocol version 6 owns the source-generated JSON context and versioned DTOs used by TestApp and IntegrationTestKit. The JSON request contains scenario, presentation mode (`Hidden` or `Visible`), canonical test `ApplicationId`, optional case-sensitive failure-checkpoint name, iteration count, and artifact directory. The two fixed visible scenarios are `VisibleDesktop` and `VisibleCrossMonitorDpi`. TestApp derives the production cache and UDF paths from the fixed default application root; the request cannot override them. TestApp always uses the installed Evergreen WebView2 Runtime in Phase 1, so the protocol has no runtime-lane field until multiple lanes exist.
 
-The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, the ordered resource-ownership trace, renderer recovery result, retained artifact paths, and a structured observed failure with every cleanup failure. Protocol DTOs expose no internal production enum or exception type.
+The report contains protocol version, scenario, success/failure, host/runtime/architecture information, timestamps and durations, ordered serialized checkpoint names, lifecycle transitions, initial/peak/final ledger snapshots, the ordered resource-ownership trace, renderer recovery result, appearance observations, monitor topology, staged visible-window observations, visible acceptance status, retained relative artifact paths, and a structured observed failure with every cleanup failure. Protocol DTOs expose no internal production enum or exception type.
 
 IntegrationTestKit must:
 
@@ -813,7 +814,7 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
 
 2. **Win32 host**
    - Add a dedicated STA thread, asynchronous dispatcher, message pump, primary `HWND`, and registry.
-   - Support activation, focus, resize, close, destroy, and cancellation.
+   - Support activation, resize, close, destroy, and cancellation; forward parent `WM_SETFOCUS` to WebView2 with `MoveFocus(Programmatic)` so keyboard focus reaches the hosted content.
    - Number every native acquisition and test failure cleanup as each resource is introduced.
 
 3. **WebView2 interop and minimal host**
@@ -944,17 +945,14 @@ HiddenIntegrationTests owns the exhaustive behavioral and failure matrix. The se
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
-This project intentionally shows windows and covers only:
+This self-driving project intentionally shows one production TestApp window. It retains request, report, stdout, stderr, topology, structured observations, and BMP screenshots beneath `artifacts/phase1/visible/<run-id>`. Its protocol-version-6 scenarios cover:
 
-- Actual foreground activation and focus.
-- Visible resizing and DWM behavior.
-- Real cross-monitor `WM_DPICHANGED`.
-- Initial monitor placement.
-- Native input and screenshots.
+- `VisibleDesktop`: actual foreground activation and descendant focus, client-area DIP resizing, Dark/Light/System DWM and SPA agreement, an F6 `SendInput` round trip, screenshots, and normal zero-ledger teardown. The production activation runs first; if Windows denies foreground promotion to the background-launched TestApp, test-only automation briefly attaches to the current foreground input queue, focuses Nanto's parent window, and immediately detaches so the scenario can verify the production `WM_SETFOCUS` to WebView2 focus handoff deterministically.
+- `VisibleCrossMonitorDpi`: topology before window creation, Windows-selected initial placement, deterministic traversal to a second monitor with different effective DPI, the real forward and reverse `WM_DPICHANGED` path, screenshots, and normal zero-ledger teardown.
 
-It is excluded from every unattended test scope and ordinary CI. It runs only when someone names the project directly with `RunManualTests=true` on an isolated VM/session and intentionally accepts desktop interaction.
+If no different-DPI pair exists, the second scenario retains an `InsufficientDisplays` report and skips without creating a window. That is useful evidence but is not acceptance. The project is excluded from every unattended test scope and ordinary CI. It runs only when someone names it directly with `RunManualTests=true` on an isolated unlocked session and intentionally accepts foreground changes, resizing/movement, F6 input, and screenshots.
 
-### Long-running integration tests
+### Planned long-running integration tests
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
@@ -969,7 +967,7 @@ dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hostin
 
 - Ordinary CI runs root `dotnet build` and `dotnet test` using the default `Fast` test scope.
 - Requested unattended integration CI runs `dotnet test -p:TestScope=All`, covering interop generation and all three host deployment modes.
-- VisibleIntegrationTests and LongRunningIntegrationTests never run automatically.
+- VisibleIntegrationTests never runs automatically; the planned LongRunningIntegrationTests project will follow the same rule once Milestone 6 introduces it.
 - Project boundaries define runtime, deployment, visibility, and duration. Repository-generated assembly traits and centrally supplied MTP filters implement the canonical scopes; individual tests do not select their own inventory.
 - Test profiles and environment variables do not select tests or host build modes. Environment variables remain acceptable only for genuinely machine-specific inputs that are explicit in the relevant project contract.
 - Automatic GitHub Actions triggers remain disabled until a separate cost-policy decision enables them.
@@ -1034,11 +1032,15 @@ The first main-frame renderer exit or unresponsive notification in a window life
 
 Structured diagnostics use the application-owned `ILoggerFactory` without adding a logging provider, OpenTelemetry SDK, persistent buffer, environment switch, or frontend protocol. Stable source-generated events cover application/window state, UI-thread startup and termination, WebView2 acquisition and recovery, appearance application, versioned-bundle publication/reuse/quarantine, shutdown deadlines, cleanup failures, and final ledger counts. The versioned provider receives the validated logger factory through `WebAssetPreparationContext`; neither Nanto nor providers dispose it. Fast recording-logger tests enforce event uniqueness/ranges, levels, causal outcomes, the hybrid exception policy, and omission of sensitive Nanto-owned values. Activity, metrics, exporter configuration, persistent logs, and frontend diagnostics remain later telemetry/tooling work.
 
-All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, and shared-UDF multi-instance scenarios must pass with a zero final ledger. The visible integration project is then run once, with explicit user approval, on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
+All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, shared-UDF multi-instance, and diagnostics scenarios must pass with a zero final ledger. The manual-only visible project is self-driving and artifact-producing. `VisibleDesktop` verifies foreground/focus, client-DIP resizing, System/Dark/Light native and SPA appearance, harmless `F6` input, screenshots, browser exit, unlocked storage, dependency-ordered cleanup, and a zero final ledger. `VisibleCrossMonitorDpi` records topology before window creation, traverses a deterministic different-DPI monitor pair through the real `WM_DPICHANGED` path, and verifies the reverse transition. It never changes the OS theme or display configuration.
+
+If no suitable pair exists, `VisibleCrossMonitorDpi` writes an `InsufficientDisplays` report and topology then skips without creating a window. Request, report, stdout, stderr, topology, window observations, and BMP screenshots are retained beneath `artifacts/phase1/visible/<run-id>`. Run the project only with explicit user approval in an isolated, unlocked interactive session:
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
+
+A one-monitor run can validate `VisibleDesktop` but does not complete Milestone 5. Completion requires the same command to pass both scenarios with two active monitors using different effective DPI.
 
 ### Milestone 6 — deployment modes and Phase 1 gate
 

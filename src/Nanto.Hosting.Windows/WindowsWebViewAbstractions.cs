@@ -42,6 +42,8 @@ internal interface IWindowsWebViewWindow : IAsyncDisposable
 {
     Task Readiness { get; }
 
+    void MoveFocus();
+
     void SetBounds(int width, int height);
 }
 
@@ -117,6 +119,10 @@ internal sealed class NoOpWindowsWebViewApplicationFactory : IWindowsWebViewAppl
         public static NoOpWindowsWebViewWindow Instance { get; } = new();
 
         public Task Readiness => Task.CompletedTask;
+
+        public void MoveFocus()
+        {
+        }
 
         public void SetBounds(int width, int height)
         {

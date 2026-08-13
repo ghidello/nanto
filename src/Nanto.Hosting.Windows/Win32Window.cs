@@ -180,6 +180,12 @@ internal sealed unsafe class Win32Window : IDisposable
         _ = PInvoke.ShowWindow(_handle, SHOW_WINDOW_CMD.SW_SHOW);
         _ = PInvoke.SetForegroundWindow(_handle);
         _ = PInvoke.SetFocus(_handle);
+
+        var callbackFailure = TakeCallbackFailure();
+        if (callbackFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(callbackFailure).Throw();
+        }
     }
 
     public void SetClientSize(int width, int height)
@@ -399,6 +405,18 @@ internal sealed unsafe class Win32Window : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static LRESULT ProcessWindowMessage(HWND windowHandle, uint message, WPARAM wParam, LPARAM lParam)
     {
+        if (message == PInvoke.WM_SETFOCUS && Windows.TryGetValue(windowHandle, out var focusedWindow))
+        {
+            try
+            {
+                focusedWindow.OnNativeFocused();
+            }
+            catch (Exception exception)
+            {
+                focusedWindow.RecordCallbackFailure(exception);
+            }
+        }
+
         if (message == PInvoke.WM_SIZE && Windows.TryGetValue(windowHandle, out var resizedWindow))
         {
             try
@@ -469,6 +487,8 @@ internal sealed unsafe class Win32Window : IDisposable
 
         return result;
     }
+
+    private void OnNativeFocused() => _callbacks?.Focused?.Invoke();
 
     private readonly record struct NativeSize(int Width, int Height);
 }

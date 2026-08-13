@@ -14,6 +14,13 @@
     const reportAppearance = () => window.chrome.webview.postMessage(`nanto:test:appearance:${dark.matches ? "Dark" : "Light"}`);
     dark.addEventListener("change", reportAppearance);
     reportAppearance();
+    window.addEventListener("keydown", event => {
+      if (event.key === "F6") {
+        reportAppearance();
+        window.chrome.webview.postMessage("nanto:test:key:F6");
+        event.preventDefault();
+      }
+    });
     const verifyAssets = async () => {
       const module = await import("/assets/module.js");
       const data = await fetch("/assets/data.json").then(response => response.json());
