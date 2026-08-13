@@ -12,10 +12,12 @@
           BeforeTargets="GetAssemblyAttributes"
           DependsOnTargets="ResolveProjectReferences">
     <MSBuild Projects="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj"
-             Targets="GetNantoTestAppExecutablePath"
+             Targets="GetNantoTestAppLaunchPath"
              Properties="Configuration=$(Configuration)">
-      <Output TaskParameter="TargetOutputs" ItemName="_NantoTestAppExecutablePath" />
+      <Output TaskParameter="TargetOutputs" ItemName="_NantoTestAppLaunchPath" />
     </MSBuild>
+    <Error Condition="'@(_NantoTestAppLaunchPath->'%(Extension)')' != '.dll'"
+           Text="Framework-dependent TestApp must expose its managed DLL as the launch path." />
     <ItemGroup>
       <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
         <_Parameter1>NantoRepositoryRoot</_Parameter1>
@@ -23,7 +25,7 @@
       </AssemblyAttribute>
       <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
         <_Parameter1>NantoTestAppPath</_Parameter1>
-        <_Parameter2>@(_NantoTestAppExecutablePath)</_Parameter2>
+        <_Parameter2>@(_NantoTestAppLaunchPath)</_Parameter2>
       </AssemblyAttribute>
     </ItemGroup>
   </Target>

@@ -8,6 +8,9 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
     <ProjectReference Include="../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
     <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
@@ -23,9 +26,11 @@
     <EmbeddedResource Include="WebAssets/navigation.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html" />
     <EmbeddedResource Include="WebAssets/nanto-assets.json" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json" />
   </ItemGroup>
-  <Target Name="GetNantoTestAppExecutablePath" Returns="@(_NantoTestAppExecutablePath)">
+  <Target Name="GetNantoTestAppLaunchPath" Returns="@(_NantoTestAppLaunchPath)">
     <ItemGroup>
-      <_NantoTestAppExecutablePath Include="$(TargetDir)$(TargetName).exe" />
+      <_NantoTestAppLaunchPath Include="$(TargetPath)" Condition="'$(UseAppHost)' != 'true'" />
+      <_NantoTestAppLaunchPath Include="$(RunCommand)" Condition="'$(UseAppHost)' == 'true'" />
     </ItemGroup>
   </Target>
+  <Import Project="../../src/Nanto.Hosting.Windows/buildTransitive/Nanto.Hosting.Windows.targets" />
 </Project>

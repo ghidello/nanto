@@ -236,15 +236,27 @@ public static class Phase1TestProcessRunner
 
     private static Process StartProcess(string testAppPath, string requestPath, string reportPath)
     {
+        var extension = Path.GetExtension(testAppPath);
+        var isFrameworkDependent = string.Equals(extension, ".dll", StringComparison.OrdinalIgnoreCase);
+        if (!isFrameworkDependent && !string.Equals(extension, ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The TestApp path must identify a .NET assembly or Windows executable.", nameof(testAppPath));
+        }
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = Path.GetFullPath(testAppPath),
+            FileName = isFrameworkDependent ? "dotnet" : Path.GetFullPath(testAppPath),
             WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(testAppPath))!,
             CreateNoWindow = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,
         };
+        if (isFrameworkDependent)
+        {
+            startInfo.ArgumentList.Add(Path.GetFullPath(testAppPath));
+        }
+
         startInfo.ArgumentList.Add("--request");
         startInfo.ArgumentList.Add(requestPath);
         startInfo.ArgumentList.Add("--report");

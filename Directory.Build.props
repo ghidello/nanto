@@ -9,4 +9,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NantoBuildMode)' != ''">
+    <BaseIntermediateOutputPath>obj\$(NantoBuildMode)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin\$(NantoBuildMode)\</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**</DefaultItemExcludes>
+  </PropertyGroup>
 </Project>

@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `docs/phase1-plan.md` is the current acceptance target. Its client-size/DPI, multi-monitor, native-appearance, renderer/process-recovery, and structured-diagnostics implementation batches are complete. The self-driving visible project covers the ordinary desktop on one monitor and records an explicit skip when mixed-DPI displays are unavailable; a passing run with two active monitors using different effective DPI is the remaining Milestone 5 gate. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 implementation is complete, but a passing visible run with two active monitors using different effective DPI remains its acceptance gate. Milestone 6 implementation is proceeding without waiving that gate. Its build-mode foundation plus self-contained CoreCLR and Native AOT deployment evidence are complete. The manual long-running lifecycle and renderer-recovery soak is the next implementation batch. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 
@@ -88,7 +88,7 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, the offline interop generator, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, TestApp-only native interop, IntegrationTestKit, hidden WebView2 integration, interop-generation integration, and visible integration projects. Only the three fast test projects execute tests by default.
+Both commands cover the two production assemblies, the offline interop generator, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, TestApp-only native interop, IntegrationTestKit, hidden WebView2 integration, interop-generation integration, self-contained CoreCLR deployment integration, Native AOT deployment integration, and visible integration projects. Only the three fast test projects execute tests by default.
 
 Test scope is independent from build configuration. Use:
 
@@ -99,7 +99,9 @@ dotnet test -p:TestScope=Integration     # unattended integration tests only
 dotnet test -c Release -p:TestScope=All  # complete suite using Release builds
 ```
 
-`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope is the cumulative unattended Milestone 5 gate: it retains deterministic interop and Milestone 4 asset/navigation coverage while adding hidden DPI, appearance, renderer-recovery, browser-process-exit, failure/cancellation, dependency-ordered cleanup, unlocked-storage, zero-ledger evidence, and diagnostics. It builds but must not execute the visible project.
+`tests/Directory.Build.props` assigns `integration=true` to every `*IntegrationTests` assembly and applies the default fast-loop filtering. Do not add the trait to individual tests. Visible and long-running projects also receive `manual=true`; run one only by naming its project and setting both `TestScope=All` and `RunManualTests=true`. A solution-level manual opt-in is rejected. Keep `TestScope` limited to `Fast`, `All`, or `Integration`; it selects unattended test inventory and must never alter runtime, deployment, or compiler settings. The current `All` scope retains deterministic interop and all hidden behavioral coverage, and adds fixed `Release` self-contained CoreCLR and Native AOT publishes, structural/loader/symbol inspection, deterministic package evidence, and three deployment smoke processes per mode. It builds but must not execute the visible project.
+
+`NantoBuildMode` is independent from `Configuration` and `TestScope`. TestApp accepts only `CoreClrFrameworkDependent`, `CoreClrSelfContained`, or `NativeAot`; ordinary builds default to the first. Its outputs live beneath `obj/<mode>` and `bin/<mode>`. Framework-dependent TestApp output is a DLL launched through the installed `dotnet` host, while the other two modes use executable apphosts. Each deployment integration project fixes its own mode and publishes only from its .NET test-execution target; do not select a deployment mode through a test trait, filter, environment variable, or runtime argument. Native AOT must direct-P/Invoke `WebView2Loader`, link the pinned package's `WebView2LoaderStatic.lib`, and deploy neither the static library nor `WebView2Loader.dll`. Deployment artifacts beneath `artifacts/phase1` are ignored machine evidence, not build inputs or committed files.
 
 The visible project command is:
 

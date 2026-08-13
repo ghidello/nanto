@@ -1,0 +1,43 @@
+<Project>
+  <Target Name="ValidateNantoWebView2LoaderPackagePath"
+          BeforeTargets="Publish"
+          Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(PkgMicrosoft_Web_WebView2)' == ''">
+    <Error Text="The Nanto application project must reference Microsoft.Web.WebView2 with GeneratePathProperty=true." />
+  </Target>
+
+  <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(PublishAot)' == 'true'">
+    <DirectPInvoke Include="WebView2Loader" />
+    <NativeLibrary Include="$(PkgMicrosoft_Web_WebView2)\build\native\x64\WebView2LoaderStatic.lib" />
+  </ItemGroup>
+
+  <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(PublishAot)' != 'true'">
+    <Content Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll"
+             Link="WebView2Loader.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="RemoveDynamicWebView2LoaderFromNativeAotOutput"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(PublishAot)' == 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <Delete Files="$(TargetDir)WebView2Loader.dll" />
+  </Target>
+
+  <Target Name="RemoveDynamicWebView2LoaderFromNativeAotPublish"
+          AfterTargets="ComputeFilesToPublish"
+          Condition="'$(PublishAot)' == 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'$([System.IO.Path]::GetFileName(%(ResolvedFileToPublish.RelativePath)))' == 'WebView2Loader.dll'" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RemoveTransitiveSymbolsFromPublish"
+          AfterTargets="ComputeFilesToPublish"
+          Condition="'$(CopyOutputSymbolsToPublishDirectory)' == 'false' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'$([System.IO.Path]::GetExtension(%(ResolvedFileToPublish.RelativePath)))' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+</Project>

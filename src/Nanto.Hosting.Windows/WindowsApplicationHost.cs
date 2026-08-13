@@ -291,24 +291,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         ShutdownResult shutdownResult;
         try
         {
-            shutdownResult = await teardown.WaitAsync(options.ShutdownTimeout, _timeProvider, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (TimeoutException timeoutException)
-        {
-            _ = ObserveTimedOutTeardownAsync(teardown, primaryFailure);
-            if (primaryFailure is null)
-            {
-                primaryFailure = new TimeoutException($"Windows host teardown exceeded the configured timeout of {options.ShutdownTimeout}.", timeoutException);
-                failureStage = NantoFailureStage.Teardown;
-                operation = "application.shutdown-timeout";
-            }
-            else
-            {
-                cleanupExceptions = AppendCleanupExceptions(cleanupExceptions, timeoutException, primaryFailure);
-            }
-
-            CompleteRun(primaryFailure, failureStage, operation, cleanupExceptions, cleanupExceptions.Count);
-            return;
+            shutdownResult = await teardown.ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -561,38 +544,6 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         else if (laterFailures is { Count: > 1 })
         {
             WindowsDiagnostics.TimedOutTeardownFailed(_logger, operation, nameof(AggregateException), 0);
-        }
-    }
-
-    private async Task ObserveTimedOutTeardownAsync(Task<ShutdownResult> teardown, Exception? originalPrimaryFailure)
-    {
-        try
-        {
-            var result = await teardown.ConfigureAwait(false);
-            List<Exception>? laterFailures = null;
-            if (result.PrimaryFailure is not null && !ReferenceEquals(result.PrimaryFailure, originalPrimaryFailure))
-            {
-                laterFailures = [result.PrimaryFailure];
-            }
-
-            if (result.CleanupExceptions.Count > 0)
-            {
-                laterFailures ??= [];
-                laterFailures.AddRange(result.CleanupExceptions);
-            }
-
-            if (laterFailures is [var laterFailure])
-            {
-                WindowsDiagnostics.TimedOutTeardownFailed(_logger, result.Operation, laterFailure.GetType().Name, laterFailure.HResult);
-            }
-            else if (laterFailures is { Count: > 1 })
-            {
-                WindowsDiagnostics.TimedOutTeardownFailed(_logger, result.Operation, nameof(AggregateException), 0);
-            }
-        }
-        catch (Exception exception)
-        {
-            WindowsDiagnostics.TimedOutTeardownFailed(_logger, "ObserveTimedOutTeardown", exception.GetType().Name, exception.HResult);
         }
     }
 

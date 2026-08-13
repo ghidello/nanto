@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <_NantoRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</_NantoRepositoryRoot>
+    <_NantoPublishDirectory>$(_NantoRepositoryRoot)\artifacts\phase1\publish\coreclr-self-contained\win-x64</_NantoPublishDirectory>
+    <_NantoSymbolDirectory>$(_NantoRepositoryRoot)\artifacts\phase1\symbols\coreclr-self-contained\win-x64</_NantoSymbolDirectory>
+    <_NantoPackageDirectory>$(_NantoRepositoryRoot)\artifacts\phase1\packages\coreclr-self-contained</_NantoPackageDirectory>
+    <_NantoEvidencePath>$(_NantoRepositoryRoot)\artifacts\phase1\evidence\deployment\coreclr-self-contained.json</_NantoEvidencePath>
+    <_NantoTestAppOutputDirectory>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\bin\CoreClrSelfContained\Release\net10.0-windows10.0.19041.0\win-x64</_NantoTestAppOutputDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj" />
+    <ProjectReference Include="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoRepositoryRoot</_Parameter1>
+      <_Parameter2>$(_NantoRepositoryRoot)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoPublishDirectory</_Parameter1>
+      <_Parameter2>$(_NantoPublishDirectory)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoSymbolDirectory</_Parameter1>
+      <_Parameter2>$(_NantoSymbolDirectory)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoPackageDirectory</_Parameter1>
+      <_Parameter2>$(_NantoPackageDirectory)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoEvidencePath</_Parameter1>
+      <_Parameter2>$(_NantoEvidencePath)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoSdkVersion</_Parameter1>
+      <_Parameter2>$(NETCoreSdkVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <Target Name="PrepareNantoCoreClrSelfContainedDeployment"
+          BeforeTargets="_MTPBuild"
+          Condition="'$(NantoTestAssemblyExcluded)' != 'true'">
+    <RemoveDir Directories="$(_NantoPublishDirectory);$(_NantoSymbolDirectory);$(_NantoPackageDirectory)" />
+    <Delete Files="$(_NantoEvidencePath)" />
+    <MakeDir Directories="$(_NantoPublishDirectory);$(_NantoSymbolDirectory);$(_NantoPackageDirectory)" />
+    <MSBuild Projects="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj"
+             Targets="Restore"
+             RemoveProperties="CurrentSolutionConfigurationContents;BuildingSolutionFile;ShouldUnsetParentConfigurationAndPlatform"
+             Properties="Configuration=Release;NantoBuildMode=CoreClrSelfContained" />
+    <MSBuild Projects="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj"
+             Targets="GetNantoTestAppLaunchPath"
+             RemoveProperties="CurrentSolutionConfigurationContents;BuildingSolutionFile;ShouldUnsetParentConfigurationAndPlatform"
+             Properties="Configuration=Release;NantoBuildMode=CoreClrSelfContained">
+      <Output TaskParameter="TargetOutputs" ItemName="_NantoTestAppLaunchPath" />
+    </MSBuild>
+    <Error Condition="'@(_NantoTestAppLaunchPath->'%(Extension)')' != '.exe'"
+           Text="Self-contained TestApp must expose its executable apphost as the launch path." />
+    <MSBuild Projects="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj"
+             Targets="Publish"
+             RemoveProperties="CurrentSolutionConfigurationContents;BuildingSolutionFile;ShouldUnsetParentConfigurationAndPlatform"
+             Properties="Configuration=Release;NantoBuildMode=CoreClrSelfContained;PublishDir=$(_NantoPublishDirectory)\" />
+    <ItemGroup>
+      <_NantoTestAppSymbols Include="$(_NantoTestAppOutputDirectory)\*.pdb" />
+      <_NantoPublishedSymbols Include="$(_NantoPublishDirectory)\**\*.pdb" />
+    </ItemGroup>
+    <Error Condition="'@(_NantoTestAppSymbols)' == ''" Text="The self-contained TestApp publication did not produce separately retainable symbols." />
+    <Copy SourceFiles="@(_NantoTestAppSymbols)" DestinationFolder="$(_NantoSymbolDirectory)" />
+    <Delete Files="@(_NantoPublishedSymbols)" />
+  </Target>
+</Project>

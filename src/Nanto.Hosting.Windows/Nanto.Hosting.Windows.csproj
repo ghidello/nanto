@@ -14,12 +14,6 @@
     <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll"
-             Link="WebView2Loader.dll"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="../Nanto.Core/Nanto.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
