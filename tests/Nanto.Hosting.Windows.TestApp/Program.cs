@@ -139,6 +139,8 @@ internal static class Program
             Phase1TestScenario.RepeatedClose => await ScenarioRunner.RunRepeatedCloseAsync(request, startedAt, stopwatch),
             Phase1TestScenario.Navigation => await ScenarioRunner.RunNavigationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.Appearance => await ScenarioRunner.RunAppearanceAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.RendererRecovery => await ScenarioRunner.RunRendererRecoveryAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.BrowserProcessExit => await ScenarioRunner.RunBrowserProcessExitAsync(request, startedAt, stopwatch),
             Phase1TestScenario.SharedProfile => await ScenarioRunner.RunSharedProfileAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),

@@ -132,4 +132,19 @@ public sealed class WebView2CallbackTests
 
         handler.Invoke(0, 0).Should().BeNegative();
     }
+
+    [Fact]
+    public async Task NavigationCompletedReadFailureNotifiesRuntimeRecovery()
+    {
+        bool? navigationSucceeded = null;
+        var handler = new NavigationCompletedHandler
+        {
+            NavigationCompleted = succeeded => navigationSucceeded = succeeded,
+        };
+
+        handler.Invoke(0, 0).Should().Be(0);
+
+        navigationSucceeded.Should().BeFalse();
+        await handler.Completion.Invoking(static task => task).Should().ThrowAsync<InvalidOperationException>();
+    }
 }

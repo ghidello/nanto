@@ -9,9 +9,15 @@ namespace Nanto.Hosting.Windows;
 
 internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 {
+    private static readonly int _browserProcessUnavailableHResult =
+        HResult.FromWin32(WIN32_ERROR.ERROR_INVALID_STATE);
+
     private readonly NavigationCompletedHandler _navigationCompletedHandler;
     private readonly NavigationStartingHandler _navigationStartingHandler;
+    private readonly ProcessFailedHandler _processFailedHandler;
+    private readonly RendererRecoveryCoordinator _rendererRecovery;
     private readonly WebMessageReceivedHandler _webMessageReceivedHandler;
+    private bool _browserProcessExited;
     private UniqueComReference<ICoreWebView2Controller>? _controller;
     private IDisposable? _controllerResourceLease;
     private int _disposed;
@@ -22,6 +28,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     private IDisposable? _navigationStartingSubscriptionLease;
     private UniqueComReference<ICoreWebView2Profile>? _profile;
     private IDisposable? _profileResourceLease;
+    private EventRegistrationToken _processFailedToken;
+    private IDisposable? _processFailedSubscriptionLease;
     private UniqueComReference<ICoreWebView2Settings>? _settings;
     private IDisposable? _settingsResourceLease;
     private UniqueComReference<ICoreWebView2>? _webView;
@@ -32,13 +40,16 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     public Task Readiness => _webMessageReceivedHandler.Readiness;
 
     private WebView2WindowHost(
-        NavigationStartingHandler navigationStartingHandler,
-        NavigationCompletedHandler navigationCompletedHandler,
-        WebMessageReceivedHandler webMessageReceivedHandler)
+        IReadOnlySet<string> assetPaths,
+        Action<RendererFailureKind, string, bool> reportRendererFailure,
+        Action requestClose,
+        Func<bool> canRecoverRenderer)
     {
-        _navigationStartingHandler = navigationStartingHandler;
-        _navigationCompletedHandler = navigationCompletedHandler;
-        _webMessageReceivedHandler = webMessageReceivedHandler;
+        _navigationStartingHandler = new NavigationStartingHandler(assetPaths);
+        _rendererRecovery = new RendererRecoveryCoordinator(reportRendererFailure, Reload, requestClose, canRecoverRenderer);
+        _navigationCompletedHandler = new NavigationCompletedHandler { NavigationCompleted = HandleNavigationCompleted };
+        _processFailedHandler = new ProcessFailedHandler(HandleProcessFailed);
+        _webMessageReceivedHandler = new WebMessageReceivedHandler();
     }
 
     public static async ValueTask<WebView2WindowHost> CreateAsync(
@@ -49,6 +60,9 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         IWebAssetLease assetLease,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
+        Action<RendererFailureKind, string, bool> reportRendererFailure,
+        Action requestClose,
+        Func<bool> canRecoverRenderer,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(environment);
@@ -56,12 +70,12 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         ArgumentNullException.ThrowIfNull(assetLease);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
+        ArgumentNullException.ThrowIfNull(reportRendererFailure);
+        ArgumentNullException.ThrowIfNull(requestClose);
+        ArgumentNullException.ThrowIfNull(canRecoverRenderer);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var navigationStartingHandler = new NavigationStartingHandler(assetLease.AssetPaths);
-        var navigationHandler = new NavigationCompletedHandler();
-        var messageHandler = new WebMessageReceivedHandler();
-        var host = new WebView2WindowHost(navigationStartingHandler, navigationHandler, messageHandler);
+        var host = new WebView2WindowHost(assetLease.AssetPaths, reportRendererFailure, requestClose, canRecoverRenderer);
         try
         {
             host._controller = await environment.CreateControllerAsync(parentWindow, cancellationToken);
@@ -95,13 +109,16 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             host.AddMessageSubscription(resourceLedger);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebMessageSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
+            host.AddProcessFailedSubscription(resourceLedger);
+            failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.ProcessFailedSubscriptionAdded);
+            cancellationToken.ThrowIfCancellationRequested();
             host.AddVirtualHostMapping(resourceLedger, assetLease.RootDirectory);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.VirtualHostMappingAdded);
             cancellationToken.ThrowIfCancellationRequested();
 
             using var initialUri = new Utf16String($"https://{NavigationPolicy.ApplicationHostName}{options.InitialRoute}");
             HResult.ThrowIfFailed(host._webView.Value.Navigate(initialUri.Pointer), "webview2.navigation.begin", NantoFailureStage.Startup);
-            await navigationHandler.Completion.WaitAsync(cancellationToken);
+            await host._navigationCompletedHandler.Completion.WaitAsync(cancellationToken);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.InitialNavigationCompleted);
             cancellationToken.ThrowIfCancellationRequested();
             return host;
@@ -148,6 +165,37 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             NantoFailureStage.Runtime);
     }
 
+    public unsafe void CrashRendererForTesting()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        using var methodName = new Utf16String("Page.crash");
+        using var parameters = new Utf16String("{}");
+        void* handlerPointer = ComInterfaceMarshaller<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>.ConvertToUnmanaged(
+            TestDevToolsProtocolMethodCompletedHandler.Instance);
+        try
+        {
+            HResult.ThrowIfFailed(
+                _webView!.Value.CallDevToolsProtocolMethod(methodName.Pointer, parameters.Pointer, (nint)handlerPointer),
+                "webview2.test.crash-renderer",
+                NantoFailureStage.Runtime);
+        }
+        finally
+        {
+            ComInterfaceMarshaller<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>.Free(handlerPointer);
+        }
+    }
+
+    public unsafe uint GetBrowserProcessIdForTesting()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        uint processId = 0;
+        HResult.ThrowIfFailed(
+            _webView!.Value.get_BrowserProcessId((nint)(&processId)),
+            "webview2.test.get-browser-process-id",
+            NantoFailureStage.Runtime);
+        return processId;
+    }
+
     public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -156,6 +204,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         }
 
         List<Exception>? failures = null;
+        TryCleanup(RemoveProcessFailedSubscription, ref failures);
         TryCleanup(RemoveMessageSubscription, ref failures);
         TryCleanup(RemoveNavigationCompletedSubscription, ref failures);
         TryCleanup(RemoveNavigationStartingSubscription, ref failures);
@@ -241,6 +290,26 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         _navigationStartingSubscriptionLease = resourceLedger.Acquire(WindowsResourceKind.Subscription, "NavigationStartingSubscription");
     }
 
+    private unsafe void AddProcessFailedSubscription(ResourceLedger resourceLedger)
+    {
+        void* handlerPointer = ComInterfaceMarshaller<ICoreWebView2ProcessFailedEventHandler>.ConvertToUnmanaged(_processFailedHandler);
+        try
+        {
+            var token = default(EventRegistrationToken);
+            HResult.ThrowIfFailed(
+                _webView!.Value.add_ProcessFailed((nint)handlerPointer, (nint)(&token)),
+                "webview2.process-failed.subscribe",
+                NantoFailureStage.Startup);
+            _processFailedToken = token;
+        }
+        finally
+        {
+            ComInterfaceMarshaller<ICoreWebView2ProcessFailedEventHandler>.Free(handlerPointer);
+        }
+
+        _processFailedSubscriptionLease = resourceLedger.Acquire(WindowsResourceKind.Subscription, "ProcessFailedSubscription");
+    }
+
     private void AddVirtualHostMapping(ResourceLedger resourceLedger, string rootDirectory)
     {
         using var hostName = new Utf16String(NavigationPolicy.ApplicationHostName);
@@ -258,9 +327,9 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
     private void CloseController()
     {
-        if (_controller is not null)
+        if (_controller is not null && !_browserProcessExited)
         {
-            HResult.ThrowIfFailed(_controller.Value.Close(), "webview2.controller.close", NantoFailureStage.Teardown);
+            HandleWebViewTeardownResult(_controller.Value.Close(), "webview2.controller.close");
         }
     }
 
@@ -322,10 +391,12 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         try
         {
-            HResult.ThrowIfFailed(
-                _webView!.Value.remove_WebMessageReceived(_webMessageReceivedToken),
-                "webview2.message.unsubscribe",
-                NantoFailureStage.Teardown);
+            if (!_browserProcessExited)
+            {
+                HandleWebViewTeardownResult(
+                    _webView!.Value.remove_WebMessageReceived(_webMessageReceivedToken),
+                    "webview2.message.unsubscribe");
+            }
         }
         finally
         {
@@ -342,10 +413,12 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         try
         {
-            HResult.ThrowIfFailed(
-                _webView!.Value.remove_NavigationCompleted(_navigationCompletedToken),
-                "webview2.navigation.unsubscribe",
-                NantoFailureStage.Teardown);
+            if (!_browserProcessExited)
+            {
+                HandleWebViewTeardownResult(
+                    _webView!.Value.remove_NavigationCompleted(_navigationCompletedToken),
+                    "webview2.navigation.unsubscribe");
+            }
         }
         finally
         {
@@ -362,14 +435,38 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         try
         {
-            HResult.ThrowIfFailed(
-                _webView!.Value.remove_NavigationStarting(_navigationStartingToken),
-                "webview2.navigation-starting.unsubscribe",
-                NantoFailureStage.Teardown);
+            if (!_browserProcessExited)
+            {
+                HandleWebViewTeardownResult(
+                    _webView!.Value.remove_NavigationStarting(_navigationStartingToken),
+                    "webview2.navigation-starting.unsubscribe");
+            }
         }
         finally
         {
             Interlocked.Exchange(ref _navigationStartingSubscriptionLease, null)?.Dispose();
+        }
+    }
+
+    private void RemoveProcessFailedSubscription()
+    {
+        if (_processFailedSubscriptionLease is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_browserProcessExited)
+            {
+                HandleWebViewTeardownResult(
+                    _webView!.Value.remove_ProcessFailed(_processFailedToken),
+                    "webview2.process-failed.unsubscribe");
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _processFailedSubscriptionLease, null)?.Dispose();
         }
     }
 
@@ -382,11 +479,13 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
         try
         {
-            using var hostName = new Utf16String(NavigationPolicy.ApplicationHostName);
-            HResult.ThrowIfFailed(
-                ((ICoreWebView2_3)_webView!.Value).ClearVirtualHostNameToFolderMapping(hostName.Pointer),
-                "webview2.mapping.remove",
-                NantoFailureStage.Teardown);
+            if (!_browserProcessExited)
+            {
+                using var hostName = new Utf16String(NavigationPolicy.ApplicationHostName);
+                HandleWebViewTeardownResult(
+                    ((ICoreWebView2_3)_webView!.Value).ClearVirtualHostNameToFolderMapping(hostName.Pointer),
+                    "webview2.mapping.remove");
+            }
         }
         finally
         {
@@ -408,6 +507,40 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             "webview2.profile.set-color-scheme",
             failureStage);
     }
+
+    private void HandleNavigationCompleted(bool succeeded)
+    {
+        if (Volatile.Read(ref _disposed) == 0)
+        {
+            _rendererRecovery.HandleNavigationCompleted(succeeded);
+        }
+    }
+
+    private void HandleWebViewTeardownResult(int result, string operation)
+    {
+        if (result == _browserProcessUnavailableHResult)
+        {
+            _browserProcessExited = true;
+            return;
+        }
+
+        HResult.ThrowIfFailed(result, operation, NantoFailureStage.Teardown);
+    }
+
+    private void HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND failureKind)
+    {
+        if (Volatile.Read(ref _disposed) == 0)
+        {
+            if (failureKind is COREWEBVIEW2_PROCESS_FAILED_KIND.COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED)
+            {
+                _browserProcessExited = true;
+            }
+
+            _rendererRecovery.HandleProcessFailed(failureKind);
+        }
+    }
+
+    private void Reload() => HResult.ThrowIfFailed(_webView!.Value.Reload(), "webview2.renderer.reload", NantoFailureStage.Runtime);
 
     private static void TryCleanup(Action cleanup, ref List<Exception>? failures)
     {

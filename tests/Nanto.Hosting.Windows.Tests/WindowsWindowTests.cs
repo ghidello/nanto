@@ -121,6 +121,54 @@ public sealed class WindowsWindowTests
     }
 
     [Fact]
+    public async Task RendererFailureUsesTheWindowClockAndDoesNotLetOneHandlerSuppressAnother()
+    {
+        var occurredAt = new DateTimeOffset(2026, 8, 13, 12, 0, 0, TimeSpan.Zero);
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        Win32WindowClass? windowClass = null;
+        WindowsWindow? window = null;
+        var webViewApplication = new ReportingWebViewApplication();
+        RendererFailedEventArgs? observed = null;
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            await dispatcher.InvokeAsync(
+                async _ =>
+                {
+                    windowClass = new Win32WindowClass(ledger, dispatcher);
+                    window = await WindowsWindow.CreateAsync(
+                        windowClass,
+                        ledger,
+                        dispatcher,
+                        webViewApplication,
+                        new WindowOptions { Title = "Renderer event test", StartVisible = false },
+                        ColorSchemePreference.System,
+                        timeProvider: new FixedTimeProvider(occurredAt),
+                        cancellationToken: TestContext.Current.CancellationToken);
+                    window.RendererFailed += static (_, _) => throw new InvalidOperationException("Handler failed.");
+                    window.RendererFailed += (_, eventArgs) => observed = eventArgs;
+                    webViewApplication.Report(RendererFailureKind.Unresponsive, "Renderer stalled.", willAttemptRecovery: true);
+                },
+                TestContext.Current.CancellationToken);
+
+            observed.Should().NotBeNull();
+            observed!.Kind.Should().Be(RendererFailureKind.Unresponsive);
+            observed.Description.Should().Be("Renderer stalled.");
+            observed.WillAttemptRecovery.Should().BeTrue();
+            observed.OccurredAt.Should().Be(occurredAt);
+            await window!.DisposeAsync();
+            await dispatcher.InvokeAsync(windowClass!.Dispose, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
     public async Task UnrepresentableSizeFailsBeforeNativeMutation()
     {
         var ledger = new ResourceLedger();
@@ -237,6 +285,9 @@ public sealed class WindowsWindowTests
             global::Windows.Win32.Foundation.HWND parentWindow,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken)
         {
             cancellation.Cancel();
@@ -263,5 +314,61 @@ public sealed class WindowsWindowTests
         }
 
         public ValueTask DisposeAsync() => ValueTask.FromException(cleanupFailure);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => value;
+    }
+
+    private sealed class ReportingWebViewApplication : IWindowsWebViewApplication
+    {
+        private Action<RendererFailureKind, string, bool>? _reportRendererFailure;
+
+        public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
+            global::Windows.Win32.Foundation.HWND parentWindow,
+            WindowOptions options,
+            ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
+            CancellationToken cancellationToken)
+        {
+            _reportRendererFailure = reportRendererFailure;
+            return ValueTask.FromResult<IWindowsWebViewWindow>(ReportingWebViewWindow.Instance);
+        }
+
+        public ValueTask SetPreferredColorSchemeAsync(ColorSchemePreference preferredColorScheme, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask WaitForReadinessAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromCanceled<string>(cancellationToken.IsCancellationRequested ? cancellationToken : new CancellationToken(canceled: true));
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Report(RendererFailureKind kind, string description, bool willAttemptRecovery) =>
+            (_reportRendererFailure ?? throw new InvalidOperationException("The renderer callback is unavailable."))(
+                kind,
+                description,
+                willAttemptRecovery);
+    }
+
+    private sealed class ReportingWebViewWindow : IWindowsWebViewWindow
+    {
+        public static ReportingWebViewWindow Instance { get; } = new();
+
+        public Task Readiness => Task.CompletedTask;
+
+        private ReportingWebViewWindow()
+        {
+        }
+
+        public void SetBounds(int width, int height)
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

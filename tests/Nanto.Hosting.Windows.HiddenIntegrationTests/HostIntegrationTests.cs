@@ -29,6 +29,7 @@ public sealed class HostIntegrationTests
         "NavigationStartingSubscriptionAdded",
         "NavigationCompletedSubscriptionAdded",
         "WebMessageSubscriptionAdded",
+        "ProcessFailedSubscriptionAdded",
         "VirtualHostMappingAdded",
         "InitialNavigationCompleted",
     ];
@@ -124,6 +125,30 @@ public sealed class HostIntegrationTests
         report.AppearanceObservations.Should().Equal("Dark", "Light", "System:System");
         report.ObservedFailure.Should().BeNull();
         AssertFinalLedgerIsZero(report);
+    }
+
+    [Fact]
+    public async Task MainRendererCrashRaisesThePortableEventAndReloadsOnce()
+    {
+        var result = await RunAsync(Phase1TestScenario.RendererRecovery);
+        var report = RequireSuccessfulReport(result);
+
+        report.RendererRecoveryResult.Should().Be("Exited:True:Reloaded");
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
+    [Fact]
+    public async Task BrowserProcessExitRaisesThePortableEventAndClosesTheWindow()
+    {
+        var result = await RunAsync(Phase1TestScenario.BrowserProcessExit);
+        var report = RequireSuccessfulReport(result);
+
+        report.RendererRecoveryResult.Should().Be("Exited:False:Closed");
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
     }
 
     [Fact]

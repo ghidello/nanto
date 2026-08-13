@@ -14,7 +14,7 @@
     },
     {
       "path": "eng/Nanto.WebView2InteropGen/webview2-interop-spec.json",
-      "sha256": "7c69f3348ee30cad5dcfb124ee9e18f238e2282373459c35b1a9223736d7066c"
+      "sha256": "ba1d9912c6751d9b48879d1c9a66fec2d8eebfd7c92b7387a5d5a9c575045be5"
     }
   ],
   "interfaces": [
@@ -23,6 +23,12 @@
       "iid": "76eceacb-0462-4d94-ac83-423a6793775e",
       "baseInterface": "IUnknown",
       "emittedMethodCount": 58
+    },
+    {
+      "name": "ICoreWebView2CallDevToolsProtocolMethodCompletedHandler",
+      "iid": "5c4889f0-5ef6-4c5a-952c-d8f1b92d0574",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
     },
     {
       "name": "ICoreWebView2Controller",
@@ -69,6 +75,18 @@
     {
       "name": "ICoreWebView2NavigationStartingEventHandler",
       "iid": "9adbe429-f36d-432b-9ddc-f8881fbd76e3",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2ProcessFailedEventArgs",
+      "iid": "8155a9a4-1474-4a86-8cae-151b0fa6b8ca",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2ProcessFailedEventHandler",
+      "iid": "79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1",
       "baseInterface": "IUnknown",
       "emittedMethodCount": 1
     },
@@ -171,8 +189,8 @@
   ],
   "output": {
     "path": "src/Nanto.Hosting.Windows/Interop/Generated/WebView2Interop.g.cs",
-    "byteLength": 19939,
-    "sha256": "d0e239136f9e1704711381eb26f6868d55f22945d129cf08c6ee8bede5ebf36e",
+    "byteLength": 21446,
+    "sha256": "5b6fd063b30932f17851c434f9b0720ea08f72641267b87ae7eb6ec18c373cdb",
     "encoding": "utf-8",
     "lineEndings": "lf"
   }

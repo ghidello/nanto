@@ -589,7 +589,15 @@ For native Win32 chrome, Nanto follows [Microsoft's supported desktop guidance](
 
 Initial native appearance is applied after `HWND` creation but before WebView2 acquisition or showing the window. Explicit preference changes update the native frame and WebView2 profile on the owning STA thread and publish the portable preference only after both succeed; a WebView2 failure rolls the native frame back to the previous preference. `ColorValuesChanged` is marshalled to that STA and affects the native frame only while the portable preference is `System`; WebView2's `Auto` profile mode follows the same operating-system change independently. Callback failures are retained and reported during deterministic teardown. Nanto does not treat the undocumented `AppsUseLightTheme` registry value as an application contract. The resolved Light/Dark value remains internal, and the SPA observes it through web standards.
 
-### 6.10 Critical Native AOT risk: COM
+### 6.10 Renderer and process recovery
+
+Each WebView owns a `ProcessFailed` subscription and removes it before the other WebView subscriptions during teardown. Nanto maps WebView2 values to the portable `RendererFailureKind`; public contracts and descriptions do not expose COM enums. The renderer event is raised synchronously on the owning STA before recovery begins, and handler failures are logged without changing the recovery decision.
+
+A main-frame renderer exit or unresponsive notification receives at most one automatic `Reload` attempt during the window lifetime. The first event reports `WillAttemptRecovery = true` only while the window is still running and no close has been requested; a synchronous reload failure, failed recovery navigation, subsequent main-renderer failure, or failure during closure requests the window's ordinary close path. Browser-process exit cannot be repaired by reload, so it reports `Exited` with `WillAttemptRecovery = false` and closes normally. Because that process already destroyed its native state, teardown releases Nanto's logical subscription, mapping, controller, and COM ownership without issuing unavailable WebView2 mutations. A frame-only renderer exit reports `FrameRendererExited`; utility, sandbox, GPU, plugin, and unknown child-process exits report `Unknown`. Those isolated or runtime-recreated failures are diagnostic-only in Phase 1 and do not reload or close the primary window.
+
+Recovery deliberately preserves the existing controller, profile, secure mapping, navigation policy, asset lease, appearance, and native window. Nanto does not build a controller/environment recreation state machine in Phase 1. The hidden integration fixture uses internal seams to invoke Chromium's `Page.crash` and to identify and terminate its isolated browser process. It proves the portable events, mapped-SPA reload, browser-loss closure, and zero final resources; neither seam is public application API.
+
+### 6.11 Critical Native AOT risk: COM
 
 WebView2 is COM-based, while .NET Native AOT on Windows does not provide built-in COM support. This is the most important technical risk in the Windows MVP.
 
@@ -1236,6 +1244,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-048 | Detect Windows System appearance through `UISettings` and `ColorValuesChanged`, not `AppsUseLightTheme`. | This follows Microsoft's supported Win32 guidance and avoids making an undocumented registry implementation detail part of Nanto's behavior. |
 | D-049 | Recover native placement only when a window has no positive intersection with any current monitor work area. | Preserving partial visibility avoids surprising user-driven moves; nearest-work-area clamping restores an unreachable window without resizing it or exposing native placement through the portable API. |
 | D-050 | Own system-appearance observation at application scope and attach native windows through shorter registrations. | One UISettings subscription matches the application/profile-wide preference, while releasing a window registration before `HWND` destruction prevents late color notifications from targeting stale native state. |
+| D-051 | Attempt one in-place main-renderer reload per window lifetime; close for unrecoverable or repeated main-renderer failure. | This uses WebView2's documented renderer recovery without introducing controller/environment reconstruction, while preventing unbounded crash loops and keeping browser-process loss honest. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 

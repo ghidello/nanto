@@ -44,6 +44,20 @@ internal enum COREWEBVIEW2_PREFERRED_COLOR_SCHEME
     COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK = 2,
 }
 
+internal enum COREWEBVIEW2_PROCESS_FAILED_KIND
+{
+    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED = 0,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED = 1,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE = 2,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED = 3,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_UTILITY_PROCESS_EXITED = 4,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_SANDBOX_HELPER_PROCESS_EXITED = 5,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED = 6,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_PPAPI_PLUGIN_PROCESS_EXITED = 7,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_PPAPI_BROKER_PROCESS_EXITED = 8,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED = 9,
+}
+
 internal enum COREWEBVIEW2_WEB_ERROR_STATUS
 {
     COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN = 0,
@@ -191,6 +205,15 @@ internal partial interface ICoreWebView2
 }
 
 [GeneratedComInterface]
+[Guid("5c4889f0-5ef6-4c5a-952c-d8f1b92d0574")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ICoreWebView2CallDevToolsProtocolMethodCompletedHandler
+{
+    [PreserveSig]
+    int Invoke(int errorCode, nint result);
+}
+
+[GeneratedComInterface]
 [Guid("4d00c0d1-9434-4eb6-8078-8697a560334f")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal partial interface ICoreWebView2Controller
@@ -313,6 +336,24 @@ internal partial interface ICoreWebView2NavigationStartingEventArgs
 [Guid("9adbe429-f36d-432b-9ddc-f8881fbd76e3")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal partial interface ICoreWebView2NavigationStartingEventHandler
+{
+    [PreserveSig]
+    int Invoke(nint sender, nint args);
+}
+
+[GeneratedComInterface]
+[Guid("8155a9a4-1474-4a86-8cae-151b0fa6b8ca")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ICoreWebView2ProcessFailedEventArgs
+{
+    [PreserveSig]
+    int get_ProcessFailedKind(nint value);
+}
+
+[GeneratedComInterface]
+[Guid("79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ICoreWebView2ProcessFailedEventHandler
 {
     [PreserveSig]
     int Invoke(nint sender, nint args);

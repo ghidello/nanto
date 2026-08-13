@@ -23,6 +23,14 @@
       "methods": ["Invoke"]
     },
     {
+      "name": "ICoreWebView2ProcessFailedEventHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2CallDevToolsProtocolMethodCompletedHandler",
+      "methods": ["Invoke"]
+    },
+    {
       "name": "ICoreWebView2Environment",
       "methods": ["CreateCoreWebView2Controller"]
     },
@@ -32,7 +40,7 @@
     },
     {
       "name": "ICoreWebView2",
-      "methods": ["get_Settings", "Navigate", "add_NavigationCompleted", "remove_NavigationCompleted", "add_WebMessageReceived", "remove_WebMessageReceived"]
+      "methods": ["get_Settings", "Navigate", "add_NavigationCompleted", "remove_NavigationCompleted", "add_WebMessageReceived", "remove_WebMessageReceived", "add_ProcessFailed", "remove_ProcessFailed", "get_BrowserProcessId", "Reload", "CallDevToolsProtocolMethod"]
     },
     {
       "name": "ICoreWebView2_3",
@@ -59,6 +67,10 @@
       "methods": ["get_Source", "TryGetWebMessageAsString"]
     },
     {
+      "name": "ICoreWebView2ProcessFailedEventArgs",
+      "methods": ["get_ProcessFailedKind"]
+    },
+    {
       "name": "ICoreWebView2Profile",
       "methods": ["put_PreferredColorScheme"]
     }
@@ -66,6 +78,7 @@
   "types": [
     "COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND",
     "COREWEBVIEW2_PREFERRED_COLOR_SCHEME",
+    "COREWEBVIEW2_PROCESS_FAILED_KIND",
     "COREWEBVIEW2_WEB_ERROR_STATUS",
     "EventRegistrationToken",
     "RECT"

@@ -669,6 +669,9 @@ public sealed class WindowsApplicationHostTests
             HWND parentWindow,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<IWindowsWebViewWindow>(_window);
 
@@ -724,6 +727,9 @@ public sealed class WindowsApplicationHostTests
             HWND parentWindow,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<IWindowsWebViewWindow>(new FailingCleanupWebViewWindow(cleanupFailure));
 
@@ -809,6 +815,9 @@ public sealed class WindowsApplicationHostTests
             HWND parentWindow,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();

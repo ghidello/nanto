@@ -236,6 +236,149 @@ internal static class ScenarioRunner
             [.. observations]);
     }
 
+    public static async Task<Phase1TestReport> RunRendererRecoveryAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch)
+    {
+        var failureInjector = new RecordingFailureInjector(null);
+        var transitions = new List<Phase1LifecycleTransition>();
+        var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rendererFailure = new TaskCompletionSource<RendererFailedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host = new WindowsApplicationHost(TimeProvider.System, failureInjector, captureResourceOwnershipEvents: true);
+        var initialResources = CaptureResources(host.ResourceSnapshot);
+        host.StateChanged += (_, eventArgs) =>
+        {
+            transitions.Add(CreateTransition("Application", eventArgs));
+            if (eventArgs.NewState == ApplicationState.Activated)
+            {
+                activated.TrySetResult();
+            }
+        };
+        Exception? observedFailure = null;
+        var peakResources = initialResources;
+        var rendererRecoveryResult = "NotObserved";
+        var run = host.RunAsync(CreateOptions(request) with { PreferredColorScheme = ColorSchemePreference.Dark });
+        try
+        {
+            await activated.Task.WaitAsync(Program.ActivationTimeout);
+            var window = host.PrimaryWindow ?? throw new InvalidOperationException("The primary window was not published.");
+            window.StateChanged += (_, eventArgs) => transitions.Add(CreateTransition("PrimaryWindow", eventArgs));
+            window.RendererFailed += (_, eventArgs) => rendererFailure.TrySetResult(eventArgs);
+            await WaitForReadinessAsync(host);
+            var observations = new List<string>();
+            await WaitForAppearanceAsync(host, "Dark", observations);
+            await host.CrashRendererForTestingAsync();
+            var failure = await rendererFailure.Task.WaitAsync(Program.ActivationTimeout);
+            await WaitForAppearanceAsync(host, "Dark", observations);
+            rendererRecoveryResult = $"{failure.Kind}:{failure.WillAttemptRecovery}:Reloaded";
+            peakResources = CaptureResources(host.ResourceSnapshot);
+            await host.StopAsync();
+            await run;
+        }
+        catch (Exception exception)
+        {
+            observedFailure = exception;
+        }
+
+        try
+        {
+            await host.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            observedFailure = observedFailure is null ? exception : new AggregateException(observedFailure, exception);
+        }
+
+        var finalSnapshot = host.ResourceSnapshot;
+        var finalResources = CaptureResources(finalSnapshot);
+        return CreateReport(
+            request,
+            startedAt,
+            stopwatch,
+            observedFailure is null && rendererRecoveryResult == "Exited:True:Reloaded" && finalResources.TotalActive == 0,
+            failureInjector.ReachedCheckpoints.Select(static checkpoint => checkpoint.ToString()).ToArray(),
+            transitions,
+            initialResources,
+            peakResources,
+            finalResources,
+            CaptureOwnershipEvents(finalSnapshot),
+            observedFailure,
+            rendererRecoveryResult: rendererRecoveryResult);
+    }
+
+    public static async Task<Phase1TestReport> RunBrowserProcessExitAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch)
+    {
+        var failureInjector = new RecordingFailureInjector(null);
+        var transitions = new List<Phase1LifecycleTransition>();
+        var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rendererFailure = new TaskCompletionSource<RendererFailedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host = new WindowsApplicationHost(TimeProvider.System, failureInjector, captureResourceOwnershipEvents: true);
+        var initialResources = CaptureResources(host.ResourceSnapshot);
+        host.StateChanged += (_, eventArgs) =>
+        {
+            transitions.Add(CreateTransition("Application", eventArgs));
+            if (eventArgs.NewState == ApplicationState.Activated)
+            {
+                activated.TrySetResult();
+            }
+        };
+        Exception? observedFailure = null;
+        var peakResources = initialResources;
+        var rendererRecoveryResult = "NotObserved";
+        var run = host.RunAsync(CreateOptions(request));
+        try
+        {
+            await activated.Task.WaitAsync(Program.ActivationTimeout);
+            var window = host.PrimaryWindow ?? throw new InvalidOperationException("The primary window was not published.");
+            window.StateChanged += (_, eventArgs) => transitions.Add(CreateTransition("PrimaryWindow", eventArgs));
+            window.RendererFailed += (_, eventArgs) => rendererFailure.TrySetResult(eventArgs);
+            await WaitForReadinessAsync(host);
+            var browserProcessId = await host.GetBrowserProcessIdForTestingAsync();
+            using (var browserProcess = Process.GetProcessById(checked((int)browserProcessId)))
+            {
+                browserProcess.Kill();
+            }
+
+            var failure = await rendererFailure.Task.WaitAsync(Program.ActivationTimeout);
+            await run.WaitAsync(Program.ActivationTimeout);
+            rendererRecoveryResult = $"{failure.Kind}:{failure.WillAttemptRecovery}:{window.State}";
+            peakResources = CaptureResources(host.ResourceSnapshot);
+        }
+        catch (Exception exception)
+        {
+            observedFailure = exception;
+        }
+
+        try
+        {
+            await host.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            observedFailure = observedFailure is null ? exception : new AggregateException(observedFailure, exception);
+        }
+
+        var finalSnapshot = host.ResourceSnapshot;
+        var finalResources = CaptureResources(finalSnapshot);
+        return CreateReport(
+            request,
+            startedAt,
+            stopwatch,
+            observedFailure is null && rendererRecoveryResult == "Exited:False:Closed" && finalResources.TotalActive == 0,
+            failureInjector.ReachedCheckpoints.Select(static checkpoint => checkpoint.ToString()).ToArray(),
+            transitions,
+            initialResources,
+            peakResources,
+            finalResources,
+            CaptureOwnershipEvents(finalSnapshot),
+            observedFailure,
+            rendererRecoveryResult: rendererRecoveryResult);
+    }
+
     public static async Task<Phase1TestReport> RunSharedProfileAsync(
         Phase1TestRequest request,
         DateTimeOffset startedAt,
@@ -359,7 +502,8 @@ internal static class ScenarioRunner
         Phase1ResourceLedgerReport finalResources,
         Phase1ResourceOwnershipEvent[] resourceOwnershipEvents,
         Exception? observedFailure,
-        string[]? appearanceObservations = null)
+        string[]? appearanceObservations = null,
+        string rendererRecoveryResult = "NotApplicable")
     {
         stopwatch.Stop();
         return new Phase1TestReport
@@ -383,7 +527,7 @@ internal static class ScenarioRunner
             PeakResources = peakResources,
             FinalResources = finalResources,
             ResourceOwnershipEvents = resourceOwnershipEvents,
-            RendererRecoveryResult = "NotApplicable",
+            RendererRecoveryResult = rendererRecoveryResult,
             AppearanceObservations = appearanceObservations ?? [],
             RetainedArtifactPaths = [],
             ObservedFailure = observedFailure is null ? null : Program.DescribeFailure(observedFailure),

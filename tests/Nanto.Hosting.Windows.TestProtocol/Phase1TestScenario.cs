@@ -10,6 +10,8 @@ public enum Phase1TestScenario
     RepeatedClose,
     Navigation,
     Appearance,
+    RendererRecovery,
+    BrowserProcessExit,
     SharedProfile,
     ContainmentTimeout,
 }

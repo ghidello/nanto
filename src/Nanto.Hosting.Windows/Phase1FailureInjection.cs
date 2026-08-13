@@ -20,6 +20,7 @@ internal enum Phase1AcquisitionCheckpoint
     NavigationStartingSubscriptionAdded,
     NavigationCompletedSubscriptionAdded,
     WebMessageSubscriptionAdded,
+    ProcessFailedSubscriptionAdded,
     VirtualHostMappingAdded,
     InitialNavigationCompleted,
 }

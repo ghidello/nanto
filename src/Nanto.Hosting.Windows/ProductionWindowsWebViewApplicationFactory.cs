@@ -168,6 +168,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             HWND parentWindow,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
+            Action<RendererFailureKind, string, bool> reportRendererFailure,
+            Action requestClose,
+            Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken)
         {
             if (_window is not null || _assetLease is null || _assetResourceLease is null)
@@ -186,6 +189,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                     _assetLease,
                     _resourceLedger,
                     _failureInjector,
+                    reportRendererFailure,
+                    requestClose,
+                    canRecoverRenderer,
                     cancellationToken);
                 var window = new ProductionWindowsWebViewWindow(webViewWindow, appearanceAttachment);
                 _window = window;
@@ -247,6 +253,12 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
             _window?.WaitForDiagnosticMessageAsync(cancellationToken)
                 ?? throw new InvalidOperationException("The WebView2 window is not available.");
+
+        public void CrashRendererForTesting() =>
+            (_window ?? throw new InvalidOperationException("The WebView2 window is not available.")).CrashRendererForTesting();
+
+        public uint GetBrowserProcessIdForTesting() =>
+            (_window ?? throw new InvalidOperationException("The WebView2 window is not available.")).GetBrowserProcessIdForTesting();
 
         public async ValueTask DisposeAsync()
         {
@@ -322,6 +334,12 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
             (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow)))
                 .WaitForDiagnosticMessageAsync(cancellationToken);
+
+        public void CrashRendererForTesting() =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow))).CrashRendererForTesting();
+
+        public uint GetBrowserProcessIdForTesting() =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow))).GetBrowserProcessIdForTesting();
 
         public ValueTask SetPreferredColorSchemeAsync(
             ColorSchemePreference preferredColorScheme,

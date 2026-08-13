@@ -142,6 +142,32 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         return webViewApplication.WaitForDiagnosticMessageAsync(cancellationToken);
     }
 
+    internal ValueTask CrashRendererForTestingAsync(CancellationToken cancellationToken = default)
+    {
+        var dispatcher = _dispatcher ?? throw new InvalidOperationException("The dispatcher is unavailable.");
+        return dispatcher.InvokeAsync(
+            () =>
+            {
+                var webViewApplication = _webViewApplication
+                    ?? throw new InvalidOperationException("The WebView2 application is unavailable.");
+                webViewApplication.CrashRendererForTesting();
+            },
+            cancellationToken);
+    }
+
+    internal ValueTask<uint> GetBrowserProcessIdForTestingAsync(CancellationToken cancellationToken = default)
+    {
+        var dispatcher = _dispatcher ?? throw new InvalidOperationException("The dispatcher is unavailable.");
+        return dispatcher.InvokeAsync(
+            () =>
+            {
+                var webViewApplication = _webViewApplication
+                    ?? throw new InvalidOperationException("The WebView2 application is unavailable.");
+                return webViewApplication.GetBrowserProcessIdForTesting();
+            },
+            cancellationToken);
+    }
+
     internal ValueTask WaitForWebViewReadinessAsync(CancellationToken cancellationToken = default)
     {
         var webViewApplication = _webViewApplication

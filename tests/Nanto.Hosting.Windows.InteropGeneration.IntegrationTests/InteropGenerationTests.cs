@@ -67,6 +67,9 @@ public sealed class InteropGenerationTests
         source.Should().Contain("[LibraryImport(");
         source.Should().Contain("ICoreWebView2Profile");
         source.Should().Contain("put_PreferredColorScheme");
+        source.Should().Contain("ICoreWebView2ProcessFailedEventHandler");
+        source.Should().Contain("ICoreWebView2ProcessFailedEventArgs");
+        source.Should().Contain("COREWEBVIEW2_PROCESS_FAILED_KIND");
         source.Should().NotContain("[ComImport]");
         source.Should().NotContain("[DllImport(");
         source.Should().NotContain("dynamic ");

@@ -223,10 +223,13 @@ internal sealed unsafe partial class NavigationCompletedHandler : ICoreWebView2N
 {
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    public Action<bool>? NavigationCompleted { get; init; }
+
     public Task Completion => _completion.Task;
 
     public int Invoke(nint sender, nint args)
     {
+        var navigationCallbackInvoked = false;
         try
         {
             using var eventArgs = UniqueComReference<ICoreWebView2NavigationCompletedEventArgs>.FromPointer(args);
@@ -238,6 +241,8 @@ internal sealed unsafe partial class NavigationCompletedHandler : ICoreWebView2N
             if (isSuccess != 0)
             {
                 _completion.TrySetResult();
+                navigationCallbackInvoked = true;
+                NavigationCompleted?.Invoke(true);
                 return 0;
             }
 
@@ -252,14 +257,66 @@ internal sealed unsafe partial class NavigationCompletedHandler : ICoreWebView2N
                 Operation = "webview2.navigation.initial",
                 NativeErrorCode = webErrorStatus,
             });
+            navigationCallbackInvoked = true;
+            NavigationCompleted?.Invoke(false);
         }
         catch (Exception exception)
         {
             _completion.TrySetException(exception);
+            if (!navigationCallbackInvoked)
+            {
+                try
+                {
+                    NavigationCompleted?.Invoke(false);
+                }
+                catch
+                {
+                    // A recovery observer failure must not escape a native callback or cause duplicate notification.
+                }
+            }
         }
 
         return 0;
     }
+}
+
+[GeneratedComClass]
+internal sealed unsafe partial class ProcessFailedHandler(Action<COREWEBVIEW2_PROCESS_FAILED_KIND> processFailed) :
+    ICoreWebView2ProcessFailedEventHandler
+{
+    private readonly Action<COREWEBVIEW2_PROCESS_FAILED_KIND> _processFailed =
+        processFailed ?? throw new ArgumentNullException(nameof(processFailed));
+
+    public int Invoke(nint sender, nint args)
+    {
+        try
+        {
+            using var eventArgs = UniqueComReference<ICoreWebView2ProcessFailedEventArgs>.FromPointer(args);
+            var failureKind = 0;
+            HResult.ThrowIfFailed(
+                eventArgs.Value.get_ProcessFailedKind((nint)(&failureKind)),
+                "webview2.process-failed.get-kind",
+                NantoFailureStage.Runtime);
+            _processFailed((COREWEBVIEW2_PROCESS_FAILED_KIND)failureKind);
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return Marshal.GetHRForException(exception);
+        }
+    }
+}
+
+[GeneratedComClass]
+internal sealed partial class TestDevToolsProtocolMethodCompletedHandler : ICoreWebView2CallDevToolsProtocolMethodCompletedHandler
+{
+    public static TestDevToolsProtocolMethodCompletedHandler Instance { get; } = new();
+
+    private TestDevToolsProtocolMethodCompletedHandler()
+    {
+    }
+
+    public int Invoke(int errorCode, nint result) => 0;
 }
 
 [GeneratedComClass]

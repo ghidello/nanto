@@ -1,10 +1,24 @@
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 
+using Windows.Win32.Foundation;
+
 namespace Nanto.Hosting.Windows.Interop;
 
 internal static class HResult
 {
+    public static int FromWin32(WIN32_ERROR error)
+    {
+        const uint FailureSeverity = 0x80000000;
+        const uint Win32Facility = 7 << 16;
+        const uint CodeMask = 0x0000FFFF;
+
+        var errorCode = (uint)error;
+        return errorCode == 0
+            ? 0
+            : unchecked((int)(FailureSeverity | Win32Facility | (errorCode & CodeMask)));
+    }
+
     public static void ThrowIfFailed(int value, string operation, NantoFailureStage stage)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);

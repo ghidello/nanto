@@ -14,6 +14,10 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         LogLevel.Error,
         new EventId(100, "WindowStateHandlerFailed"),
         "A window state-change handler threw an exception.");
+    private static readonly Action<ILogger, Exception?> _rendererHandlerFailed = LoggerMessage.Define(
+        LogLevel.Error,
+        new EventId(101, "RendererFailureHandlerFailed"),
+        "A renderer-failure handler threw an exception.");
 
     private readonly TaskCompletionSource _closeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IUiDispatcher _dispatcher;
@@ -21,6 +25,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
     private readonly ILogger _logger;
     private readonly Win32Window _nativeWindow;
     private readonly bool _nativeWindowCreated;
+    private readonly TimeProvider _timeProvider;
     private IWindowsWebViewWindow? _webViewWindow;
     private Exception? _closeFailure;
     private EventHandler<RendererFailedEventArgs>? _rendererFailed;
@@ -69,7 +74,8 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         }
 
         Id = WindowId.Create();
-        _lifecycle = new WindowLifecycle(timeProvider ?? TimeProvider.System);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _lifecycle = new WindowLifecycle(_timeProvider);
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WindowsWindow>();
         _snapshot = new WindowsWindowSnapshot(options.Title, options.InitialSize, WindowState.Created, false);
         TransitionTo(WindowState.Initializing);
@@ -127,6 +133,9 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
                 window.Handle,
                 options,
                 preferredColorScheme,
+                window.RaiseRendererFailed,
+                window.RequestClose,
+                window.CanAttemptRendererRecovery,
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             window.TransitionTo(WindowState.Running);
@@ -356,6 +365,30 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
 
         _ = RequestCloseAsync();
     }
+
+    private void RaiseRendererFailed(RendererFailureKind kind, string description, bool willAttemptRecovery)
+    {
+        var eventArgs = new RendererFailedEventArgs
+        {
+            Kind = kind,
+            Description = description,
+            WillAttemptRecovery = willAttemptRecovery,
+            OccurredAt = _timeProvider.GetUtcNow(),
+        };
+        foreach (EventHandler<RendererFailedEventArgs> handler in _rendererFailed?.GetInvocationList() ?? [])
+        {
+            try
+            {
+                handler(this, eventArgs);
+            }
+            catch (Exception exception)
+            {
+                _rendererHandlerFailed(_logger, exception);
+            }
+        }
+    }
+
+    private bool CanAttemptRendererRecovery() => State == WindowState.Running && Volatile.Read(ref _closeRequested) == 0;
 
     private async Task RequestCloseAsync()
     {
