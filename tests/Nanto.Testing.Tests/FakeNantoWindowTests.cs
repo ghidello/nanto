@@ -13,21 +13,21 @@ public sealed class FakeNantoWindowTests
             dispatcher,
             new WindowOptions { Title = "Initial" },
             new TestingFixture.FixedTimeProvider(time));
-        var bounds = new WindowBounds(20, 30, 640, 480);
+        var size = new WindowSize(640, 480);
 
         var setTitle = window.SetTitleAsync("Updated", TestContext.Current.CancellationToken);
-        var setBounds = window.SetBoundsAsync(bounds, TestContext.Current.CancellationToken);
+        var setSize = window.SetSizeAsync(size, TestContext.Current.CancellationToken);
         var activate = window.ActivateAsync(TestContext.Current.CancellationToken);
         await dispatcher.DrainAsync();
         await setTitle;
-        await setBounds;
+        await setSize;
         await activate;
 
         window.Title.Should().Be("Updated");
-        window.Bounds.Should().Be(bounds);
+        window.Size.Should().Be(size);
         window.Mutations.Select(static mutation => mutation.Kind).Should().Equal(
             FakeWindowMutationKind.TitleChanged,
-            FakeWindowMutationKind.BoundsChanged,
+            FakeWindowMutationKind.SizeChanged,
             FakeWindowMutationKind.Activated);
         window.Mutations.Should().OnlyContain(mutation => mutation.OccurredAt == time);
     }

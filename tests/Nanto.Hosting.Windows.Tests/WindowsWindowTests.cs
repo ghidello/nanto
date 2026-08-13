@@ -27,11 +27,12 @@ public sealed class WindowsWindowTests
             window!.State.Should().Be(WindowState.Running);
             window.IsVisible.Should().BeFalse();
 
-            var updatedBounds = new WindowBounds(-120, 80, 720, 520);
+            var updatedSize = new WindowSize(720, 520);
             await window.SetTitleAsync("Updated title", TestContext.Current.CancellationToken);
-            await window.SetBoundsAsync(updatedBounds, TestContext.Current.CancellationToken);
+            await window.SetSizeAsync(updatedSize, TestContext.Current.CancellationToken);
             window.Title.Should().Be("Updated title");
-            window.Bounds.Should().Be(updatedBounds);
+            window.Size.Width.Should().BeApproximately(updatedSize.Width, 1);
+            window.Size.Height.Should().BeApproximately(updatedSize.Height, 1);
 
             using var canceledWait = new CancellationTokenSource();
             canceledWait.Cancel();
@@ -120,7 +121,7 @@ public sealed class WindowsWindowTests
     }
 
     [Fact]
-    public async Task UnrepresentableBoundsFailBeforeNativeMutation()
+    public async Task UnrepresentableSizeFailsBeforeNativeMutation()
     {
         var ledger = new ResourceLedger();
         var uiThread = new WindowsUiThread(ledger);
@@ -137,11 +138,11 @@ public sealed class WindowsWindowTests
                 },
                 TestContext.Current.CancellationToken);
 
-            var setBounds = () => window!.SetBoundsAsync(
-                new WindowBounds((double)int.MaxValue + 1, 0, 100, 100),
+            var setSize = async () => await window!.SetSizeAsync(
+                new WindowSize((double)int.MaxValue + 1, 100),
                 TestContext.Current.CancellationToken);
 
-            setBounds.Should().Throw<ArgumentOutOfRangeException>();
+            await setSize.Should().ThrowAsync<ArgumentOutOfRangeException>();
             await window!.DisposeAsync();
             await dispatcher.InvokeAsync(windowClass!.Dispose, TestContext.Current.CancellationToken);
         }

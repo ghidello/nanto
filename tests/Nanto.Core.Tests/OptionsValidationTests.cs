@@ -46,11 +46,11 @@ public sealed class OptionsValidationTests
     }
 
     [Fact]
-    public void CreateRejectsInvalidDefaultBounds()
+    public void CreateRejectsInvalidDefaultSize()
     {
         var options = CreateOptions() with
         {
-            PrimaryWindow = CreateOptions().PrimaryWindow with { InitialBounds = default },
+            PrimaryWindow = CreateOptions().PrimaryWindow with { InitialSize = default },
         };
 
         var action = () => ValidatedApplicationOptions.Create(options);

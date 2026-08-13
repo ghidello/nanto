@@ -3,7 +3,7 @@ namespace Nanto.Testing;
 public enum FakeWindowMutationKind
 {
     TitleChanged,
-    BoundsChanged,
+    SizeChanged,
     Activated,
     CloseRequested,
 }
@@ -24,5 +24,5 @@ public sealed record FakeWindowMutation
 
     public string? Title { get; init; }
 
-    public WindowBounds? Bounds { get; init; }
+    public WindowSize? Size { get; init; }
 }

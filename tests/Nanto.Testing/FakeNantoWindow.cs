@@ -32,7 +32,7 @@ public sealed class FakeNantoWindow : INantoWindow
 
     public string Title => Volatile.Read(ref _snapshot).Title;
 
-    public WindowBounds Bounds => Volatile.Read(ref _snapshot).Bounds;
+    public WindowSize Size => Volatile.Read(ref _snapshot).Size;
 
     public WindowState State => _lifecycle.State;
 
@@ -64,12 +64,12 @@ public sealed class FakeNantoWindow : INantoWindow
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
-        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialBounds, default, nameof(options.InitialBounds));
+        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialSize, default, nameof(options.InitialSize));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _failurePlan = failurePlan ?? new FailurePlan();
         _lifecycle = new WindowLifecycle(timeProvider);
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<FakeNantoWindow>();
-        _snapshot = new WindowSnapshot(options.Title, options.InitialBounds, options.StartVisible);
+        _snapshot = new WindowSnapshot(options.Title, options.InitialSize, options.StartVisible);
         if (id is { } specifiedId)
         {
             ArgumentOutOfRangeException.ThrowIfEqual(specifiedId, default, nameof(id));
@@ -93,17 +93,17 @@ public sealed class FakeNantoWindow : INantoWindow
             cancellationToken);
     }
 
-    public ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default)
+    public ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default)
     {
-        ArgumentOutOfRangeException.ThrowIfEqual(bounds, default);
+        ArgumentOutOfRangeException.ThrowIfEqual(size, default);
         return _dispatcher.InvokeAsync(
             () =>
             {
                 ThrowIfClosing();
-                _failurePlan.Observe("window.set-bounds");
+                _failurePlan.Observe("window.set-size");
                 var snapshot = Volatile.Read(ref _snapshot);
-                Volatile.Write(ref _snapshot, snapshot with { Bounds = bounds });
-                Record(new FakeWindowMutation { Kind = FakeWindowMutationKind.BoundsChanged, OccurredAt = _timeProvider.GetUtcNow(), Bounds = bounds });
+                Volatile.Write(ref _snapshot, snapshot with { Size = size });
+                Record(new FakeWindowMutation { Kind = FakeWindowMutationKind.SizeChanged, OccurredAt = _timeProvider.GetUtcNow(), Size = size });
             },
             cancellationToken);
     }
@@ -257,5 +257,5 @@ public sealed class FakeNantoWindow : INantoWindow
         ObjectDisposedException.ThrowIf(State is WindowState.Closing or WindowState.Closed or WindowState.Failed, this);
     }
 
-    private sealed record WindowSnapshot(string Title, WindowBounds Bounds, bool IsVisible);
+    private sealed record WindowSnapshot(string Title, WindowSize Size, bool IsVisible);
 }

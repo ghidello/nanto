@@ -167,11 +167,12 @@ For example:
 public interface INantoWindow
 {
     WindowId Id { get; }
-    string Title { get; set; }
+    string Title { get; }
+    WindowSize Size { get; }
     WindowState State { get; }
 
-    ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default);
-    ValueTask SetAlwaysOnTopAsync(bool value, CancellationToken cancellationToken = default);
+    ValueTask SetTitleAsync(string title, CancellationToken cancellationToken = default);
+    ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default);
     ValueTask CloseAsync(CancellationToken cancellationToken = default);
 }
 ```
@@ -534,19 +535,22 @@ The same operations must be safe when entered from user close, application shutd
 
 ### 6.7 DPI and window messages
 
-Nanto's portable API uses device-independent pixels. The Windows host owns conversion to physical pixels based on the current window DPI.
+Nanto's portable API describes the client content size in device-independent pixels. The Windows host owns conversion to physical pixels based on the current window DPI and uses `AdjustWindowRectExForDpi` so native non-client chrome does not reduce the requested WebView content area. `INantoWindow.Size` is a thread-safe snapshot of the actual client size; `WM_SIZE` updates the snapshot and WebView controller from the same native client rectangle.
+
+The private Windows UI thread enters Per-Monitor-V2 awareness before it creates its message queue or any `HWND`. Initial placement is automatic in Phase 1: Windows selects the screen position, then Nanto sizes the client area for the selected window DPI. On `WM_DPICHANGED`, Nanto updates its UI-thread-owned DPI before applying Windows' suggested rectangle. This preserves the intended apparent size without creating a second coordinate system.
+
+Nanto deliberately does not expose programmatic screen positioning in Phase 1. [WPF's per-monitor model](https://learn.microsoft.com/en-us/windows/win32/hidpi/declaring-managed-apps-dpi-aware) and [Electron's screen API](https://www.electronjs.org/docs/latest/api/screen) support logical desktop placement with substantial display/conversion machinery, while [WinUI AppWindow](https://learn.microsoft.com/en-us/windows/apps/develop/ui/manage-app-windows), [Avalonia](https://api-docs.avaloniaui.net/docs/T_Avalonia_Controls_Window), and [winit](https://docs.rs/winit/latest/winit/window/struct.Window.html) keep native screen placement distinct from logical content sizing. A primary-DPI global coordinate rule would be ambiguous on mixed-DPI topologies, and native pixel coordinates do not belong in the portable contract. Application-directed placement therefore waits for a display model with stable display identity, physical bounds, working area, scale factor, and display-relative conversion.
 
 At minimum, it must correctly handle:
 
 - `WM_DPICHANGED`;
-- `WM_GETMINMAXINFO`;
 - `WM_SIZE` and WebView bounds updates;
 - activation and focus;
 - close and destroy;
 - display/work-area changes;
 - custom title-bar hit testing when that feature is added.
 
-The host should maintain a cached per-window DPI and update it only on the UI thread. Initial placement and first-monitor correction require dedicated multi-monitor tests.
+The host maintains cached per-window DPI and native placement only on the UI thread. Phase 1 leaves standard minimum sizing to `DefWindowProc`; a public minimum-size contract is deferred until a concrete application need justifies it. On `WM_DISPLAYCHANGE` and `WM_SETTINGCHANGE` for `SPI_SETWORKAREA`, Nanto enumerates every current monitor work area. Any positive rectangle intersection preserves the current normal placement. A wholly inaccessible normal window moves to the nearest work area, clamps each axis while preserving its native size, and aligns an oversized axis with that work area's origin. Coordinate ordering breaks equal-distance ties so enumeration order cannot change the result. For minimized and maximized windows, `GetWindowPlacement`/`SetWindowPlacement` retains the show state while Windows validates and corrects the normal restore rectangle in its documented workspace coordinate system. Because `GetWindowPlacement` clears its flags, Nanto tracks maximize/restore `WM_SIZE` transitions and reconstructs `WPF_RESTORETOMAXIMIZED` for a window minimized from maximized. Windows reports a hidden window as `SW_SHOWNORMAL`, so Nanto corrects its current screen rectangle through `SetWindowPos` without any showing or activation flags; the window remains hidden. Real initial-placement, cross-monitor, monitor-removal, and mixed-scale behavior require dedicated visible multi-monitor tests.
 
 ### 6.8 Static asset origin
 
@@ -579,7 +583,9 @@ Each process holds a shared, non-deleteable handle to the selected bundle's `lea
 
 Nanto models color scheme as an application/profile-wide preference with `System`, `Light`, and `Dark` values. The application owns persistence of a user-selected value and supplies it on the next run; Nanto does not introduce a competing general settings store. On Windows, the host applies the preference to the WebView2 profile before initial navigation and supports live mutation on the owning STA thread.
 
-WebView2 exposes the effective preference to browser chrome and web content through the standard `prefers-color-scheme` media feature. SPAs use CSS or `matchMedia` and need no Nanto-specific theme message, framework adapter, or JavaScript API. `System` continues to follow operating-system changes, while explicit values override them. Synchronizing the native Win32 title bar and non-client frame is Milestone 5 presentation work; it must use the same portable preference rather than introduce a second source of truth.
+WebView2 exposes the effective preference to browser chrome and web content through the standard `prefers-color-scheme` media feature. SPAs use CSS or `matchMedia` and need no Nanto-specific theme message, framework adapter, or JavaScript API. `System` continues to follow operating-system changes, while explicit values override them.
+
+For native Win32 chrome, Nanto follows [Microsoft's supported desktop guidance](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-windows-themes): read the `Windows.UI.ViewManagement.UISettings` foreground color, classify its luminance, observe `ColorValuesChanged`, and apply the resolved result with `DwmSetWindowAttribute`. The UISettings object and subscription are application-owned and released deterministically. Nanto does not treat the undocumented `AppsUseLightTheme` registry value as an application contract and does not add WinUI or Windows App SDK. The resolved Light/Dark value remains internal; the public source of truth is still the application preference, and the SPA observes the effective value through web standards.
 
 ### 6.10 Critical Native AOT risk: COM
 
@@ -1223,6 +1229,10 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-043 | Derive the WebView2 projection from the complete base-interface chain and the required same-interface vtable prefix. | COM slot positions depend on both closures; projecting only named methods would produce an ABI-invalid interface even when every production call appears in the allowlist. |
 | D-044 | Represent every acquired WebView2 interface as one uniquely owned source-generated COM wrapper and release it on the owning STA thread. | Explicit ownership prevents ambiguous RCW lifetimes, double release, thread-affinity violations, and Native AOT reliance on built-in COM interop. |
 | D-045 | Keep virtual-host mapping for Phase 1 and defer clean-path reload fallback, service workers, custom response headers/MIME mappings, and external source maps. | Mapping keeps resource loading native and simple, but cannot intercept mapped requests or serve service-worker scripts. A future custom response-serving host is the robust upgrade; redirect plus history injection is rejected as fragile. |
+| D-046 | Define portable window size as client-area DIPs and let the platform choose initial screen placement during Phase 1. | Content size remains portable and stable while native frame metrics vary by platform and DPI. Avoiding public X/Y prevents an ambiguous mixed-DPI global coordinate contract. |
+| D-047 | Use Per-Monitor-V2 on Nanto's private Windows UI thread and accept the `WM_DPICHANGED` suggested rectangle. | Per-window DPI behavior remains isolated from the caller's threads, and the Windows-provided rectangle preserves apparent size across monitors without Nanto inventing topology transforms. |
+| D-048 | Detect Windows System appearance through `UISettings` and `ColorValuesChanged`, not `AppsUseLightTheme`. | This follows Microsoft's supported Win32 guidance and avoids making an undocumented registry implementation detail part of Nanto's behavior. |
+| D-049 | Recover native placement only when a window has no positive intersection with any current monitor work area. | Preserving partial visibility avoids surprising user-driven moves; nearest-work-area clamping restores an unreachable window without resizing it or exposing native placement through the portable API. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1265,6 +1275,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | F-009 | Forced stable-storage flushes and recovery guarantees across sudden power loss during asset publication. | Power-loss durability becomes a product or deployment requirement. |
 | F-010 | Generated embedded-asset manifests and SDK/build integration. Phase 1 uses an explicitly reviewed manifest. | The SDK/tooling milestone defines the frontend build and embedding pipeline. |
 | F-011 | Mutation watching or continuous inventory enforcement for directory-backed development assets. | Development tooling needs live invalidation beyond a fixed prepared URL inventory. |
+| F-012 | Public display enumeration, stable display identity, display-relative positioning, and logical/native coordinate conversion. Phase 1 supports automatic initial placement and user-driven movement across displays. | An application needs deterministic placement or persisted restoration on a selected display, and the contract can represent topology changes without ambiguous global DIPs. |
 
 ---
 

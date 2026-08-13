@@ -98,7 +98,7 @@ public sealed record ValidatedApplicationOptions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
 
-        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialBounds, default, nameof(options.InitialBounds));
+        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialSize, default, nameof(options.InitialSize));
 
         RouteValidation.ThrowIfInvalid(options.InitialRoute, nameof(options.InitialRoute));
     }

@@ -4,7 +4,11 @@ public sealed record WindowOptions
 {
     public required string Title { get; init; }
 
-    public WindowBounds InitialBounds { get; init; } = new(100, 100, 1024, 768);
+    /// <summary>
+    /// Gets the initial size of the window's client content area in device-independent pixels.
+    /// </summary>
+    /// <remarks>The platform chooses the initial display and screen position.</remarks>
+    public WindowSize InitialSize { get; init; } = new(1024, 768);
 
     public bool StartVisible { get; init; } = true;
 

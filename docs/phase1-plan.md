@@ -79,10 +79,10 @@ Initial portable API:
 - `ApplicationState`: `NotStarted`, `Creating`, `Created`, `Activated`, `Deactivated`, `Closing`, `Closed`, `Failed`.
 - `WindowState`: `Created`, `Initializing`, `Running`, `Closing`, `Closed`, `Failed`.
 - Immutable GUID-backed `WindowId`.
-- DIP-based `WindowBounds`.
-- `WindowOptions` for title, initial bounds, visibility, resizability, and route.
+- DIP-based client-area `WindowSize`; Windows chooses the initial screen position during Phase 1.
+- `WindowOptions` for title, initial client size, visibility, resizability, and route.
 - `ShutdownMode`: primary-window, last-surface, or explicit shutdown.
-- `INantoWindow`: state, title, bounds, activation, close, and renderer-failure notification.
+- `INantoWindow`: state, title, client-size snapshot and mutation, activation, close, and renderer-failure notification.
 - `IUiDispatcher`: access check and asynchronous invocation without synchronous UI waits.
 - `ColorSchemePreference`: application/profile-wide `System`, `Light`, or `Dark` preference.
 - `INantoApplicationHost`: state, dispatcher, primary-window and color-scheme snapshots, lifecycle events, single-use run, appearance mutation, and idempotent stop.
@@ -370,39 +370,31 @@ public readonly record struct WindowId
     public static WindowId Create() => new(Guid.NewGuid());
 }
 
-public readonly record struct WindowBounds
+public readonly record struct WindowSize
 {
-    public double X { get; }
-    public double Y { get; }
     public double Width { get; }
     public double Height { get; }
 
-    public WindowBounds(double x, double y, double width, double height)
+    public WindowSize(double width, double height)
     {
-        ValidateFinite(x, nameof(x));
-        ValidateFinite(y, nameof(y));
-        ValidateFinite(width, nameof(width));
-        ValidateFinite(height, nameof(height));
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ValidateDimension(width, nameof(width));
+        ValidateDimension(height, nameof(height));
 
-        X = x;
-        Y = y;
         Width = width;
         Height = height;
     }
 
-    private static void ValidateFinite(double value, string parameterName)
+    private static void ValidateDimension(double value, string parameterName)
     {
-        if (!double.IsFinite(value))
+        if (!double.IsFinite(value) || value <= 0)
         {
-            throw new ArgumentOutOfRangeException(parameterName, value, "Window coordinates and dimensions must be finite.");
+            throw new ArgumentOutOfRangeException(parameterName, value, "Window dimensions must be finite and positive.");
         }
     }
 }
 ```
 
-`WindowBounds` uses DIPs. Construction and mutation reject non-finite values and non-positive width or height with `ArgumentOutOfRangeException`; negative X/Y values are valid for monitors left of or above the primary monitor. The portable type imposes no arbitrary maximum on finite coordinates or dimensions. At each platform boundary, Nanto performs checked DIP-to-native conversion using the applicable DPI and rejects any rounded value that cannot be represented by the native coordinate type before calling the platform API. `WindowId.Create` must never return `Guid.Empty`. The CLR can still produce default values for both structs; `default(WindowId)` and `default(WindowBounds)` are invalid sentinels and every public boundary must reject them.
+`WindowSize` describes the client content area in DIPs. Construction and mutation reject non-finite or non-positive dimensions with `ArgumentOutOfRangeException`. At each platform boundary, Nanto performs checked DIP-to-native conversion using the current window DPI and rejects values that cannot be represented by Win32 before native mutation. The Windows host uses `AdjustWindowRectExForDpi` so borders and title bars do not reduce the requested WebView content area. `WindowId.Create` must never return `Guid.Empty`. The CLR can still produce default values for both structs; `default(WindowId)` and `default(WindowSize)` are invalid sentinels and every public boundary must reject them.
 
 Use these option shapes:
 
@@ -410,7 +402,7 @@ Use these option shapes:
 public sealed record WindowOptions
 {
     public required string Title { get; init; }
-    public WindowBounds InitialBounds { get; init; } = new(100, 100, 1024, 768);
+    public WindowSize InitialSize { get; init; } = new(1024, 768);
     public bool StartVisible { get; init; } = true;
     public bool Resizable { get; init; } = true;
     public string InitialRoute { get; init; } = "/index.html";
@@ -428,7 +420,7 @@ public sealed record NantoApplicationOptions
 }
 ```
 
-Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialBounds` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; `PreferredColorScheme` and `ShutdownMode` must be defined enum values; and `ShutdownTimeout` must be positive and no greater than five minutes. After asset preparation and before any COM/window acquisition, the Windows host also requires the initial route path to match the lease's declared inventory. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
+Option initializers remain data-only. `RunAsync` validates the complete immutable option graph before acquiring native resources: `Title` must contain a non-whitespace character; `InitialSize` must not be the invalid default value; `InitialRoute` must be root-relative and reject absolute, scheme-relative, backslash-containing, dot-segment, or encoded-traversal paths; `ApplicationId`, `PrimaryWindow`, and `Assets` are required; `PreferredColorScheme` and `ShutdownMode` must be defined enum values; and `ShutdownTimeout` must be positive and no greater than five minutes. After asset preparation and before any COM/window acquisition, the Windows host also requires the initial route path to match the lease's declared inventory. A null `LoggerFactory` becomes `NullLoggerFactory.Instance` internally.
 
 `ApplicationId` is trimmed, canonicalized to lowercase invariant, and must contain at least two dot-separated ASCII segments. Each segment is 1–63 characters, the complete identifier is at most 253 characters, and segments contain only letters, digits, and interior hyphens. It is a persistent storage and security boundary, not a display label. Nanto derives `<application-key>` from the final readable segment plus the first 128 bits of SHA-256 over the canonical UTF-8 identifier, stores the complete canonical identity in cache metadata, and refuses a metadata mismatch. Renaming an executable, assembly, or product display name does not change this identity; changing `ApplicationId` intentionally starts with a new cache and WebView2 profile.
 
@@ -508,13 +500,13 @@ public interface INantoWindow
 {
     WindowId Id { get; }
     string Title { get; }
-    WindowBounds Bounds { get; }
+    WindowSize Size { get; }
     WindowState State { get; }
     bool IsVisible { get; }
     event EventHandler<WindowStateChangedEventArgs>? StateChanged;
     event EventHandler<RendererFailedEventArgs>? RendererFailed;
     ValueTask SetTitleAsync(string title, CancellationToken cancellationToken = default);
-    ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default);
+    ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default);
     ValueTask ActivateAsync(CancellationToken cancellationToken = default);
     ValueTask CloseAsync(CancellationToken cancellationToken = default);
 }
@@ -585,13 +577,13 @@ Neither provider acquires a lease or mutates the filesystem in its constructor o
 
 - `ManualUiDispatcher`, which queues work until `RunNextAsync` or `DrainAsync` is called and exposes `WaitForPendingWorkAsync` for deterministic coordination without polling; while draining it temporarily installs its own synchronization context, callbacks observe dispatcher access, nested calls execute inline, posted continuations return to its queue, and the caller's prior context is restored afterward.
 - `FakeNantoApplicationHost`, which uses the production portable lifecycle state machine and exposes deterministic gates for creation, activation, failure, stop, and close.
-- `FakeNantoWindow`, which uses the production window state machine, records title/bounds/activation calls, and can raise a scripted renderer failure.
+- `FakeNantoWindow`, which uses the production window state machine, records title/size/activation calls, and can raise a scripted renderer failure.
 - `LifecycleRecorder`, which records immutable ordered application, window, and renderer events with timestamps supplied by a caller-provided `TimeProvider`.
 - `FailurePlan`, which scripts failures at named portable operations such as application creation, window initialization, activation, and close. Windows acquisition checkpoints do not enter this package.
 
 These utilities expose recorded calls and state; they do not provide assertion methods or throw test-framework-specific exceptions. `Nanto.Testing.Tests` tests the toolkit itself rather than duplicating Core or Windows-host tests.
 
-The fake host's creation, activation, failure, stop, and close gates start open. A test closes a gate before the relevant operation, awaits its reached signal to observe the stable checkpoint, and opens it to continue; cancellation races creation and activation gates so shutdown never depends on a test releasing them. Portable failure-plan operation names are `application.create`, `window.initialize`, `application.activate`, `window.set-title`, `window.set-bounds`, `window.activate`, and `window.close`. A plan records every observed operation, including permissive plans and mismatches, and strict plans require exact ordinal order.
+The fake host's creation, activation, failure, stop, and close gates start open. A test closes a gate before the relevant operation, awaits its reached signal to observe the stable checkpoint, and opens it to continue; cancellation races creation and activation gates so shutdown never depends on a test releasing them. Portable failure-plan operation names are `application.create`, `window.initialize`, `application.activate`, `window.set-title`, `window.set-size`, `window.activate`, and `window.close`. A plan records every observed operation, including permissive plans and mismatches, and strict plans require exact ordinal order.
 
 `Nanto.Hosting.Windows` and `Nanto.Testing` consume the public `Nanto.Hosting` surface and receive no friend access to Core. `Nanto.Core.Tests` should verify behavior through public contracts by default, but Core may grant that test project friend access when direct coverage of internal edge cases is useful and avoids awkward production API exposure. Such access is test-only and must not be used by production or repository testing-support assemblies. Tests receive no friend access to the Windows host beyond `Nanto.Hosting.Windows.Tests` and the Phase 1 TestApp seams described below; portable Core remains free of Windows types.
 
@@ -832,11 +824,12 @@ Hidden and long-running projects always send `Hidden`; visible tests always send
    - Add manifest-aware exact routing and navigation normalization; defer clean-path fallback and service workers while virtual-host mapping remains the serving mechanism.
 
 5. **DPI, recovery, and diagnostics**
-   - Convert DIPs only at the Windows boundary.
-   - Handle resize, DPI changes, minimum sizes, work areas, activation, focus, and negative monitor coordinates.
-   - Keep cached DPI UI-thread-owned.
+   - Enable Per-Monitor-V2 on Nanto's private UI thread before its message queue or any native window is created.
+   - Treat public sizes as client-area DIPs, convert only at the Windows boundary, and use `AdjustWindowRectExForDpi` for the native frame.
+   - Let Windows select the initial monitor and position in Phase 1. Handle user-driven resize and `WM_DPICHANGED` first; then correct a wholly inaccessible window after display or work-area changes without disturbing a partially visible placement.
+   - Keep cached DPI and native placement UI-thread-owned. Defer application-directed monitor selection and positioning until Nanto has a portable display model with stable identity, working area, scale, and display-relative conversion.
    - Raise a portable renderer-failure event, attempt one reload, and close normally if recovery fails.
-   - Synchronize the Win32 title bar and non-client frame with explicit color preferences and operating-system changes while using `System`.
+   - Synchronize the Win32 title bar and non-client frame with explicit color preferences. Resolve `System` through the documented `UISettings` foreground-color model, observe `ColorValuesChanged`, and do not depend on the undocumented `AppsUseLightTheme` registry value.
    - Complete subscription removal, controller closure, COM release, browser-exit synchronization, `HWND` destruction, and dispatcher shutdown.
    - Add structured logging and a development resource ledger without logging frontend payloads.
 
@@ -856,7 +849,7 @@ The canonical unattended integration command is `dotnet test -p:TestScope=All`; 
 
 `Nanto.Core.Tests` owns:
 
-- `WindowId`, `WindowBounds`, options, route, and default-value validation.
+- `WindowId`, `WindowSize`, options, route, and default-value validation.
 - Public host-authoring boundary, canonical application/window transition matrices, invalid transitions, shutdown modes, single-use run, stop/close/disposal races, pre-canceled caller waits that still request shutdown, cancellation during initialization, event ordering, timestamping, and failure aggregation.
 - Cleanup ordering, idempotence, continued cleanup after errors, and aggregation.
 - Application-identity trimming/lowercasing, segment and total-length boundaries, invalid-character rejection, and storage-key stability.
@@ -870,7 +863,7 @@ The canonical unattended integration command is `dotnet test -p:TestScope=All`; 
 - Windows dispatcher affinity, synchronization-context capture, FIFO ordering, cancellation, exception propagation, and rejection during shutdown.
 - Short-lived hidden raw-Win32 class and window creation, production `WindowsWindow` lifecycle and snapshot behavior, non-activation, native close delivery, caller-wait cancellation, ownership ordering, idempotent destruction, and acquisition-failure rollback on private STA threads.
 - Immutable registry snapshots and second-window rejection.
-- DIP conversion at common and fractional DPIs, window-message decoding, and monitor/work-area calculations.
+- DIP conversion at common and fractional DPIs, window-message decoding, monitor/work-area calculations, deterministic nearest-work-area selection, and synthetic display/work-area correction.
 - Default `%LOCALAPPDATA%` application-root creation, write probes, path-length boundaries, and unwritable-root diagnostics.
 - Win32/WebView2 ABI declarations and dependency checks preventing UI-framework packages from entering the host.
 - Exact declared-asset navigation, query/fragment handling, malformed URI rejection, and the complete navigation golden-decision table.
@@ -1020,7 +1013,13 @@ Manifest validation, content hashing, atomic publication, concurrent reuse, shar
 dotnet test -p:TestScope=All
 ```
 
-All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, and shared-UDF multi-instance scenarios must pass with a zero final ledger. The visible integration project is then run once on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
+Implement Milestone 5 in five separately reviewed batches: client-size/DPI foundations; multi-monitor resilience; system appearance and native frame synchronization; renderer/process recovery; and diagnostics plus acceptance. Each batch updates its documentation and remains uncommitted until reviewed.
+
+The DPI foundation uses client-area DIPs, Per-Monitor-V2 on Nanto's private UI thread, automatic initial placement, `AdjustWindowRectExForDpi`, actual `WM_SIZE` snapshots, and the `WM_DPICHANGED` suggested rectangle. Multi-monitor resilience handles `WM_DISPLAYCHANGE` and the `SPI_SETWORKAREA` form of `WM_SETTINGCHANGE` by enumerating current monitor work areas. Any positive intersection preserves normal placement; a wholly inaccessible normal window moves without resizing to the nearest work area, with stable coordinate ordering for equal-distance ties and work-area-origin alignment when the native window is larger than that area. For minimized and maximized windows, `GetWindowPlacement`/`SetWindowPlacement` retains the show state while Windows validates the normal restore rectangle without mixing workspace coordinates with screen-coordinate `SetWindowPos`. `WM_SIZE` maximize/restore transitions retain the otherwise unavailable `WPF_RESTORETOMAXIMIZED` intent while a window is minimized. Windows reports a hidden window as `SW_SHOWNORMAL`, so Nanto uses the ordinary current-rectangle correction with non-showing `SetWindowPos` flags and keeps the window hidden. Phase 1 deliberately omits programmatic screen positioning: global logical desktop coordinates are ambiguous across mixed-DPI displays, while exposing native pixels would weaken the portable contract. A future display model will add explicit display identity and display-relative placement.
+
+System appearance follows Microsoft's supported Win32 guidance through `Windows.UI.ViewManagement.UISettings`, `ColorValuesChanged`, and `DwmSetWindowAttribute`; the undocumented `AppsUseLightTheme` registry value is not a Nanto contract. The effective Light/Dark result remains internal because WebView content already observes it through `prefers-color-scheme`.
+
+All synthetic DPI/message tests and the complete implemented failure-checkpoint, close-race, timeout, renderer-recovery, browser-exit, and shared-UDF multi-instance scenarios must pass with a zero final ledger. The visible integration project is then run once, with explicit user approval, on an isolated multi-monitor session and its environment/topology is recorded with the artifacts:
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true

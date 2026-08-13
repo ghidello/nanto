@@ -20,19 +20,19 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
     private readonly WindowLifecycle _lifecycle;
     private readonly ILogger _logger;
     private readonly Win32Window _nativeWindow;
+    private readonly bool _nativeWindowCreated;
     private IWindowsWebViewWindow? _webViewWindow;
     private Exception? _closeFailure;
     private EventHandler<RendererFailedEventArgs>? _rendererFailed;
     private WindowsWindowSnapshot _snapshot;
     private int _closeCleanupInProgress;
     private int _closeRequested;
-    private int _nativeWindowCreated;
 
     public WindowId Id { get; }
 
     public string Title => Volatile.Read(ref _snapshot).Title;
 
-    public WindowBounds Bounds => Volatile.Read(ref _snapshot).Bounds;
+    public WindowSize Size => Volatile.Read(ref _snapshot).Size;
 
     public WindowState State => Volatile.Read(ref _snapshot).State;
 
@@ -62,7 +62,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
-        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialBounds, default, nameof(options));
+        ArgumentOutOfRangeException.ThrowIfEqual(options.InitialSize, default, nameof(options.InitialSize));
         if (!dispatcher.CheckAccess())
         {
             throw new InvalidOperationException("The Windows window must be created on the UI thread.");
@@ -71,10 +71,9 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         Id = WindowId.Create();
         _lifecycle = new WindowLifecycle(timeProvider ?? TimeProvider.System);
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WindowsWindow>();
-        _snapshot = new WindowsWindowSnapshot(options.Title, options.InitialBounds, WindowState.Created, false);
+        _snapshot = new WindowsWindowSnapshot(options.Title, options.InitialSize, WindowState.Created, false);
         TransitionTo(WindowState.Initializing);
 
-        var bounds = ConvertBounds(options.InitialBounds);
         var style = WINDOW_STYLE.WS_OVERLAPPEDWINDOW;
         if (!options.Resizable)
         {
@@ -86,10 +85,8 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             resourceLedger,
             dispatcher,
             options.Title,
-            bounds.X,
-            bounds.Y,
-            bounds.Width,
-            bounds.Height,
+            options.InitialSize.Width,
+            options.InitialSize.Height,
             default,
             style,
             new Win32WindowCallbacks
@@ -99,7 +96,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
                 Resized = OnNativeResized,
             },
             failureInjector);
-        Volatile.Write(ref _nativeWindowCreated, 1);
+        _nativeWindowCreated = true;
     }
 
     public static async ValueTask<WindowsWindow> CreateAsync(
@@ -136,7 +133,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             if (options.StartVisible)
             {
                 window._nativeWindow.Activate();
-                window.PublishSnapshot(title: null, bounds: null, state: null, isVisible: true);
+                window.PublishSnapshot(title: null, size: null, state: null, isVisible: true);
             }
 
             return window;
@@ -164,7 +161,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         () =>
         {
             _nativeWindow.Activate();
-            PublishSnapshot(title: null, bounds: null, state: null, isVisible: true);
+            PublishSnapshot(title: null, size: null, state: null, isVisible: true);
         },
         cancellationToken);
 
@@ -185,15 +182,15 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         return new ValueTask(_closeCompletion.Task);
     }
 
-    public ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default)
+    public ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default)
     {
-        ArgumentOutOfRangeException.ThrowIfEqual(bounds, default);
-        var nativeBounds = ConvertBounds(bounds);
+        ArgumentOutOfRangeException.ThrowIfEqual(size, default);
         return InvokeMutationAsync(
             () =>
             {
-                _nativeWindow.SetBounds(nativeBounds.X, nativeBounds.Y, nativeBounds.Width, nativeBounds.Height);
-                PublishSnapshot(title: null, bounds, state: null, isVisible: null);
+                _nativeWindow.SetClientSize(
+                    DpiConversions.ToPixels(size.Width, _nativeWindow.Dpi, nameof(size)),
+                    DpiConversions.ToPixels(size.Height, _nativeWindow.Dpi, nameof(size)));
             },
             cancellationToken);
     }
@@ -205,25 +202,9 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             () =>
             {
                 _nativeWindow.SetTitle(title);
-                PublishSnapshot(title, bounds: null, state: null, isVisible: null);
+                PublishSnapshot(title, size: null, state: null, isVisible: null);
             },
             cancellationToken);
-    }
-
-    private static NativeBounds ConvertBounds(WindowBounds bounds)
-    {
-        try
-        {
-            return new NativeBounds(
-                checked((int)Math.Round(bounds.X, MidpointRounding.AwayFromZero)),
-                checked((int)Math.Round(bounds.Y, MidpointRounding.AwayFromZero)),
-                checked((int)Math.Round(bounds.Width, MidpointRounding.AwayFromZero)),
-                checked((int)Math.Round(bounds.Height, MidpointRounding.AwayFromZero)));
-        }
-        catch (OverflowException)
-        {
-            throw new ArgumentOutOfRangeException(nameof(bounds), bounds, "Window bounds cannot be represented by Win32 coordinates.");
-        }
     }
 
     private void CloseOnUiThread()
@@ -319,14 +300,19 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         }
 
         TransitionTo(WindowState.Closed);
-        if (Volatile.Read(ref _nativeWindowCreated) != 0 && Volatile.Read(ref _closeCleanupInProgress) == 0)
+        if (_nativeWindowCreated && Volatile.Read(ref _closeCleanupInProgress) == 0)
         {
             CompleteClose();
         }
     }
 
-    private void OnNativeResized(int width, int height)
+    private void OnNativeResized(int width, int height, uint dpi)
     {
+        PublishSnapshot(
+            title: null,
+            new WindowSize(DpiConversions.ToDips(width, dpi), DpiConversions.ToDips(height, dpi)),
+            state: null,
+            isVisible: null);
         _webViewWindow?.SetBounds(width, height);
     }
 
@@ -347,7 +333,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
         }
     }
 
-    private void PublishSnapshot(string? title, WindowBounds? bounds, WindowState? state, bool? isVisible)
+    private void PublishSnapshot(string? title, WindowSize? size, WindowState? state, bool? isVisible)
     {
         var current = Volatile.Read(ref _snapshot);
         Volatile.Write(
@@ -355,7 +341,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             current with
             {
                 Title = title ?? current.Title,
-                Bounds = bounds ?? current.Bounds,
+                Size = size ?? current.Size,
                 State = state ?? current.State,
                 IsVisible = isVisible ?? current.IsVisible,
             });
@@ -386,7 +372,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
     private void TransitionTo(WindowState state, Exception? failure = null)
     {
         var eventArgs = _lifecycle.TransitionTo(state, failure);
-        PublishSnapshot(title: null, bounds: null, state, isVisible: state == WindowState.Closed ? false : null);
+        PublishSnapshot(title: null, size: null, state, isVisible: state == WindowState.Closed ? false : null);
         foreach (EventHandler<WindowStateChangedEventArgs> handler in StateChanged?.GetInvocationList() ?? [])
         {
             try
@@ -399,6 +385,4 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             }
         }
     }
-
-    private sealed record NativeBounds(int X, int Y, int Width, int Height);
 }

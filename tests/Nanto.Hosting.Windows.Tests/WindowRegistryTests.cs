@@ -71,7 +71,7 @@ public sealed class WindowRegistryTests
 
         public string Title => "Window";
 
-        public WindowBounds Bounds => new(0, 0, 100, 100);
+        public WindowSize Size => new(100, 100);
 
         public WindowState State => WindowState.Running;
 
@@ -91,7 +91,7 @@ public sealed class WindowRegistryTests
 
         public ValueTask SetTitleAsync(string title, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
-        public ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
         public ValueTask ActivateAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 

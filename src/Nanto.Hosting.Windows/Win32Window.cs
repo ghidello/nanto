@@ -17,13 +17,19 @@ internal sealed unsafe class Win32Window : IDisposable
     private readonly Win32WindowCallbacks? _callbacks;
     private readonly Lock _callbackFailureGate = new();
     private readonly IUiDispatcher _dispatcher;
+    private readonly WINDOW_EX_STYLE _extendedStyle;
+    private readonly WINDOW_STYLE _style;
     private List<Exception>? _callbackFailures;
     private int _closeRequested;
+    private uint _dpi;
     private HWND _handle;
     private IDisposable? _nativeHandleLease;
+    private bool _restoreToMaximized;
     private IDisposable? _windowLease;
 
     public HWND Handle => _handle;
+
+    public uint Dpi => Volatile.Read(ref _dpi);
 
     public bool IsDestroyed => _handle.IsNull;
 
@@ -34,10 +40,8 @@ internal sealed unsafe class Win32Window : IDisposable
         ResourceLedger resourceLedger,
         IUiDispatcher dispatcher,
         string title,
-        int x,
-        int y,
-        int width,
-        int height,
+        double initialClientWidth,
+        double initialClientHeight,
         WINDOW_EX_STYLE extendedStyle,
         WINDOW_STYLE style,
         Win32WindowCallbacks? callbacks = null,
@@ -49,25 +53,33 @@ internal sealed unsafe class Win32Window : IDisposable
         _callbacks = callbacks;
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         ArgumentNullException.ThrowIfNull(title);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initialClientWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initialClientHeight);
         ThrowIfNotOnUiThread();
 
+        _extendedStyle = extendedStyle;
+        _style = style;
         failureInjector ??= NoOpPhase1FailureInjector.Instance;
         destroyWindow ??= static handle => PInvoke.DestroyWindow(handle);
         _windowLease = resourceLedger.Acquire(WindowsResourceKind.Window, "Window");
         var isRegistered = false;
         try
         {
+            var initialWindowSize = GetWindowSizeForClientArea(
+                DpiConversions.ToPixels(initialClientWidth, DpiConversions.DefaultDpi, nameof(initialClientWidth)),
+                DpiConversions.ToPixels(initialClientHeight, DpiConversions.DefaultDpi, nameof(initialClientHeight)),
+                style,
+                extendedStyle,
+                DpiConversions.DefaultDpi);
             _handle = PInvoke.CreateWindowEx(
                 extendedStyle,
                 windowClass.Name,
                 title,
                 style,
-                x,
-                y,
-                width,
-                height,
+                PInvoke.CW_USEDEFAULT,
+                PInvoke.CW_USEDEFAULT,
+                initialWindowSize.Width,
+                initialWindowSize.Height,
                 default,
                 null,
                 windowClass.ModuleHandle,
@@ -84,6 +96,15 @@ internal sealed unsafe class Win32Window : IDisposable
 
             isRegistered = true;
             _nativeHandleLease = resourceLedger.Acquire(WindowsResourceKind.NativeHandle, "WindowHandle");
+            _dpi = PInvoke.GetDpiForWindow(_handle);
+            if (_dpi == 0)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not determine the native window DPI.");
+            }
+
+            SetClientSize(
+                DpiConversions.ToPixels(initialClientWidth, _dpi, nameof(initialClientWidth)),
+                DpiConversions.ToPixels(initialClientHeight, _dpi, nameof(initialClientHeight)));
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WindowCreated);
         }
         catch (Exception creationException)
@@ -161,17 +182,18 @@ internal sealed unsafe class Win32Window : IDisposable
         _ = PInvoke.SetFocus(_handle);
     }
 
-    public void SetBounds(int x, int y, int width, int height)
+    public void SetClientSize(int width, int height)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         ThrowIfNotOnUiThread();
         ThrowIfDestroyed();
 
-        const SET_WINDOW_POS_FLAGS flags = SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
-        if (!PInvoke.SetWindowPos(_handle, default, x, y, width, height, flags))
+        var windowSize = GetWindowSizeForClientArea(width, height, _style, _extendedStyle, _dpi);
+        const SET_WINDOW_POS_FLAGS flags = SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
+        if (!PInvoke.SetWindowPos(_handle, default, 0, 0, windowSize.Width, windowSize.Height, flags))
         {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not update its native window bounds.");
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not update its native window client size.");
         }
     }
 
@@ -184,6 +206,47 @@ internal sealed unsafe class Win32Window : IDisposable
         if (!PInvoke.SetWindowText(_handle, title))
         {
             throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not update its native window title.");
+        }
+    }
+
+    private void CorrectPlacementIfInaccessible()
+    {
+        var placement = new WINDOWPLACEMENT { length = (uint)sizeof(WINDOWPLACEMENT) };
+        if (!PInvoke.GetWindowPlacement(_handle, ref placement))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not read its native window placement state.");
+        }
+
+        if (placement.showCmd != SHOW_WINDOW_CMD.SW_SHOWNORMAL)
+        {
+            if (placement.showCmd == SHOW_WINDOW_CMD.SW_SHOWMINIMIZED && _restoreToMaximized)
+            {
+                placement.flags |= WINDOWPLACEMENT_FLAGS.WPF_RESTORETOMAXIMIZED;
+            }
+
+            if (!PInvoke.SetWindowPlacement(_handle, placement))
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore its native window placement state to an accessible work area.");
+            }
+
+            return;
+        }
+
+        if (!PInvoke.GetWindowRect(_handle, out var windowBounds))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not read its native window placement.");
+        }
+
+        var workAreas = DisplayWorkAreas.GetCurrent();
+        if (!WindowPlacement.TryGetCorrection(windowBounds, workAreas, out var position))
+        {
+            return;
+        }
+
+        const SET_WINDOW_POS_FLAGS flags = SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
+        if (!PInvoke.SetWindowPos(_handle, default, position.X, position.Y, 0, 0, flags))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore its native window to an accessible work area.");
         }
     }
 
@@ -211,14 +274,89 @@ internal sealed unsafe class Win32Window : IDisposable
         return true;
     }
 
-    private void OnNativeResized(LPARAM lParam)
+    private static NativeSize GetWindowSizeForClientArea(
+        int clientWidth,
+        int clientHeight,
+        WINDOW_STYLE style,
+        WINDOW_EX_STYLE extendedStyle,
+        uint dpi)
     {
-        var width = unchecked((ushort)(long)lParam);
-        var height = unchecked((ushort)((long)lParam >> 16));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(clientWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(clientHeight);
+        var bounds = new RECT(0, 0, clientWidth, clientHeight);
+        if (!PInvoke.AdjustWindowRectExForDpi(ref bounds, style, false, extendedStyle, dpi))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not calculate the native frame size.");
+        }
+
+        return new NativeSize(
+            checked(bounds.right - bounds.left),
+            checked(bounds.bottom - bounds.top));
+    }
+
+    private void NotifyClientSize()
+    {
+        if (!PInvoke.GetClientRect(_handle, out var clientBounds))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not read the native window client size.");
+        }
+
+        var width = checked(clientBounds.right - clientBounds.left);
+        var height = checked(clientBounds.bottom - clientBounds.top);
         if (width > 0 && height > 0)
         {
-            _callbacks?.Resized?.Invoke(width, height);
+            _callbacks?.Resized?.Invoke(width, height, _dpi);
         }
+    }
+
+    private void OnNativeResized(WPARAM wParam)
+    {
+        _restoreToMaximized = GetRestoreToMaximized(_restoreToMaximized, (uint)wParam.Value);
+        NotifyClientSize();
+    }
+
+    internal static bool GetRestoreToMaximized(bool currentValue, uint sizeState) => sizeState switch
+    {
+        PInvoke.SIZE_MAXIMIZED => true,
+        PInvoke.SIZE_RESTORED => false,
+        _ => currentValue,
+    };
+
+    private void OnDpiChanged(WPARAM wParam, LPARAM lParam)
+    {
+        var packedDpi = (nuint)wParam.Value;
+        var horizontalDpi = unchecked((ushort)packedDpi);
+        var verticalDpi = unchecked((ushort)(packedDpi >> 16));
+        if (horizontalDpi == 0 || horizontalDpi != verticalDpi || lParam.Value == 0)
+        {
+            throw new InvalidOperationException("Windows delivered an invalid DPI-change message.");
+        }
+
+        var previousDpi = _dpi;
+        _dpi = horizontalDpi;
+        try
+        {
+            var suggestedBounds = *(RECT*)lParam.Value;
+            const SET_WINDOW_POS_FLAGS flags = SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
+            if (!PInvoke.SetWindowPos(
+                    _handle,
+                    default,
+                    suggestedBounds.left,
+                    suggestedBounds.top,
+                    checked(suggestedBounds.right - suggestedBounds.left),
+                    checked(suggestedBounds.bottom - suggestedBounds.top),
+                    flags))
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not apply the DPI-adjusted window bounds.");
+            }
+        }
+        catch
+        {
+            _dpi = previousDpi;
+            throw;
+        }
+
+        NotifyClientSize();
     }
 
     private void RecordCallbackFailure(Exception exception)
@@ -265,11 +403,39 @@ internal sealed unsafe class Win32Window : IDisposable
         {
             try
             {
-                resizedWindow.OnNativeResized(lParam);
+                resizedWindow.OnNativeResized(wParam);
             }
             catch (Exception exception)
             {
                 resizedWindow.RecordCallbackFailure(exception);
+            }
+        }
+
+        if (message == PInvoke.WM_DPICHANGED && Windows.TryGetValue(windowHandle, out var dpiChangedWindow))
+        {
+            try
+            {
+                dpiChangedWindow.OnDpiChanged(wParam, lParam);
+                return default;
+            }
+            catch (Exception exception)
+            {
+                dpiChangedWindow.RecordCallbackFailure(exception);
+            }
+        }
+
+        if ((message == PInvoke.WM_DISPLAYCHANGE
+                || message == PInvoke.WM_SETTINGCHANGE
+                && wParam.Value == (nuint)SYSTEM_PARAMETERS_INFO_ACTION.SPI_SETWORKAREA)
+            && Windows.TryGetValue(windowHandle, out var displayChangedWindow))
+        {
+            try
+            {
+                displayChangedWindow.CorrectPlacementIfInaccessible();
+            }
+            catch (Exception exception)
+            {
+                displayChangedWindow.RecordCallbackFailure(exception);
             }
         }
 
@@ -303,4 +469,6 @@ internal sealed unsafe class Win32Window : IDisposable
 
         return result;
     }
+
+    private readonly record struct NativeSize(int Width, int Height);
 }

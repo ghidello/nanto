@@ -6,7 +6,10 @@ public interface INantoWindow
 
     string Title { get; }
 
-    WindowBounds Bounds { get; }
+    /// <summary>
+    /// Gets a thread-safe snapshot of the client content size in device-independent pixels.
+    /// </summary>
+    WindowSize Size { get; }
 
     WindowState State { get; }
 
@@ -18,7 +21,10 @@ public interface INantoWindow
 
     ValueTask SetTitleAsync(string title, CancellationToken cancellationToken = default);
 
-    ValueTask SetBoundsAsync(WindowBounds bounds, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Changes the client content size while leaving screen placement under platform control.
+    /// </summary>
+    ValueTask SetSizeAsync(WindowSize size, CancellationToken cancellationToken = default);
 
     ValueTask ActivateAsync(CancellationToken cancellationToken = default);
 

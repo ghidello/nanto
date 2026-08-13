@@ -1,5 +1,8 @@
 using AwesomeAssertions;
 
+using Windows.Win32;
+using Windows.Win32.UI.HiDpi;
+
 namespace Nanto.Hosting.Windows.Tests;
 
 public sealed class WindowsUiThreadTests
@@ -20,17 +23,22 @@ public sealed class WindowsUiThreadTests
         var callingThreadId = Environment.CurrentManagedThreadId;
         var callbackThreadId = 0;
         var apartmentState = ApartmentState.Unknown;
+        var isPerMonitorV2 = false;
 
         await dispatcher.InvokeAsync(
             () =>
             {
                 callbackThreadId = Environment.CurrentManagedThreadId;
                 apartmentState = Thread.CurrentThread.GetApartmentState();
+                isPerMonitorV2 = PInvoke.AreDpiAwarenessContextsEqual(
+                    PInvoke.GetThreadDpiAwarenessContext(),
+                    DPI_AWARENESS_CONTEXT.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             },
             TestContext.Current.CancellationToken);
 
         callbackThreadId.Should().NotBe(callingThreadId);
         apartmentState.Should().Be(ApartmentState.STA);
+        isPerMonitorV2.Should().BeTrue();
         dispatcher.CheckAccess().Should().BeFalse();
         ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.UiThread).Should().Be(1);
     }

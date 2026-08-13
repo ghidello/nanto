@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 using Windows.Win32;
+using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace Nanto.Hosting.Windows;
@@ -74,8 +75,15 @@ internal sealed class WindowsUiThread : IAsyncDisposable
     private void ThreadMain()
     {
         IDisposable? threadLease = null;
+        DPI_AWARENESS_CONTEXT previousDpiAwareness = default;
         try
         {
+            previousDpiAwareness = PInvoke.SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            if (previousDpiAwareness.IsNull)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not enable Per-Monitor-V2 awareness on its UI thread.");
+            }
+
             threadLease = _resourceLedger.Acquire(WindowsResourceKind.UiThread, "UiThread");
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.UiThreadStarted);
             _startupCancellationToken.ThrowIfCancellationRequested();
@@ -121,6 +129,11 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             catch (Exception exception)
             {
                 AddFailure(exception);
+            }
+
+            if (!previousDpiAwareness.IsNull && PInvoke.SetThreadDpiAwarenessContext(previousDpiAwareness).IsNull)
+            {
+                AddFailure(new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore the UI thread DPI-awareness context."));
             }
 
             CompleteThread();
