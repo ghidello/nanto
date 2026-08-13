@@ -10,7 +10,7 @@ Nanto starts with Phase 1: a clean production implementation of the Windows host
 
 Window sizes describe the WebView client area in device-independent pixels. Windows chooses the initial screen position in Phase 1, and Nanto uses Per-Monitor-V2 behavior so a user can move the window across displays with different scaling without exposing ambiguous global logical coordinates. Display and work-area changes preserve every partially visible placement; a wholly inaccessible window is moved, without resizing, to the nearest current work area.
 
-Applications may select `System`, `Light`, or `Dark`. Nanto applies that preference to the shared WebView2 profile, so SPA styles and `matchMedia` receive normal `prefers-color-scheme` updates. The application—not Nanto—persists a user's choice.
+Applications may select `System`, `Light`, or `Dark`. Nanto applies that preference to both the shared WebView2 profile and the native Win32 frame, so SPA styles and `matchMedia` receive normal `prefers-color-scheme` updates while the title bar remains consistent. `System` follows supported Windows color notifications; the application—not Nanto—persists a user's choice.
 
 Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](https://github.com/ghidello/telaio/commit/90725e997fac3140ef4dd9f1a8ebd5d53db67642) records that historical boundary. Nanto has no source, build, report, or undocumented-decision dependency on the former repository. The architecture and Phase 1 plan state every adopted production rule directly.
 

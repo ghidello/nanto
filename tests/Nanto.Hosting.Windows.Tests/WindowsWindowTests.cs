@@ -211,6 +211,7 @@ public sealed class WindowsWindowTests
         });
         var webViewApplication = await NoOpWindowsWebViewApplicationFactory.Instance.CreateAsync(
             validatedOptions,
+            dispatcher,
             ledger,
             NoOpPhase1FailureInjector.Instance,
             TestContext.Current.CancellationToken);

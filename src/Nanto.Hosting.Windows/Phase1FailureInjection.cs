@@ -8,6 +8,8 @@ internal enum Phase1AcquisitionCheckpoint
     DispatcherCreated,
     AssetLeasePrepared,
     WebViewEnvironmentCreated,
+    SystemAppearanceSourceCreated,
+    SystemAppearanceSubscriptionAdded,
     WindowClassRegistered,
     WindowCreated,
     WebViewControllerCreated,

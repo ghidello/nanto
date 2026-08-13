@@ -14,11 +14,13 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
 
     public async ValueTask<IWindowsWebViewApplication> CreateAsync(
         ValidatedApplicationOptions options,
+        IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
         cancellationToken.ThrowIfCancellationRequested();
@@ -54,8 +56,20 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             environmentCleanup.Push("webview2.environment.dispose", environment.DisposeAsync);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewEnvironmentCreated);
             cancellationToken.ThrowIfCancellationRequested();
+            var appearance = WindowsAppearanceManager.Create(
+                dispatcher,
+                resourceLedger,
+                failureInjector,
+                cancellationToken);
+            applicationCleanup.Push("appearance.dispose", () =>
+            {
+                appearance.Dispose();
+                return ValueTask.CompletedTask;
+            });
+            cancellationToken.ThrowIfCancellationRequested();
             return new ProductionWindowsWebViewApplication(
                 environment,
+                appearance,
                 assetLease,
                 assetResourceLease,
                 resourceLedger,
@@ -126,21 +140,24 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
 
     private sealed class ProductionWindowsWebViewApplication : IWindowsWebViewApplication
     {
+        private readonly WindowsAppearanceManager _appearance;
         private readonly WebView2EnvironmentOwner _environment;
         private readonly IPhase1FailureInjector _failureInjector;
         private readonly ResourceLedger _resourceLedger;
         private IWebAssetLease? _assetLease;
         private IDisposable? _assetResourceLease;
-        private WebView2WindowHost? _window;
+        private ProductionWindowsWebViewWindow? _window;
 
         public ProductionWindowsWebViewApplication(
             WebView2EnvironmentOwner environment,
+            WindowsAppearanceManager appearance,
             IWebAssetLease assetLease,
             IDisposable assetResourceLease,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector)
         {
             _environment = environment;
+            _appearance = appearance;
             _assetLease = assetLease;
             _assetResourceLease = assetResourceLease;
             _resourceLedger = resourceLedger;
@@ -158,24 +175,69 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                 throw new InvalidOperationException("The Phase 1 WebView2 application can create only one window.");
             }
 
-            var window = await WebView2WindowHost.CreateAsync(
-                _environment,
-                parentWindow,
-                options,
-                preferredColorScheme,
-                _assetLease,
-                _resourceLedger,
-                _failureInjector,
-                cancellationToken);
-            _window = window;
-            return window;
+            var appearanceAttachment = _appearance.AttachWindow(parentWindow, preferredColorScheme);
+            try
+            {
+                var webViewWindow = await WebView2WindowHost.CreateAsync(
+                    _environment,
+                    parentWindow,
+                    options,
+                    preferredColorScheme,
+                    _assetLease,
+                    _resourceLedger,
+                    _failureInjector,
+                    cancellationToken);
+                var window = new ProductionWindowsWebViewWindow(webViewWindow, appearanceAttachment);
+                _window = window;
+                return window;
+            }
+            catch (Exception creationException)
+            {
+                try
+                {
+                    appearanceAttachment.Dispose();
+                }
+                catch (Exception cleanupException)
+                {
+                    throw new AggregateException(
+                        "WebView2 window creation failed and its appearance registration also failed to close.",
+                        creationException,
+                        cleanupException);
+                }
+
+                throw;
+            }
         }
 
-        public ValueTask SetPreferredColorSchemeAsync(
+        public async ValueTask SetPreferredColorSchemeAsync(
             ColorSchemePreference preferredColorScheme,
-            CancellationToken cancellationToken) =>
-            _window?.SetPreferredColorSchemeAsync(preferredColorScheme, cancellationToken)
-                ?? throw new InvalidOperationException("The WebView2 window is not available.");
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var window = _window ?? throw new InvalidOperationException("The WebView2 window is not available.");
+            var previousPreference = _appearance.PreferredColorScheme;
+            _appearance.SetPreferredColorScheme(preferredColorScheme);
+            try
+            {
+                await window.SetPreferredColorSchemeAsync(preferredColorScheme, cancellationToken);
+            }
+            catch (Exception mutationException)
+            {
+                try
+                {
+                    _appearance.SetPreferredColorScheme(previousPreference);
+                }
+                catch (Exception rollbackException)
+                {
+                    throw new AggregateException(
+                        "The WebView2 appearance mutation failed and native-frame rollback also failed.",
+                        mutationException,
+                        rollbackException);
+                }
+
+                throw;
+            }
+        }
 
         public ValueTask WaitForReadinessAsync(CancellationToken cancellationToken) =>
             _window is null
@@ -190,6 +252,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         {
             _window = null;
             List<Exception>? cleanupExceptions = null;
+            TryCleanup(_appearance.Dispose, ref cleanupExceptions);
             var assetLease = _assetLease;
             _assetLease = null;
             TryCleanup(() => assetLease?.Dispose(), ref cleanupExceptions);
@@ -213,6 +276,58 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                 throw new AggregateException("WebView2 application cleanup encountered multiple failures.", cleanupExceptions);
             }
         }
+    }
+
+    private sealed class ProductionWindowsWebViewWindow(
+        WebView2WindowHost webViewWindow,
+        IDisposable appearanceAttachment) : IWindowsWebViewWindow
+    {
+        private WebView2WindowHost? _webViewWindow = webViewWindow;
+        private IDisposable? _appearanceAttachment = appearanceAttachment;
+
+        public Task Readiness => _webViewWindow?.Readiness
+            ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow));
+
+        public async ValueTask DisposeAsync()
+        {
+            List<Exception>? cleanupExceptions = null;
+            var window = Interlocked.Exchange(ref _webViewWindow, null);
+            if (window is not null)
+            {
+                try
+                {
+                    await window.DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    cleanupExceptions = [exception];
+                }
+            }
+
+            TryCleanup(() => Interlocked.Exchange(ref _appearanceAttachment, null)?.Dispose(), ref cleanupExceptions);
+            if (cleanupExceptions is [var cleanupException])
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanupException).Throw();
+            }
+
+            if (cleanupExceptions is { Count: > 1 })
+            {
+                throw new AggregateException("WebView2 window cleanup encountered multiple failures.", cleanupExceptions);
+            }
+        }
+
+        public void SetBounds(int width, int height) =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow))).SetBounds(width, height);
+
+        public ValueTask<string> WaitForDiagnosticMessageAsync(CancellationToken cancellationToken) =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow)))
+                .WaitForDiagnosticMessageAsync(cancellationToken);
+
+        public ValueTask SetPreferredColorSchemeAsync(
+            ColorSchemePreference preferredColorScheme,
+            CancellationToken cancellationToken) =>
+            (_webViewWindow ?? throw new ObjectDisposedException(nameof(ProductionWindowsWebViewWindow)))
+                .SetPreferredColorSchemeAsync(preferredColorScheme, cancellationToken);
     }
 
 }

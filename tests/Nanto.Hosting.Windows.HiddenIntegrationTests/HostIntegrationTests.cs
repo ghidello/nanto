@@ -17,6 +17,8 @@ public sealed class HostIntegrationTests
         "DispatcherCreated",
         "AssetLeasePrepared",
         "WebViewEnvironmentCreated",
+        "SystemAppearanceSourceCreated",
+        "SystemAppearanceSubscriptionAdded",
         "WindowClassRegistered",
         "WindowCreated",
         "WebViewControllerCreated",

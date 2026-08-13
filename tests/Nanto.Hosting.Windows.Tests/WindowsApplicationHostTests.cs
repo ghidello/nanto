@@ -560,6 +560,7 @@ public sealed class WindowsApplicationHostTests
 
         public ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken)
@@ -583,6 +584,7 @@ public sealed class WindowsApplicationHostTests
 
         public async ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken)
@@ -604,6 +606,7 @@ public sealed class WindowsApplicationHostTests
 
         public ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken)
@@ -623,6 +626,7 @@ public sealed class WindowsApplicationHostTests
 
         public async ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken)
@@ -644,6 +648,7 @@ public sealed class WindowsApplicationHostTests
 
         public ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken) =>
@@ -706,6 +711,7 @@ public sealed class WindowsApplicationHostTests
     {
         public ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
+            IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             CancellationToken cancellationToken) =>

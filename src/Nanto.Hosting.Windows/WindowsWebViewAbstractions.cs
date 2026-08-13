@@ -8,6 +8,7 @@ internal interface IWindowsWebViewApplicationFactory
 {
     ValueTask<IWindowsWebViewApplication> CreateAsync(
         ValidatedApplicationOptions options,
+        IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
         CancellationToken cancellationToken);
@@ -45,11 +46,13 @@ internal sealed class NoOpWindowsWebViewApplicationFactory : IWindowsWebViewAppl
 
     public ValueTask<IWindowsWebViewApplication> CreateAsync(
         ValidatedApplicationOptions options,
+        IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
         cancellationToken.ThrowIfCancellationRequested();

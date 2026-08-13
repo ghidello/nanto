@@ -8,7 +8,7 @@ The current source of truth is [`docs/Nanto-architecture-and-roadmap.md`](docs/N
 
 ## Current priority
 
-Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `docs/phase1-plan.md` is the current acceptance target. Implement it in separately reviewed batches: client-size/DPI foundations, multi-monitor resilience, native System/Light/Dark appearance, renderer recovery, then diagnostics and acceptance. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
+Work from the roadmap in order. Milestones 1–4 are complete; Milestone 5 in `docs/phase1-plan.md` is the current acceptance target. Its client-size/DPI and multi-monitor batches are complete; native System/Light/Dark appearance is the current review batch, followed by renderer recovery and diagnostics/acceptance. Keep virtual-host mapping and the existing Milestone 4 asset/navigation guarantees. Nanto must remain self-contained and must not reference or copy experimental assemblies. Avoid templates, plugins, DI infrastructure, multi-window support, packaging, polished UI, and future-platform work during this phase.
 
 ## Engineering constraints
 

@@ -515,6 +515,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 {
                     webViewApplication = await _webViewApplicationFactory.CreateAsync(
                         options,
+                        dispatcher,
                         _resourceLedger,
                         _failureInjector,
                         _applicationLifetime.Token);
