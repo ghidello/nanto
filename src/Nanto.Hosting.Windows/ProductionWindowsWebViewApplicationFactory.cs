@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 using Nanto.Hosting;
 
 using Windows.Win32.Foundation;
@@ -17,12 +19,14 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         cancellationToken.ThrowIfCancellationRequested();
 
         var applicationCleanup = new AsyncCleanupRegistry();
@@ -30,6 +34,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         IDisposable? assetResourceLease = null;
         try
         {
+            var logger = options.LoggerFactory.CreateLogger<ProductionWindowsWebViewApplicationFactory>();
             var storage = await Task.Run(() => WindowsApplicationStorage.Prepare(options.Identity), cancellationToken);
             var assetLease = await options.Assets.PrepareAsync(
                 options.CreateWebAssetPreparationContext(storage.ApplicationRoot),
@@ -49,10 +54,16 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             assetResourceLease = resourceLedger.Acquire(WindowsResourceKind.AssetLease, "WebAssetLease");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.AssetLeasePrepared);
             cancellationToken.ThrowIfCancellationRequested();
+            var environmentStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(logger, "Environment");
             var environment = await WebView2EnvironmentOwner.CreateAsync(
                 storage.UserDataDirectory,
                 resourceLedger,
                 cancellationToken);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                logger,
+                "Environment",
+                timeProvider.GetElapsedTime(environmentStartedAt).TotalMilliseconds);
             environmentCleanup.Push("webview2.environment.dispose", environment.DisposeAsync);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewEnvironmentCreated);
             cancellationToken.ThrowIfCancellationRequested();
@@ -73,7 +84,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                 assetLease,
                 assetResourceLease,
                 resourceLedger,
-                failureInjector);
+                failureInjector,
+                options.LoggerFactory,
+                timeProvider);
         }
         catch (Exception creationException)
         {
@@ -144,6 +157,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         private readonly WebView2EnvironmentOwner _environment;
         private readonly IPhase1FailureInjector _failureInjector;
         private readonly ResourceLedger _resourceLedger;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly TimeProvider _timeProvider;
         private IWebAssetLease? _assetLease;
         private IDisposable? _assetResourceLease;
         private ProductionWindowsWebViewWindow? _window;
@@ -154,7 +169,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             IWebAssetLease assetLease,
             IDisposable assetResourceLease,
             ResourceLedger resourceLedger,
-            IPhase1FailureInjector failureInjector)
+            IPhase1FailureInjector failureInjector,
+            ILoggerFactory loggerFactory,
+            TimeProvider timeProvider)
         {
             _environment = environment;
             _appearance = appearance;
@@ -162,10 +179,13 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             _assetResourceLease = assetResourceLease;
             _resourceLedger = resourceLedger;
             _failureInjector = failureInjector;
+            _loggerFactory = loggerFactory;
+            _timeProvider = timeProvider;
         }
 
         public async ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,
@@ -184,6 +204,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                 var webViewWindow = await WebView2WindowHost.CreateAsync(
                     _environment,
                     parentWindow,
+                    windowId,
                     options,
                     preferredColorScheme,
                     _assetLease,
@@ -192,6 +213,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                     reportRendererFailure,
                     requestClose,
                     canRecoverRenderer,
+                    _loggerFactory,
+                    _timeProvider,
                     cancellationToken);
                 var window = new ProductionWindowsWebViewWindow(webViewWindow, appearanceAttachment);
                 _window = window;

@@ -262,6 +262,7 @@ public sealed class WindowsWindowTests
             dispatcher,
             ledger,
             NoOpPhase1FailureInjector.Instance,
+            TimeProvider.System,
             TestContext.Current.CancellationToken);
         return await WindowsWindow.CreateAsync(
             windowClass,
@@ -283,6 +284,7 @@ public sealed class WindowsWindowTests
     {
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             global::Windows.Win32.Foundation.HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,
@@ -327,6 +329,7 @@ public sealed class WindowsWindowTests
 
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             global::Windows.Win32.Foundation.HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,

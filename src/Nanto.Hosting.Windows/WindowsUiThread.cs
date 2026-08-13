@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Windows.Win32;
 using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.WindowsAndMessaging;
@@ -16,8 +19,11 @@ internal sealed class WindowsUiThread : IAsyncDisposable
     private readonly IPhase1FailureInjector _failureInjector;
     private readonly CancellationToken _startupCancellationToken;
     private readonly Lock _failureGate = new();
+    private readonly ILogger _logger;
     private readonly ResourceLedger _resourceLedger;
     private readonly Thread _thread;
+    private readonly TimeProvider _timeProvider;
+    private readonly long _startedAt;
     private List<Exception>? _failures;
     private WindowsUiDispatcher? _dispatcher;
     private int _dispatcherShutdownCompleted;
@@ -32,17 +38,23 @@ internal sealed class WindowsUiThread : IAsyncDisposable
     public WindowsUiThread(
         ResourceLedger resourceLedger,
         IPhase1FailureInjector? failureInjector = null,
+        ILoggerFactory? loggerFactory = null,
+        TimeProvider? timeProvider = null,
         CancellationToken startupCancellationToken = default)
     {
         _resourceLedger = resourceLedger ?? throw new ArgumentNullException(nameof(resourceLedger));
         _failureInjector = failureInjector ?? NoOpPhase1FailureInjector.Instance;
         _startupCancellationToken = startupCancellationToken;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WindowsUiThread>();
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _startedAt = _timeProvider.GetTimestamp();
         _thread = new Thread(ThreadMain)
         {
             IsBackground = true,
             Name = "Nanto UI",
         };
         _thread.SetApartmentState(ApartmentState.STA);
+        WindowsDiagnostics.UiThreadStarting(_logger);
         _thread.Start();
     }
 
@@ -53,6 +65,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             return;
         }
 
+        WindowsDiagnostics.UiThreadStopping(_logger);
         var dispatcher = Volatile.Read(ref _dispatcher);
         if (dispatcher is not null)
         {
@@ -100,6 +113,10 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             Volatile.Write(ref _dispatcher, dispatcher);
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.DispatcherCreated);
             _startupCancellationToken.ThrowIfCancellationRequested();
+            WindowsDiagnostics.UiThreadReady(
+                _logger,
+                _nativeThreadId,
+                _timeProvider.GetElapsedTime(_startedAt).TotalMilliseconds);
             _dispatcherReady.TrySetResult(dispatcher);
 
             if (Volatile.Read(ref _stopRequested) != 0)
@@ -111,7 +128,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            AddFailure(exception);
+            AddFailure(exception, "ThreadMain");
             _dispatcherReady.TrySetException(exception);
         }
         finally
@@ -128,12 +145,14 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             }
             catch (Exception exception)
             {
-                AddFailure(exception);
+                AddFailure(exception, "ReleaseThreadLease");
             }
 
             if (!previousDpiAwareness.IsNull && PInvoke.SetThreadDpiAwarenessContext(previousDpiAwareness).IsNull)
             {
-                AddFailure(new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore the UI thread DPI-awareness context."));
+                AddFailure(
+                    new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore the UI thread DPI-awareness context."),
+                    "RestoreDpiAwareness");
             }
 
             CompleteThread();
@@ -162,7 +181,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
                 }
                 catch (Exception exception)
                 {
-                    AddFailure(exception);
+                    AddFailure(exception, "DrainDispatcher");
                     RequestStop();
                 }
             }
@@ -203,7 +222,7 @@ internal sealed class WindowsUiThread : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            AddFailure(exception);
+            AddFailure(exception, "DisposeDispatcher");
         }
         finally
         {
@@ -214,13 +233,14 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             }
             catch (Exception exception)
             {
-                AddFailure(exception);
+                AddFailure(exception, "WakeDispatcher");
             }
         }
     }
 
-    private void AddFailure(Exception exception)
+    private void AddFailure(Exception exception, string operation)
     {
+        WindowsDiagnostics.UiThreadFailed(_logger, operation, exception.GetType().Name, exception.HResult);
         lock (_failureGate)
         {
             _failures ??= [];
@@ -243,10 +263,12 @@ internal sealed class WindowsUiThread : IAsyncDisposable
 
         if (failure is null)
         {
+            WindowsDiagnostics.UiThreadStopped(_logger, _timeProvider.GetElapsedTime(_startedAt).TotalMilliseconds);
             _completion.TrySetResult();
         }
         else
         {
+            WindowsDiagnostics.UiThreadStopped(_logger, _timeProvider.GetElapsedTime(_startedAt).TotalMilliseconds);
             _completion.TrySetException(failure);
         }
     }

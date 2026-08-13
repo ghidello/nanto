@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices.Marshalling;
 
+using Microsoft.Extensions.Logging;
+
 using Nanto.Hosting.Windows.Interop;
 
 using Windows.Win32;
@@ -17,6 +19,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     private readonly ProcessFailedHandler _processFailedHandler;
     private readonly RendererRecoveryCoordinator _rendererRecovery;
     private readonly WebMessageReceivedHandler _webMessageReceivedHandler;
+    private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
     private bool _browserProcessExited;
     private UniqueComReference<ICoreWebView2Controller>? _controller;
     private IDisposable? _controllerResourceLease;
@@ -43,10 +47,22 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         IReadOnlySet<string> assetPaths,
         Action<RendererFailureKind, string, bool> reportRendererFailure,
         Action requestClose,
-        Func<bool> canRecoverRenderer)
+        Func<bool> canRecoverRenderer,
+        ILoggerFactory loggerFactory,
+        TimeProvider timeProvider,
+        WindowId windowId)
     {
+        _logger = loggerFactory.CreateLogger<WebView2WindowHost>();
+        _timeProvider = timeProvider;
         _navigationStartingHandler = new NavigationStartingHandler(assetPaths);
-        _rendererRecovery = new RendererRecoveryCoordinator(reportRendererFailure, Reload, requestClose, canRecoverRenderer);
+        _rendererRecovery = new RendererRecoveryCoordinator(
+            reportRendererFailure,
+            Reload,
+            requestClose,
+            canRecoverRenderer,
+            loggerFactory,
+            timeProvider,
+            windowId);
         _navigationCompletedHandler = new NavigationCompletedHandler { NavigationCompleted = HandleNavigationCompleted };
         _processFailedHandler = new ProcessFailedHandler(HandleProcessFailed);
         _webMessageReceivedHandler = new WebMessageReceivedHandler();
@@ -55,6 +71,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     public static async ValueTask<WebView2WindowHost> CreateAsync(
         WebView2EnvironmentOwner environment,
         HWND parentWindow,
+        WindowId windowId,
         WindowOptions options,
         ColorSchemePreference preferredColorScheme,
         IWebAssetLease assetLease,
@@ -63,6 +80,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         Action<RendererFailureKind, string, bool> reportRendererFailure,
         Action requestClose,
         Func<bool> canRecoverRenderer,
+        ILoggerFactory loggerFactory,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(environment);
@@ -73,33 +92,69 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         ArgumentNullException.ThrowIfNull(reportRendererFailure);
         ArgumentNullException.ThrowIfNull(requestClose);
         ArgumentNullException.ThrowIfNull(canRecoverRenderer);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var host = new WebView2WindowHost(assetLease.AssetPaths, reportRendererFailure, requestClose, canRecoverRenderer);
+        var host = new WebView2WindowHost(
+            assetLease.AssetPaths,
+            reportRendererFailure,
+            requestClose,
+            canRecoverRenderer,
+            loggerFactory,
+            timeProvider,
+            windowId);
+        var creationStartedAt = timeProvider.GetTimestamp();
         try
         {
+            var operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Controller");
             host._controller = await environment.CreateControllerAsync(parentWindow, cancellationToken);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "Controller",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             host._controllerResourceLease = resourceLedger.Acquire(WindowsResourceKind.ComObject, "WebView2Controller");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewControllerCreated);
             cancellationToken.ThrowIfCancellationRequested();
 
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "WebView");
             host._webView = GetWebView(host._controller.Value);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "WebView",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             host._webViewResourceLease = resourceLedger.Acquire(WindowsResourceKind.ComObject, "CoreWebView2");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewCreated);
             cancellationToken.ThrowIfCancellationRequested();
 
             var profileSource = (ICoreWebView2_13)host._webView.Value;
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Profile");
             host._profile = GetProfile(profileSource);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "Profile",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             host._profileResourceLease = resourceLedger.Acquire(WindowsResourceKind.ComObject, "WebView2Profile");
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewProfileCreated);
             cancellationToken.ThrowIfCancellationRequested();
             host.SetPreferredColorScheme(preferredColorScheme, NantoFailureStage.Startup);
 
             host.ConfigureController(parentWindow);
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Settings");
             host.AcquireAndConfigureSettings(resourceLedger, failureInjector, cancellationToken);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "Settings",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebViewSettingsConfigured);
             cancellationToken.ThrowIfCancellationRequested();
 
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Subscriptions");
             host.AddNavigationStartingSubscription(resourceLedger);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.NavigationStartingSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
@@ -110,17 +165,36 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WebMessageSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
             host.AddProcessFailedSubscription(resourceLedger);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "Subscriptions",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.ProcessFailedSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Mapping");
             host.AddVirtualHostMapping(resourceLedger, assetLease.RootDirectory);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "Mapping",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.VirtualHostMappingAdded);
             cancellationToken.ThrowIfCancellationRequested();
 
+            operationStartedAt = timeProvider.GetTimestamp();
+            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "InitialNavigation");
             using var initialUri = new Utf16String($"https://{NavigationPolicy.ApplicationHostName}{options.InitialRoute}");
             HResult.ThrowIfFailed(host._webView.Value.Navigate(initialUri.Pointer), "webview2.navigation.begin", NantoFailureStage.Startup);
             await host._navigationCompletedHandler.Completion.WaitAsync(cancellationToken);
+            WindowsDiagnostics.WebViewAcquisitionCompleted(
+                host._logger,
+                "InitialNavigation",
+                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.InitialNavigationCompleted);
             cancellationToken.ThrowIfCancellationRequested();
+            WindowsDiagnostics.WebViewRunning(
+                host._logger,
+                timeProvider.GetElapsedTime(creationStartedAt).TotalMilliseconds);
             return host;
         }
         catch (Exception creationException)
@@ -495,6 +569,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
 
     private void SetPreferredColorScheme(ColorSchemePreference preferredColorScheme, NantoFailureStage failureStage)
     {
+        var startedAt = _timeProvider.GetTimestamp();
         var nativePreference = preferredColorScheme switch
         {
             ColorSchemePreference.System => COREWEBVIEW2_PREFERRED_COLOR_SCHEME.COREWEBVIEW2_PREFERRED_COLOR_SCHEME_AUTO,
@@ -506,6 +581,11 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             _profile!.Value.put_PreferredColorScheme((int)nativePreference),
             "webview2.profile.set-color-scheme",
             failureStage);
+        WindowsDiagnostics.AppearanceApplied(
+            _logger,
+            preferredColorScheme,
+            failureStage,
+            _timeProvider.GetElapsedTime(startedAt).TotalMilliseconds);
     }
 
     private void HandleNavigationCompleted(bool succeeded)
@@ -521,6 +601,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         if (result == _browserProcessUnavailableHResult)
         {
             _browserProcessExited = true;
+            WindowsDiagnostics.BrowserOperationUnavailableDuringTeardown(_logger, operation);
             return;
         }
 

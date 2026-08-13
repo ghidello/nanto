@@ -1,11 +1,31 @@
 using AwesomeAssertions;
 
+using Microsoft.Extensions.Logging;
+
 using Nanto.Hosting.Windows.Interop;
 
 namespace Nanto.Hosting.Windows.Tests;
 
 public sealed class RendererRecoveryCoordinatorTests
 {
+    [Fact]
+    public void RecoveryDiagnosticsRecordStartSuccessAndRepeatedFailure()
+    {
+        using var loggerFactory = new EventIdRecordingLoggerFactory();
+        var coordinator = new RendererRecoveryCoordinator(
+            (_, _, _) => { },
+            () => { },
+            () => { },
+            () => true,
+            loggerFactory);
+
+        coordinator.HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND.COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED);
+        coordinator.HandleNavigationCompleted(succeeded: true);
+        coordinator.HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND.COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED);
+
+        loggerFactory.EventIds.Should().ContainInOrder(304, 305, 306, 304, 307);
+    }
+
     [Theory]
     [InlineData((int)COREWEBVIEW2_PROCESS_FAILED_KIND.COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED, RendererFailureKind.Exited)]
     [InlineData((int)COREWEBVIEW2_PROCESS_FAILED_KIND.COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, RendererFailureKind.Unresponsive)]
@@ -131,5 +151,33 @@ public sealed class RendererRecoveryCoordinatorTests
         willAttemptRecovery.Should().BeFalse();
         reloadCount.Should().Be(0);
         closeCount.Should().Be(shouldClose ? 1 : 0);
+    }
+
+    private sealed class EventIdRecordingLoggerFactory : ILoggerFactory
+    {
+        public List<int> EventIds { get; } = [];
+
+        public void AddProvider(ILoggerProvider provider) => ArgumentNullException.ThrowIfNull(provider);
+
+        public ILogger CreateLogger(string categoryName) => new EventIdRecordingLogger(EventIds);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class EventIdRecordingLogger(List<int> eventIds) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) => eventIds.Add(eventId.Id);
+        }
     }
 }

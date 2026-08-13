@@ -91,7 +91,8 @@ public sealed record ValidatedApplicationOptions
         return new WebAssetPreparationContext(
             Identity.CanonicalId,
             Identity.StorageKey,
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationRootDirectory)));
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationRootDirectory)),
+            LoggerFactory);
     }
 
     private static void ValidateWindowOptions(WindowOptions options)

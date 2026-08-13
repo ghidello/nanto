@@ -23,6 +23,7 @@ public sealed class WindowsApplicationHostTests
     public async Task RunAndStopPublishThePrimaryWindowAndCompleteLifecycle()
     {
         await using var host = CreateHost();
+        using var loggerFactory = new RecordingLoggerFactory();
         var states = new List<ApplicationState>();
         var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         host.StateChanged += (_, eventArgs) =>
@@ -34,13 +35,16 @@ public sealed class WindowsApplicationHostTests
             }
         };
 
-        var run = host.RunAsync(CreateOptions(), TestContext.Current.CancellationToken);
+        var run = host.RunAsync(CreateOptions() with { LoggerFactory = loggerFactory }, TestContext.Current.CancellationToken);
         await activated.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         host.PrimaryWindow.Should().BeOfType<WindowsWindow>().Which.State.Should().Be(WindowState.Running);
         host.Dispatcher.CheckAccess().Should().BeFalse();
 
-        await host.StopAsync(TestContext.Current.CancellationToken);
+        var firstStop = host.StopAsync(TestContext.Current.CancellationToken);
+        var repeatedStop = host.StopAsync(TestContext.Current.CancellationToken);
+        await firstStop;
+        await repeatedStop;
         await run;
 
         host.State.Should().Be(ApplicationState.Closed);
@@ -52,6 +56,18 @@ public sealed class WindowsApplicationHostTests
             ApplicationState.Closing,
             ApplicationState.Closed);
         host.ResourceSnapshot.TotalActive.Should().Be(0);
+        loggerFactory.Entries.Count(entry => entry.EventId.Id == 6).Should().Be(1);
+        var applicationEventIds = loggerFactory.Entries
+            .Select(entry => entry.EventId.Id)
+            .Where(id => id is >= 3 and <= 8)
+            .ToList();
+        applicationEventIds.Should().ContainInOrder(3, 5, 6, 7);
+        loggerFactory.Entries.Select(entry => entry.EventId.Id).Should().ContainInOrder(3, 200, 201, 6, 500, 503, 7);
+        loggerFactory.Entries.Should().OnlyContain(entry =>
+            !entry.Message.Contains("com.example.nanto-windows-tests", StringComparison.Ordinal)
+            && !entry.Message.Contains("nanto-windows-tests", StringComparison.Ordinal)
+            && !entry.Message.Contains("Nanto hidden application host window", StringComparison.Ordinal)
+            && !entry.Message.Contains("/index.html", StringComparison.Ordinal));
         var invokeAfterShutdown = () => host.Dispatcher.InvokeAsync(static () => { });
         invokeAfterShutdown.Should().Throw<ObjectDisposedException>();
     }
@@ -60,7 +76,8 @@ public sealed class WindowsApplicationHostTests
     public async Task SharedWebViewApplicationIsDisposedOnItsCreatingUiThread()
     {
         var factory = new ThreadRecordingWebViewApplicationFactory();
-        await using var host = new WindowsApplicationHost(TimeProvider.System, NoOpPhase1FailureInjector.Instance, factory);
+        var timeProvider = TimeProvider.System;
+        await using var host = new WindowsApplicationHost(timeProvider, NoOpPhase1FailureInjector.Instance, factory);
         var activated = WaitForStateAsync(host, ApplicationState.Activated);
         var run = host.RunAsync(CreateOptions(), TestContext.Current.CancellationToken);
         await activated.WaitAsync(TestContext.Current.CancellationToken);
@@ -69,6 +86,7 @@ public sealed class WindowsApplicationHostTests
         await run;
 
         factory.Application.Should().NotBeNull();
+        factory.TimeProvider.Should().BeSameAs(timeProvider);
         factory.Application!.DisposedThreadId.Should().Be(factory.Application.CreatedThreadId);
         factory.Application.DisposedSynchronizationContext.Should().BeSameAs(factory.Application.CreatedSynchronizationContext);
     }
@@ -283,6 +301,7 @@ public sealed class WindowsApplicationHostTests
     public async Task ShutdownTimeoutFailsTheRunWhileTeardownContinuesSafely()
     {
         var host = CreateHost();
+        using var loggerFactory = new RecordingLoggerFactory();
         using var releaseClosingHandler = new ManualResetEventSlim();
         var closingHandlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var activated = WaitForStateAsync(host, ApplicationState.Activated);
@@ -294,7 +313,11 @@ public sealed class WindowsApplicationHostTests
                 releaseClosingHandler.Wait();
             }
         };
-        var options = CreateOptions() with { ShutdownTimeout = TimeSpan.FromMilliseconds(100) };
+        var options = CreateOptions() with
+        {
+            LoggerFactory = loggerFactory,
+            ShutdownTimeout = TimeSpan.FromMilliseconds(100),
+        };
         var run = host.RunAsync(options, TestContext.Current.CancellationToken);
         await activated.WaitAsync(TestContext.Current.CancellationToken);
 
@@ -313,6 +336,8 @@ public sealed class WindowsApplicationHostTests
         exception.Stage.Should().Be(NantoFailureStage.Teardown);
         exception.Operation.Should().Be("application.shutdown-timeout");
         exception.InnerException.Should().BeOfType<TimeoutException>();
+        loggerFactory.Entries.Select(entry => entry.EventId.Id).Should().ContainInOrder(502, 8);
+        loggerFactory.Entries.Should().NotContain(entry => entry.EventId.Id == 7);
         await stop.Invoking(static task => task).Should().ThrowAsync<NantoHostException>();
         await host.TeardownCompletion.WaitAsync(TestContext.Current.CancellationToken);
         host.State.Should().Be(ApplicationState.Closed);
@@ -386,10 +411,10 @@ public sealed class WindowsApplicationHostTests
 
         await stop.Invoking(static task => task).Should().ThrowAsync<NantoHostException>();
         await host.TeardownCompletion.WaitAsync(TestContext.Current.CancellationToken);
-        await loggerFactory.ExceptionLogged.WaitAsync(TestContext.Current.CancellationToken);
-        loggerFactory.Exceptions.Should().ContainSingle()
-            .Which.Should().BeOfType<InvalidOperationException>()
-            .Which.Message.Should().Be(cleanupFailure.Message);
+        await loggerFactory.EventLogged.WaitAsync(TestContext.Current.CancellationToken);
+        var entry = loggerFactory.Entries.Should().ContainSingle(value => value.EventId.Id == 2).Which;
+        entry.Exception.Should().BeNull();
+        entry.Properties.Should().Contain(property => property.Key == "ExceptionType" && Equals(property.Value, nameof(InvalidOperationException)));
         await host.Invoking(static value => value.DisposeAsync().AsTask()).Should().ThrowAsync<NantoHostException>();
     }
 
@@ -563,6 +588,7 @@ public sealed class WindowsApplicationHostTests
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken)
         {
             _registration = cancellationToken.UnsafeRegister(static state => throw (Exception)state!, failure);
@@ -587,6 +613,7 @@ public sealed class WindowsApplicationHostTests
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken)
         {
             _registration = cancellationToken.UnsafeRegister(static state => throw (Exception)state!, callbackFailure);
@@ -604,14 +631,18 @@ public sealed class WindowsApplicationHostTests
     {
         public ThreadRecordingWebViewApplication? Application { get; private set; }
 
+        public TimeProvider? TimeProvider { get; private set; }
+
         public ValueTask<IWindowsWebViewApplication> CreateAsync(
             Nanto.Hosting.ValidatedApplicationOptions options,
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            TimeProvider = timeProvider;
             Application = new ThreadRecordingWebViewApplication();
             return ValueTask.FromResult<IWindowsWebViewApplication>(Application);
         }
@@ -629,6 +660,7 @@ public sealed class WindowsApplicationHostTests
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken)
         {
             _createEntered.TrySetResult();
@@ -651,6 +683,7 @@ public sealed class WindowsApplicationHostTests
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<IWindowsWebViewApplication>(_application);
 
@@ -667,6 +700,7 @@ public sealed class WindowsApplicationHostTests
 
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,
@@ -717,6 +751,7 @@ public sealed class WindowsApplicationHostTests
             IUiDispatcher dispatcher,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<IWindowsWebViewApplication>(new FailingWindowCleanupWebViewApplication(cleanupFailure));
     }
@@ -725,6 +760,7 @@ public sealed class WindowsApplicationHostTests
     {
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,
@@ -757,11 +793,11 @@ public sealed class WindowsApplicationHostTests
 
     private sealed class RecordingLoggerFactory : ILoggerFactory
     {
-        private readonly TaskCompletionSource _exceptionLogged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _eventLogged = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public List<Exception> Exceptions { get; } = [];
+        public List<RecordedLogEntry> Entries { get; } = [];
 
-        public Task ExceptionLogged => _exceptionLogged.Task;
+        public Task EventLogged => _eventLogged.Task;
 
         public void AddProvider(ILoggerProvider provider)
         {
@@ -771,14 +807,14 @@ public sealed class WindowsApplicationHostTests
         public ILogger CreateLogger(string categoryName)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(categoryName);
-            return new RecordingLogger(Exceptions, _exceptionLogged);
+            return new RecordingLogger(Entries, _eventLogged);
         }
 
         public void Dispose()
         {
         }
 
-        private sealed class RecordingLogger(List<Exception> exceptions, TaskCompletionSource exceptionLogged) : ILogger
+        private sealed class RecordingLogger(List<RecordedLogEntry> entries, TaskCompletionSource eventLogged) : ILogger
         {
             public IDisposable? BeginScope<TState>(TState state)
                 where TState : notnull => null;
@@ -792,13 +828,24 @@ public sealed class WindowsApplicationHostTests
                 Exception? exception,
                 Func<TState, Exception?, string> formatter)
             {
-                if (exception is not null)
+                var properties = state as IReadOnlyList<KeyValuePair<string, object?>> ?? [];
+                lock (entries)
                 {
-                    exceptions.Add(exception);
-                    exceptionLogged.TrySetResult();
+                    entries.Add(new RecordedLogEntry(eventId, formatter(state, exception), exception, [.. properties]));
+                }
+
+                if (eventId.Id == 2)
+                {
+                    eventLogged.TrySetResult();
                 }
             }
         }
+
+        public sealed record RecordedLogEntry(
+            EventId EventId,
+            string Message,
+            Exception? Exception,
+            IReadOnlyList<KeyValuePair<string, object?>> Properties);
     }
 
     private sealed class ThreadRecordingWebViewApplication : IWindowsWebViewApplication
@@ -813,6 +860,7 @@ public sealed class WindowsApplicationHostTests
 
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,

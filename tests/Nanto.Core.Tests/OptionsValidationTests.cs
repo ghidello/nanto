@@ -24,6 +24,7 @@ public sealed class OptionsValidationTests
         preparationContext.ApplicationId.Should().Be(validated.Identity.CanonicalId);
         preparationContext.ApplicationStorageKey.Should().Be(validated.Identity.StorageKey);
         preparationContext.ApplicationRootDirectory.Should().Be(Path.GetFullPath(applicationRoot));
+        preparationContext.LoggerFactory.Should().BeSameAs(validated.LoggerFactory);
     }
 
     [Theory]

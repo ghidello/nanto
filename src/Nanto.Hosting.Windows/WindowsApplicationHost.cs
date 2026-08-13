@@ -9,15 +9,6 @@ namespace Nanto.Hosting.Windows;
 
 public sealed class WindowsApplicationHost : INantoApplicationHost
 {
-    private static readonly Action<ILogger, Exception?> _stateHandlerFailed = LoggerMessage.Define(
-        LogLevel.Error,
-        new EventId(1, "ApplicationStateHandlerFailed"),
-        "An application state-change handler threw an exception.");
-    private static readonly Action<ILogger, Exception?> _timedOutTeardownFailed = LoggerMessage.Define(
-        LogLevel.Error,
-        new EventId(2, "TimedOutTeardownFailed"),
-        "Windows host teardown failed after the shutdown deadline had already expired.");
-
     private readonly IPhase1FailureInjector _failureInjector;
     private readonly Lock _gate = new();
     private readonly ApplicationLifecycle _lifecycle;
@@ -37,6 +28,8 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
     private INantoWindow? _primaryWindow;
     private int _preferredColorScheme;
     private bool _runClaimed;
+    private int _runCompletionClaimed;
+    private long _runStartedAt;
     private bool _shutdownDeadlineTimedOut;
     private int _shutdownDeadlineStarted;
     private ShutdownMode _shutdownMode;
@@ -92,8 +85,15 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             _logger = validatedOptions.LoggerFactory.CreateLogger<WindowsApplicationHost>();
             Volatile.Write(ref _preferredColorScheme, (int)validatedOptions.PreferredColorScheme);
             _shutdownTimeout = validatedOptions.ShutdownTimeout;
+            _runStartedAt = _timeProvider.GetTimestamp();
             _runClaimed = true;
         }
+
+        WindowsDiagnostics.ApplicationStarting(
+            _logger,
+            validatedOptions.Identity.StorageKey[^32..],
+            validatedOptions.ShutdownMode,
+            validatedOptions.ShutdownTimeout.TotalMilliseconds);
 
         _ = RunCoreAsync(validatedOptions, cancellationToken);
         return _runCompletion.Task;
@@ -185,7 +185,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             }
         }
 
-        RequestStop();
+        RequestStop(ShutdownTrigger.StopRequested);
         return new ValueTask(_runCompletion.Task.WaitAsync(cancellationToken));
     }
 
@@ -205,7 +205,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             }
         }
 
-        RequestStop();
+        RequestStop(ShutdownTrigger.DisposeRequested);
         return new ValueTask(_runCompletion.Task);
     }
 
@@ -214,11 +214,13 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         Exception? primaryFailure = null;
         var failureStage = NantoFailureStage.Startup;
         var operation = "application.start";
-        IReadOnlyList<Exception> cleanupExceptions = [];
+        ReadOnlyCollection<Exception> cleanupExceptions = Array.AsReadOnly<Exception>([]);
         IDisposable? hostLease = null;
         WindowsUiThread? uiThread = null;
         var startupCancellationToken = cancellationToken.IsCancellationRequested ? CancellationToken.None : _applicationLifetime.Token;
-        using var cancellationRegistration = cancellationToken.UnsafeRegister(static state => ((WindowsApplicationHost)state!).RequestStop(), this);
+        using var cancellationRegistration = cancellationToken.UnsafeRegister(
+            static state => ((WindowsApplicationHost)state!).RequestStop(ShutdownTrigger.RunCanceled),
+            this);
 
         try
         {
@@ -226,7 +228,12 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.ApplicationHostStarted);
             startupCancellationToken.ThrowIfCancellationRequested();
 
-            uiThread = new WindowsUiThread(_resourceLedger, _failureInjector, startupCancellationToken);
+            uiThread = new WindowsUiThread(
+                _resourceLedger,
+                _failureInjector,
+                options.LoggerFactory,
+                _timeProvider,
+                startupCancellationToken);
             var dispatcher = await uiThread.DispatcherReady.ConfigureAwait(false);
             Volatile.Write(ref _dispatcher, dispatcher);
             _windowRegistry = new WindowRegistry(dispatcher);
@@ -252,6 +259,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         catch (Exception exception)
         {
             primaryFailure = exception;
+            RequestStop(ShutdownTrigger.StartupFailure);
         }
 
         if (_stopRequested.Task.IsCompleted)
@@ -299,7 +307,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 cleanupExceptions = AppendCleanupExceptions(cleanupExceptions, timeoutException, primaryFailure);
             }
 
-            CompleteRun(primaryFailure, failureStage, operation, cleanupExceptions);
+            CompleteRun(primaryFailure, failureStage, operation, cleanupExceptions, cleanupExceptions.Count);
             return;
         }
         catch (Exception exception)
@@ -315,11 +323,16 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 cleanupExceptions = AppendCleanupExceptions(cleanupExceptions, exception, primaryFailure);
             }
 
-            CompleteRun(primaryFailure, failureStage, operation, cleanupExceptions);
+            CompleteRun(primaryFailure, failureStage, operation, cleanupExceptions, cleanupExceptions.Count);
             return;
         }
 
-        CompleteRun(shutdownResult.PrimaryFailure, shutdownResult.FailureStage, shutdownResult.Operation, shutdownResult.CleanupExceptions);
+        CompleteRun(
+            shutdownResult.PrimaryFailure,
+            shutdownResult.FailureStage,
+            shutdownResult.Operation,
+            shutdownResult.CleanupExceptions,
+            shutdownResult.CleanupFailureCount);
     }
 
     private static ReadOnlyCollection<Exception> AppendCleanupExceptions(
@@ -346,7 +359,10 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         WindowsUiThread? uiThread,
         IDisposable? hostLease)
     {
+        var teardownStartedAt = _timeProvider.GetTimestamp();
+        WindowsDiagnostics.TeardownStarted(_logger);
         var cleanupExceptions = initialCleanupExceptions;
+        var cleanupFailureCount = cleanupExceptions.Count;
         try
         {
             try
@@ -355,6 +371,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 var nativeCleanupExceptions = await CleanupNativeResourcesAsync().ConfigureAwait(false);
                 foreach (var cleanupException in nativeCleanupExceptions)
                 {
+                    cleanupFailureCount++;
                     cleanupExceptions = AppendCleanupExceptions(cleanupExceptions, cleanupException, primaryFailure);
                 }
 
@@ -370,6 +387,12 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             }
             catch (Exception exception)
             {
+                cleanupFailureCount++;
+                WindowsDiagnostics.CleanupOperationFailed(
+                    _logger,
+                    "LifecycleTransition",
+                    exception.GetType().Name,
+                    exception.HResult);
                 if (primaryFailure is null)
                 {
                     primaryFailure = exception;
@@ -390,6 +413,12 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 }
                 catch (Exception exception)
                 {
+                    cleanupFailureCount++;
+                    WindowsDiagnostics.CleanupOperationFailed(
+                        _logger,
+                        "UiThread",
+                        exception.GetType().Name,
+                        exception.HResult);
                     if (primaryFailure is null)
                     {
                         primaryFailure = exception;
@@ -409,6 +438,12 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             }
             catch (Exception exception)
             {
+                cleanupFailureCount++;
+                WindowsDiagnostics.CleanupOperationFailed(
+                    _logger,
+                    "ApplicationHostLease",
+                    exception.GetType().Name,
+                    exception.HResult);
                 cleanupExceptions = AppendCleanupExceptions(cleanupExceptions, exception, primaryFailure);
             }
 
@@ -420,8 +455,14 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 operation = "application.close";
             }
 
+            var snapshot = _resourceLedger.CaptureSnapshot();
+            WindowsDiagnostics.TeardownCompleted(
+                _logger,
+                _timeProvider.GetElapsedTime(teardownStartedAt).TotalMilliseconds,
+                cleanupFailureCount,
+                snapshot.TotalActive);
             _teardownCompletion.TrySetResult();
-            return new ShutdownResult(primaryFailure, failureStage, operation, cleanupExceptions);
+            return new ShutdownResult(primaryFailure, failureStage, operation, cleanupExceptions, cleanupFailureCount);
         }
         catch
         {
@@ -434,31 +475,57 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         Exception? primaryFailure,
         NantoFailureStage failureStage,
         string operation,
-        IReadOnlyList<Exception> cleanupExceptions)
+        IReadOnlyList<Exception> cleanupExceptions,
+        int cleanupFailureCount)
     {
-        var completed = false;
-        var shutdownDeadlineTimedOut = false;
-        if (primaryFailure is null)
+        var completed = Interlocked.CompareExchange(ref _runCompletionClaimed, 1, 0) == 0;
+        bool shutdownDeadlineTimedOut;
+        if (completed)
         {
-            lock (_gate)
+            try
             {
-                completed = _runCompletion.TrySetResult();
-                shutdownDeadlineTimedOut = _shutdownDeadlineTimedOut;
+                if (primaryFailure is null)
+                {
+                    var snapshot = _resourceLedger.CaptureSnapshot();
+                    WindowsDiagnostics.ApplicationStopped(
+                        _logger,
+                        _timeProvider.GetElapsedTime(_runStartedAt).TotalMilliseconds,
+                        cleanupFailureCount,
+                        snapshot.TotalActive);
+                }
+                else
+                {
+                    WindowsDiagnostics.ApplicationFailed(
+                        _logger,
+                        failureStage,
+                        operation,
+                        primaryFailure.GetType().Name,
+                        primaryFailure.HResult,
+                        _timeProvider.GetElapsedTime(_runStartedAt).TotalMilliseconds);
+                }
+            }
+            finally
+            {
+                if (primaryFailure is null)
+                {
+                    _runCompletion.TrySetResult();
+                }
+                else
+                {
+                    var hostException = new NantoHostException("The Windows Nanto application host failed.", primaryFailure)
+                    {
+                        Stage = failureStage,
+                        Operation = operation,
+                        CleanupExceptions = cleanupExceptions,
+                    };
+                    _runCompletion.TrySetException(hostException);
+                }
             }
         }
-        else
+
+        lock (_gate)
         {
-            var hostException = new NantoHostException("The Windows Nanto application host failed.", primaryFailure)
-            {
-                Stage = failureStage,
-                Operation = operation,
-                CleanupExceptions = cleanupExceptions,
-            };
-            lock (_gate)
-            {
-                completed = _runCompletion.TrySetException(hostException);
-                shutdownDeadlineTimedOut = _shutdownDeadlineTimedOut;
-            }
+            shutdownDeadlineTimedOut = _shutdownDeadlineTimedOut;
         }
 
         if (!completed && shutdownDeadlineTimedOut)
@@ -489,11 +556,11 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
 
         if (laterFailures is [var laterFailure])
         {
-            _timedOutTeardownFailed(_logger, laterFailure);
+            WindowsDiagnostics.TimedOutTeardownFailed(_logger, operation, laterFailure.GetType().Name, laterFailure.HResult);
         }
         else if (laterFailures is { Count: > 1 })
         {
-            _timedOutTeardownFailed(_logger, new AggregateException("Windows host teardown encountered failures after timing out.", laterFailures));
+            WindowsDiagnostics.TimedOutTeardownFailed(_logger, operation, nameof(AggregateException), 0);
         }
     }
 
@@ -516,16 +583,16 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
 
             if (laterFailures is [var laterFailure])
             {
-                _timedOutTeardownFailed(_logger, laterFailure);
+                WindowsDiagnostics.TimedOutTeardownFailed(_logger, result.Operation, laterFailure.GetType().Name, laterFailure.HResult);
             }
             else if (laterFailures is { Count: > 1 })
             {
-                _timedOutTeardownFailed(_logger, new AggregateException("Windows host teardown encountered failures after timing out.", laterFailures));
+                WindowsDiagnostics.TimedOutTeardownFailed(_logger, result.Operation, nameof(AggregateException), 0);
             }
         }
         catch (Exception exception)
         {
-            _timedOutTeardownFailed(_logger, exception);
+            WindowsDiagnostics.TimedOutTeardownFailed(_logger, "ObserveTimedOutTeardown", exception.GetType().Name, exception.HResult);
         }
     }
 
@@ -544,6 +611,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                         dispatcher,
                         _resourceLedger,
                         _failureInjector,
+                        _timeProvider,
                         _applicationLifetime.Token);
                     windowClass = new Win32WindowClass(_resourceLedger, dispatcher, _failureInjector);
                     _applicationLifetime.Token.ThrowIfCancellationRequested();
@@ -629,7 +697,8 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         var webViewApplication = _webViewApplication;
         if (webViewApplication is not null)
         {
-            cleanup.Push(
+            PushCleanup(
+                cleanup,
                 "webview2.application.close",
                 () => dispatcher.InvokeAsync(_ => webViewApplication.DisposeAsync(), CancellationToken.None));
         }
@@ -637,7 +706,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         var windowClass = _windowClass;
         if (windowClass is not null)
         {
-            cleanup.Push("window-class.unregister", () => dispatcher.InvokeAsync(windowClass.Dispose, CancellationToken.None));
+            PushCleanup(cleanup, "window-class.unregister", () => dispatcher.InvokeAsync(windowClass.Dispose, CancellationToken.None));
         }
 
         var window = _ownedWindow;
@@ -645,9 +714,10 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         {
             // DisposeAsync is also the authoritative observation point for a close that
             // the native window initiated and may already have completed with a failure.
-            cleanup.Push("window.close", () => window.DisposeAsync());
+            PushCleanup(cleanup, "window.close", () => window.DisposeAsync());
 
-            cleanup.Push(
+            PushCleanup(
+                cleanup,
                 "window.unpublish",
                 () => dispatcher.InvokeAsync(
                     () =>
@@ -666,6 +736,28 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         return failures;
     }
 
+    private void PushCleanup(AsyncCleanupRegistry registry, string operation, Func<ValueTask> cleanup)
+    {
+        registry.Push(
+            operation,
+            async () =>
+            {
+                try
+                {
+                    await cleanup().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    WindowsDiagnostics.CleanupOperationFailed(
+                        _logger,
+                        operation,
+                        exception.GetType().Name,
+                        exception.HResult);
+                    throw;
+                }
+            });
+    }
+
     private void HandleWindowStateChanged(object? sender, WindowStateChangedEventArgs eventArgs)
     {
         if (sender is not WindowsWindow window)
@@ -677,7 +769,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         {
             if (_shutdownMode != ShutdownMode.Explicit)
             {
-                RequestStop();
+                RequestStop(ShutdownTrigger.PrimaryWindowClosed);
             }
 
             return;
@@ -692,20 +784,21 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         Volatile.Write(ref _primaryWindow, null);
         if (_shutdownMode != ShutdownMode.Explicit)
         {
-            RequestStop();
+            RequestStop(ShutdownTrigger.PrimaryWindowClosed);
         }
     }
 
-    private void RequestStop()
+    private void RequestStop(ShutdownTrigger trigger)
     {
-        _stopRequested.TrySetResult();
-        if (Interlocked.Exchange(ref _shutdownDeadlineStarted, 1) != 0)
+        if (Interlocked.CompareExchange(ref _shutdownDeadlineStarted, 1, 0) != 0)
         {
             return;
         }
 
+        WindowsDiagnostics.ShutdownRequested(_logger, trigger);
         _ = EnforceShutdownDeadlineAsync();
         _ = CancelApplicationLifetimeAsync();
+        _stopRequested.TrySetResult();
     }
 
     private async Task CancelApplicationLifetimeAsync()
@@ -735,6 +828,17 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         }
         catch (TimeoutException timeoutException)
         {
+            lock (_gate)
+            {
+                if (Interlocked.CompareExchange(ref _runCompletionClaimed, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                _shutdownDeadlineTimedOut = true;
+            }
+
+            WindowsDiagnostics.ShutdownDeadlineExceeded(_logger, _shutdownTimeout.TotalMilliseconds);
             var hostException = new NantoHostException(
                 $"Windows host teardown exceeded the configured timeout of {_shutdownTimeout}.",
                 timeoutException)
@@ -742,14 +846,18 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
                 Stage = NantoFailureStage.Teardown,
                 Operation = "application.shutdown-timeout",
             };
-            lock (_gate)
+            try
             {
-                if (_runCompletion.Task.IsCompleted)
-                {
-                    return;
-                }
-
-                _shutdownDeadlineTimedOut = true;
+                WindowsDiagnostics.ApplicationFailed(
+                    _logger,
+                    NantoFailureStage.Teardown,
+                    "application.shutdown-timeout",
+                    timeoutException.GetType().Name,
+                    timeoutException.HResult,
+                    _timeProvider.GetElapsedTime(_runStartedAt).TotalMilliseconds);
+            }
+            finally
+            {
                 _runCompletion.TrySetException(hostException);
             }
         }
@@ -800,7 +908,14 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
 
     private void TransitionTo(ApplicationState state, Exception? failure = null)
     {
+        var previousState = State;
         var eventArgs = _lifecycle.TransitionTo(state, failure);
+        WindowsDiagnostics.ApplicationStateChanged(_logger, previousState, state);
+        if (state == ApplicationState.Activated)
+        {
+            WindowsDiagnostics.ApplicationRunning(_logger, _timeProvider.GetElapsedTime(_runStartedAt).TotalMilliseconds);
+        }
+
         foreach (EventHandler<ApplicationStateChangedEventArgs> handler in StateChanged?.GetInvocationList() ?? [])
         {
             try
@@ -809,7 +924,7 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
             }
             catch (Exception exception)
             {
-                _stateHandlerFailed(_logger, exception);
+                WindowsDiagnostics.ApplicationStateHandlerFailed(_logger, exception);
             }
         }
     }
@@ -818,5 +933,6 @@ public sealed class WindowsApplicationHost : INantoApplicationHost
         Exception? PrimaryFailure,
         NantoFailureStage FailureStage,
         string Operation,
-        IReadOnlyList<Exception> CleanupExceptions);
+        IReadOnlyList<Exception> CleanupExceptions,
+        int CleanupFailureCount);
 }

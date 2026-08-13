@@ -1,3 +1,7 @@
+using System.Diagnostics;
+
+using Microsoft.Extensions.Logging;
+
 namespace Nanto;
 
 /// <summary>
@@ -31,19 +35,37 @@ public sealed class DirectoryWebAssetProvider : IWebAssetProvider
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
-        return new ValueTask<IWebAssetLease>(Task.Run<IWebAssetLease>(() => Prepare(cancellationToken), cancellationToken));
+        return new ValueTask<IWebAssetLease>(Task.Run<IWebAssetLease>(
+            () => Prepare(context, cancellationToken),
+            cancellationToken));
     }
 
-    private DirectoryWebAssetLease Prepare(CancellationToken cancellationToken)
+    private DirectoryWebAssetLease Prepare(WebAssetPreparationContext context, CancellationToken cancellationToken)
     {
-        var root = new DirectoryInfo(_rootDirectory);
-        var assetPaths = WebAssetPath.EnumerateDirectory(root, cancellationToken);
-        if (!assetPaths.Contains(WebAssetPath.RequiredIndexPath))
+        var logger = context.LoggerFactory.CreateLogger<DirectoryWebAssetProvider>();
+        var startedAt = Stopwatch.GetTimestamp();
+        try
         {
-            throw new InvalidDataException($"The web-asset directory '{_rootDirectory}' must contain '{WebAssetPath.RequiredIndexPath}'.");
-        }
+            var root = new DirectoryInfo(_rootDirectory);
+            var assetPaths = WebAssetPath.EnumerateDirectory(root, cancellationToken);
+            if (!assetPaths.Contains(WebAssetPath.RequiredIndexPath))
+            {
+                throw new InvalidDataException($"The web-asset directory '{_rootDirectory}' must contain '{WebAssetPath.RequiredIndexPath}'.");
+            }
 
-        return new DirectoryWebAssetLease(_rootDirectory, assetPaths);
+            return new DirectoryWebAssetLease(_rootDirectory, assetPaths);
+        }
+        catch (Exception exception)
+        {
+            AssetDiagnostics.PreparationFailed(
+                logger,
+                context.ApplicationDiagnosticId,
+                "EnumerateDirectory",
+                exception.GetType().Name,
+                exception.HResult,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            throw;
+        }
     }
 
     private sealed class DirectoryWebAssetLease : IWebAssetLease

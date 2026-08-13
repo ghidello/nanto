@@ -1,9 +1,12 @@
 using System.Buffers.Binary;
 using System.Collections.Frozen;
+using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
+using Microsoft.Extensions.Logging;
 
 namespace Nanto;
 
@@ -387,66 +390,115 @@ public sealed class VersionedWebAssetProvider : IWebAssetProvider
 
     private VersionedWebAssetLease Prepare(WebAssetPreparationContext context, CancellationToken cancellationToken)
     {
-        var applicationRoot = new DirectoryInfo(context.ApplicationRootDirectory);
-        if (!applicationRoot.Exists)
-        {
-            throw new DirectoryNotFoundException($"The application storage root '{applicationRoot.FullName}' does not exist.");
-        }
-
-        WebAssetPath.ThrowIfReparsePoint(applicationRoot);
-        var assets = ReadAndValidateManifest(cancellationToken);
-        var bundleHash = ComputeBundleHash(assets);
-        var assetsRoot = Path.Combine(applicationRoot.FullName, AssetsDirectoryName);
-        var stagingRoot = Path.Combine(assetsRoot, StagingDirectoryName);
-        var quarantineRoot = Path.Combine(assetsRoot, QuarantineDirectoryName);
-        WebAssetPath.EnsureDirectoryTree(applicationRoot.FullName, assetsRoot);
-        WebAssetPath.EnsureDirectoryTree(assetsRoot, stagingRoot);
-        WebAssetPath.EnsureDirectoryTree(assetsRoot, quarantineRoot);
-        EnsureMaintenanceMarker(assetsRoot);
-
-        using var maintenanceMutex = new Mutex(false, CreateMaintenanceMutexName(context));
-        var ownsMutex = false;
+        var logger = context.LoggerFactory.CreateLogger<VersionedWebAssetProvider>();
+        var startedAt = Stopwatch.GetTimestamp();
+        var operation = "ValidateStorage";
+        AssetDiagnostics.PreparationStarted(logger, context.ApplicationDiagnosticId);
         try
         {
-            AcquireMaintenanceMutex(maintenanceMutex, cancellationToken);
-            ownsMutex = true;
-            cancellationToken.ThrowIfCancellationRequested();
-            var destination = Path.Combine(assetsRoot, bundleHash);
-            if (Directory.Exists(destination))
+            var applicationRoot = new DirectoryInfo(context.ApplicationRootDirectory);
+            if (!applicationRoot.Exists)
             {
-                try
-                {
-                    ValidateBundle(destination, context, bundleHash, assets, cancellationToken);
-                }
-                catch (AssetIdentityMismatchException)
-                {
-                    throw;
-                }
-                catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException)
-                {
-                    Quarantine(destination, quarantineRoot, bundleHash);
-                    Publish(_assembly, context, bundleHash, assets, _assetPublished, stagingRoot, destination, cancellationToken);
-                }
-            }
-            else
-            {
-                Publish(_assembly, context, bundleHash, assets, _assetPublished, stagingRoot, destination, cancellationToken);
+                throw new DirectoryNotFoundException($"The application storage root '{applicationRoot.FullName}' does not exist.");
             }
 
-            ValidateBundle(destination, context, bundleHash, assets, cancellationToken);
-            var lease = OpenLease(destination);
-            return new VersionedWebAssetLease(
-                Path.Combine(destination, ContentDirectoryName),
-                bundleHash,
-                assets.Select(asset => asset.Path).ToFrozenSet(StringComparer.Ordinal),
-                lease);
-        }
-        finally
-        {
-            if (ownsMutex)
+            WebAssetPath.ThrowIfReparsePoint(applicationRoot);
+            operation = "ValidateManifest";
+            var assets = ReadAndValidateManifest(cancellationToken);
+            var bundleHash = ComputeBundleHash(assets);
+            var assetsRoot = Path.Combine(applicationRoot.FullName, AssetsDirectoryName);
+            var stagingRoot = Path.Combine(assetsRoot, StagingDirectoryName);
+            var quarantineRoot = Path.Combine(assetsRoot, QuarantineDirectoryName);
+            WebAssetPath.EnsureDirectoryTree(applicationRoot.FullName, assetsRoot);
+            WebAssetPath.EnsureDirectoryTree(assetsRoot, stagingRoot);
+            WebAssetPath.EnsureDirectoryTree(assetsRoot, quarantineRoot);
+            EnsureMaintenanceMarker(assetsRoot);
+
+            using var maintenanceMutex = new Mutex(false, CreateMaintenanceMutexName(context));
+            var ownsMutex = false;
+            try
             {
-                maintenanceMutex.ReleaseMutex();
+                operation = "AcquireMaintenanceLock";
+                var mutexStartedAt = Stopwatch.GetTimestamp();
+                AcquireMaintenanceMutex(maintenanceMutex, cancellationToken);
+                ownsMutex = true;
+                AssetDiagnostics.MaintenanceLockAcquired(
+                    logger,
+                    context.ApplicationDiagnosticId,
+                    Stopwatch.GetElapsedTime(mutexStartedAt).TotalMilliseconds);
+                cancellationToken.ThrowIfCancellationRequested();
+                var destination = Path.Combine(assetsRoot, bundleHash);
+                var published = false;
+                if (Directory.Exists(destination))
+                {
+                    try
+                    {
+                        operation = "ValidateBundle";
+                        ValidateBundle(destination, context, bundleHash, assets, cancellationToken);
+                    }
+                    catch (AssetIdentityMismatchException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException)
+                    {
+                        operation = "QuarantineBundle";
+                        Quarantine(destination, quarantineRoot, bundleHash);
+                        AssetDiagnostics.BundleQuarantined(
+                            logger,
+                            context.ApplicationDiagnosticId,
+                            bundleHash,
+                            exception.GetType().Name);
+                        operation = "PublishBundle";
+                        Publish(_assembly, context, bundleHash, assets, _assetPublished, stagingRoot, destination, cancellationToken);
+                        published = true;
+                    }
+                }
+                else
+                {
+                    operation = "PublishBundle";
+                    Publish(_assembly, context, bundleHash, assets, _assetPublished, stagingRoot, destination, cancellationToken);
+                    published = true;
+                }
+
+                operation = "ValidatePublishedBundle";
+                ValidateBundle(destination, context, bundleHash, assets, cancellationToken);
+                operation = "OpenLease";
+                var lease = OpenLease(destination);
+                var elapsedMilliseconds = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+                if (published)
+                {
+                    AssetDiagnostics.BundlePublished(logger, context.ApplicationDiagnosticId, bundleHash, assets.Count, elapsedMilliseconds);
+                }
+                else
+                {
+                    AssetDiagnostics.BundleReused(logger, context.ApplicationDiagnosticId, bundleHash, assets.Count, elapsedMilliseconds);
+                }
+
+                return new VersionedWebAssetLease(
+                    Path.Combine(destination, ContentDirectoryName),
+                    bundleHash,
+                    assets.Select(asset => asset.Path).ToFrozenSet(StringComparer.Ordinal),
+                    lease);
             }
+            finally
+            {
+                if (ownsMutex)
+                {
+                    maintenanceMutex.ReleaseMutex();
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            AssetDiagnostics.PreparationFailed(
+                logger,
+                context.ApplicationDiagnosticId,
+                operation,
+                exception.GetType().Name,
+                exception.HResult,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            throw;
         }
     }
 

@@ -10,17 +10,9 @@ namespace Nanto.Hosting.Windows;
 
 internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
 {
-    private static readonly Action<ILogger, Exception?> _stateHandlerFailed = LoggerMessage.Define(
-        LogLevel.Error,
-        new EventId(100, "WindowStateHandlerFailed"),
-        "A window state-change handler threw an exception.");
-    private static readonly Action<ILogger, Exception?> _rendererHandlerFailed = LoggerMessage.Define(
-        LogLevel.Error,
-        new EventId(101, "RendererFailureHandlerFailed"),
-        "A renderer-failure handler threw an exception.");
-
     private readonly TaskCompletionSource _closeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IUiDispatcher _dispatcher;
+    private readonly long _createdAt;
     private readonly WindowLifecycle _lifecycle;
     private readonly ILogger _logger;
     private readonly Win32Window _nativeWindow;
@@ -32,6 +24,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
     private WindowsWindowSnapshot _snapshot;
     private int _closeCleanupInProgress;
     private int _closeRequested;
+    private long _closeStartedAt;
 
     public WindowId Id { get; }
 
@@ -75,6 +68,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
 
         Id = WindowId.Create();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _createdAt = _timeProvider.GetTimestamp();
         _lifecycle = new WindowLifecycle(_timeProvider);
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WindowsWindow>();
         _snapshot = new WindowsWindowSnapshot(options.Title, options.InitialSize, WindowState.Created, false);
@@ -131,6 +125,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             window._webViewWindow = await webViewApplication.CreateWindowAsync(
                 window.Handle,
+                window.Id,
                 options,
                 preferredColorScheme,
                 window.RaiseRendererFailed,
@@ -144,6 +139,14 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
                 window._nativeWindow.Activate();
                 window.PublishSnapshot(title: null, size: null, state: null, isVisible: true);
             }
+
+            WindowsDiagnostics.WindowRunning(
+                window._logger,
+                window.Id,
+                window.Size.Width,
+                window.Size.Height,
+                window.IsVisible,
+                window._timeProvider.GetElapsedTime(window._createdAt).TotalMilliseconds);
 
             return window;
         }
@@ -383,7 +386,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             }
             catch (Exception exception)
             {
-                _rendererHandlerFailed(_logger, exception);
+                WindowsDiagnostics.RendererFailureHandlerFailed(_logger, exception);
             }
         }
     }
@@ -404,8 +407,21 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
 
     private void TransitionTo(WindowState state, Exception? failure = null)
     {
+        var previousState = State;
         var eventArgs = _lifecycle.TransitionTo(state, failure);
         PublishSnapshot(title: null, size: null, state, isVisible: state == WindowState.Closed ? false : null);
+        WindowsDiagnostics.WindowStateChanged(_logger, Id, previousState, state);
+        if (state == WindowState.Closing)
+        {
+            _closeStartedAt = _timeProvider.GetTimestamp();
+            WindowsDiagnostics.WindowCloseStarted(_logger, Id);
+        }
+        else if (state == WindowState.Closed)
+        {
+            var startedAt = _closeStartedAt == 0 ? _createdAt : _closeStartedAt;
+            WindowsDiagnostics.WindowClosed(_logger, Id, _timeProvider.GetElapsedTime(startedAt).TotalMilliseconds);
+        }
+
         foreach (EventHandler<WindowStateChangedEventArgs> handler in StateChanged?.GetInvocationList() ?? [])
         {
             try
@@ -414,7 +430,7 @@ internal sealed class WindowsWindow : INantoWindow, IAsyncDisposable
             }
             catch (Exception exception)
             {
-                _stateHandlerFailed(_logger, exception);
+                WindowsDiagnostics.WindowStateHandlerFailed(_logger, exception);
             }
         }
     }

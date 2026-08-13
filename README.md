@@ -14,6 +14,8 @@ Applications may select `System`, `Light`, or `Dark`. Nanto applies that prefere
 
 Unexpected main-renderer exits or stalls raise a portable window event and receive one automatic reload attempt. A failed or repeated recovery closes the window through its ordinary lifecycle; browser-process loss also closes normally, while isolated subframe and self-recovering WebView2 child-process failures remain diagnostic events.
 
+Applications may supply an `ILoggerFactory` through `NantoApplicationOptions`. Nanto emits source-generated structured events for application and window lifecycle, the UI thread, WebView2 recovery, versioned assets, and teardown. Nanto-owned fields use opaque storage/bundle/window identifiers and bounded states, operations, codes, counts, and durations; application IDs, titles, routes, local paths, asset names, and frontend data are not logged. The application owns and disposes its logger factory and selects any providers or exporters.
+
 Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](https://github.com/ghidello/telaio/commit/90725e997fac3140ef4dd9f1a8ebd5d53db67642) records that historical boundary. Nanto has no source, build, report, or undocumented-decision dependency on the former repository. The architecture and Phase 1 plan state every adopted production rule directly.
 
 ## Documentation

@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Microsoft.Extensions.Logging;
+
 namespace Nanto.Core.Tests;
 
 public sealed class DirectoryWebAssetProviderTests : IDisposable
@@ -34,10 +36,15 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
         Directory.CreateDirectory(_rootDirectory);
         await File.WriteAllTextAsync(Path.Combine(_rootDirectory, "app.js"), "export {};", TestContext.Current.CancellationToken);
         var provider = new DirectoryWebAssetProvider(_rootDirectory);
+        using var loggerFactory = new RecordingLoggerFactory();
 
-        var action = async () => await provider.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        var action = async () => await provider.PrepareAsync(CreateContext(loggerFactory), TestContext.Current.CancellationToken);
 
         await action.Should().ThrowAsync<InvalidDataException>();
+        var entry = loggerFactory.Entries.Should().ContainSingle(value => value.EventId.Id == 405).Which;
+        entry.Level.Should().Be(LogLevel.Error);
+        entry.Exception.Should().BeNull();
+        entry.Message.Should().NotContain(_rootDirectory);
     }
 
     [Fact]
@@ -86,12 +93,13 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
         }
     }
 
-    private static WebAssetPreparationContext CreateContext()
+    private static WebAssetPreparationContext CreateContext(ILoggerFactory? loggerFactory = null)
     {
         var options = new NantoApplicationOptions
         {
             ApplicationId = "com.example.assets",
             Assets = new UnusedAssetProvider(),
+            LoggerFactory = loggerFactory,
             PrimaryWindow = new WindowOptions { Title = "Assets" },
         };
         return Nanto.Hosting.ValidatedApplicationOptions.Create(options).CreateWebAssetPreparationContext(Path.GetTempPath());

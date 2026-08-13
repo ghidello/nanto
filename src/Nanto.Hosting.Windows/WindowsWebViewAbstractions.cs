@@ -11,6 +11,7 @@ internal interface IWindowsWebViewApplicationFactory
         IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken);
 }
 
@@ -18,6 +19,7 @@ internal interface IWindowsWebViewApplication : IAsyncDisposable
 {
     ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
         HWND parentWindow,
+        WindowId windowId,
         WindowOptions options,
         ColorSchemePreference preferredColorScheme,
         Action<RendererFailureKind, string, bool> reportRendererFailure,
@@ -56,12 +58,14 @@ internal sealed class NoOpWindowsWebViewApplicationFactory : IWindowsWebViewAppl
         IUiDispatcher dispatcher,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult<IWindowsWebViewApplication>(NoOpWindowsWebViewApplication.Instance);
     }
@@ -72,6 +76,7 @@ internal sealed class NoOpWindowsWebViewApplicationFactory : IWindowsWebViewAppl
 
         public ValueTask<IWindowsWebViewWindow> CreateWindowAsync(
             HWND parentWindow,
+            WindowId windowId,
             WindowOptions options,
             ColorSchemePreference preferredColorScheme,
             Action<RendererFailureKind, string, bool> reportRendererFailure,

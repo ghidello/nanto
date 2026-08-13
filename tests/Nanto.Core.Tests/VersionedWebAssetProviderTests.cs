@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Microsoft.Extensions.Logging;
+
 namespace Nanto.Core.Tests;
 
 public sealed class VersionedWebAssetProviderTests : IDisposable
@@ -7,6 +9,38 @@ public sealed class VersionedWebAssetProviderTests : IDisposable
     private const string ValidManifest = "Nanto.Core.Tests.Manifests.valid.json";
 
     private readonly string _applicationRoot = Path.Combine(Path.GetTempPath(), $"nanto-versioned-assets-{Guid.NewGuid():N}");
+
+    [Fact]
+    public async Task PrepareAsyncLogsPublicationReuseAndQuarantineWithoutSensitivePaths()
+    {
+        Directory.CreateDirectory(_applicationRoot);
+        using var loggerFactory = new RecordingLoggerFactory();
+        var provider = VersionedWebAssetProvider.FromAssembly<VersionedWebAssetProviderTests>(ValidManifest);
+        string contentDirectory;
+        using (var published = await provider.PrepareAsync(CreateContext(loggerFactory), TestContext.Current.CancellationToken))
+        {
+            contentDirectory = published.RootDirectory;
+        }
+
+        using (await provider.PrepareAsync(CreateContext(loggerFactory), TestContext.Current.CancellationToken))
+        {
+        }
+
+        File.Delete(Path.Combine(contentDirectory, "assets", "app.js"));
+        using (await provider.PrepareAsync(CreateContext(loggerFactory), TestContext.Current.CancellationToken))
+        {
+        }
+
+        loggerFactory.Entries.Select(entry => entry.EventId.Id).Should().Contain([400, 401, 402, 403, 404]);
+        loggerFactory.Entries.Where(entry => entry.EventId.Id == 402 || entry.EventId.Id == 404).Should().OnlyContain(
+            entry => entry.Level == LogLevel.Information);
+        loggerFactory.Entries.Single(entry => entry.EventId.Id == 403).Level.Should().Be(LogLevel.Warning);
+        loggerFactory.Entries.Should().OnlyContain(entry => entry.Exception == null);
+        loggerFactory.Entries.Select(entry => entry.Message).Should().OnlyContain(
+            message => !message.Contains(_applicationRoot, StringComparison.OrdinalIgnoreCase)
+                && !message.Contains("versioned-assets", StringComparison.Ordinal)
+                && !message.Contains("/index.html", StringComparison.Ordinal));
+    }
 
     [Fact]
     public async Task PrepareAsyncPublishesDeterministicBundleAndLease()
@@ -340,12 +374,13 @@ public sealed class VersionedWebAssetProviderTests : IDisposable
         }
     }
 
-    private WebAssetPreparationContext CreateContext()
+    private WebAssetPreparationContext CreateContext(ILoggerFactory? loggerFactory = null)
     {
         var options = new NantoApplicationOptions
         {
             ApplicationId = "com.example.versioned-assets",
             Assets = new UnusedAssetProvider(),
+            LoggerFactory = loggerFactory,
             PrimaryWindow = new WindowOptions { Title = "Assets" },
         };
         return Nanto.Hosting.ValidatedApplicationOptions.Create(options).CreateWebAssetPreparationContext(_applicationRoot);

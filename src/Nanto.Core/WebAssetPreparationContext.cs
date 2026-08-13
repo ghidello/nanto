@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace Nanto;
 
 /// <summary>
@@ -21,10 +23,24 @@ public sealed class WebAssetPreparationContext
     /// </summary>
     public string ApplicationRootDirectory { get; }
 
-    internal WebAssetPreparationContext(string applicationId, string applicationStorageKey, string applicationRootDirectory)
+    /// <summary>
+    /// Gets the validated application-owned logger factory available for provider diagnostics.
+    /// </summary>
+    /// <remarks>Asset providers may create loggers from this factory but must not dispose it.</remarks>
+    public ILoggerFactory LoggerFactory { get; }
+
+    internal string ApplicationDiagnosticId { get; }
+
+    internal WebAssetPreparationContext(
+        string applicationId,
+        string applicationStorageKey,
+        string applicationRootDirectory,
+        ILoggerFactory loggerFactory)
     {
         ApplicationId = applicationId;
         ApplicationStorageKey = applicationStorageKey;
         ApplicationRootDirectory = applicationRootDirectory;
+        LoggerFactory = loggerFactory;
+        ApplicationDiagnosticId = applicationStorageKey[^32..];
     }
 }
