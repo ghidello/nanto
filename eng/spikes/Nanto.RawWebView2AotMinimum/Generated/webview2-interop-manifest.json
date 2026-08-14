@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "generatorFormatVersion": 1,
+  "packageId": "Microsoft.Web.WebView2",
+  "packageVersion": "1.0.4129.50",
+  "inputs": [
+    {
+      "path": "WebView2.idl",
+      "sha256": "57b35d4b63c25f656d04559c5692e1d9a622d77ad25fb556406c348a496d0e24"
+    },
+    {
+      "path": "build/native/include/WebView2.h",
+      "sha256": "dff1e3181ec7ec203a34ef6efa966590e0ef0ba1a5c3fe3b69da6508c2f8a02e"
+    },
+    {
+      "path": "eng/spikes/Nanto.RawWebView2AotMinimum/webview2-interop-spec.json",
+      "sha256": "d082ae010bfe167fcea29d8acd130f503240775a741474c1ba4c8492bf84f8f5"
+    }
+  ],
+  "interfaces": [
+    {
+      "name": "ICoreWebView2",
+      "iid": "76eceacb-0462-4d94-ac83-423a6793775e",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 14
+    },
+    {
+      "name": "ICoreWebView2Controller",
+      "iid": "4d00c0d1-9434-4eb6-8078-8697a560334f",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 23
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+      "iid": "6c4819f3-c9b7-4260-8127-c9f5bde7f68c",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+      "iid": "4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2Environment",
+      "iid": "b96d755e-0319-4e92-a296-23436f46a1fc",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventHandler",
+      "iid": "d33a35bf-1c49-4f98-93ab-006e0533fe1c",
+      "baseInterface": "IUnknown",
+      "emittedMethodCount": 1
+    }
+  ],
+  "output": {
+    "path": "eng/spikes/Nanto.RawWebView2AotMinimum/Generated/WebView2Interop.g.cs",
+    "byteLength": 5387,
+    "sha256": "ad8577264cb62fbbd495d2ee2e5d57d16909299fa44f3f992c73174643ca135e",
+    "encoding": "utf-8",
+    "lineEndings": "lf"
+  }
+}

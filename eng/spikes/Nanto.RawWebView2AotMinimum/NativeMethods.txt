@@ -1,0 +1,12 @@
+CoInitializeEx
+CoUninitialize
+CreateWindowEx
+DestroyWindow
+GetMessage
+TranslateMessage
+DispatchMessage
+PostQuitMessage
+COINIT
+HWND
+MSG
+WINDOW_STYLE

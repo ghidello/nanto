@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "namespace": "Nanto.RawWebView2AotMinimum.Interop",
+  "interfaces": [
+    {
+      "name": "ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2NavigationCompletedEventHandler",
+      "methods": ["Invoke"]
+    },
+    {
+      "name": "ICoreWebView2Environment",
+      "methods": ["CreateCoreWebView2Controller"]
+    },
+    {
+      "name": "ICoreWebView2Controller",
+      "methods": ["put_IsVisible", "put_Bounds", "get_CoreWebView2", "Close"]
+    },
+    {
+      "name": "ICoreWebView2",
+      "methods": ["NavigateToString", "add_NavigationCompleted", "remove_NavigationCompleted"]
+    }
+  ],
+  "types": [
+    "EventRegistrationToken",
+    "RECT"
+  ],
+  "loaderFunctions": ["CreateCoreWebView2EnvironmentWithOptions"]
+}

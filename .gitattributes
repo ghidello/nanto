@@ -2,5 +2,6 @@ eng/Nanto.WebView2InteropGen/webview2-interop-spec.json text eol=lf
 src/Nanto.Hosting.Windows/Interop/Generated/WebView2Interop.g.cs text eol=lf
 src/Nanto.Hosting.Windows/Interop/Generated/webview2-interop-manifest.json text eol=lf
 eng/spikes/Nanto.WinRtAppearanceAbi/** text eol=lf
+eng/spikes/Nanto.RawWebView2AotMinimum/** text eol=lf
 tests/Nanto.Core.Tests/TestAssets/** text eol=lf
 tests/Nanto.Hosting.Windows.TestApp/WebAssets/** text eol=lf
