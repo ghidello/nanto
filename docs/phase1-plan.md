@@ -1,5 +1,7 @@
 # Phase 1 — Windows Host and Lifecycle Kernel
 
+**Status:** implementation closed; two acceptance follow-ups remain open. See [`phase1-gate.md`](phase1-gate.md).
+
 ## Summary
 
 Phase 1 creates Nanto's production framework foundations as a clean implementation. The feasibility work completed before the rename established that the chosen raw-Win32/WebView2 and Native AOT direction is viable; every requirement adopted from that work is stated explicitly in this document. Nanto does not require another repository, assembly, report, test profile, or experiment to build or to interpret this plan.
@@ -1055,7 +1057,7 @@ If no suitable pair exists, `VisibleCrossMonitorDpi` writes an `InsufficientDisp
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
-A one-monitor run can validate `VisibleDesktop` but does not complete Milestone 5. Completion requires the same command to pass both scenarios with two active monitors using different effective DPI.
+A one-monitor run on August 14, 2026 validated `VisibleDesktop`, including focus, input, resizing, appearance, screenshots, browser exit, storage release, and a zero final ledger. `VisibleCrossMonitorDpi` skipped with `InsufficientDisplays` because the machine exposed one 96-DPI monitor. Passing that scenario on two active monitors with different effective DPI remains an explicit acceptance follow-up after Phase 1 implementation closure.
 
 ### Milestone 6 — deployment modes and Phase 1 gate
 
@@ -1067,11 +1069,13 @@ dotnet test -p:TestScope=All
 
 Framework-dependent CoreCLR runs the exhaustive behavioral suite. Self-contained CoreCLR and Native AOT pass their critical deployment smoke, use isolated build trees and the same production contracts, and validate their loader and symbol policies. Native AOT produces no unexplained trim/AOT warning, deployable directories contain no PDB, and each publish lane retains symbols separately.
 
-Implementation is split into five reviewable batches: build-mode isolation and launch semantics; self-contained CoreCLR publication/evidence; Native AOT publication and static loader linkage; the manual long-running soak; and the final Phase 1 gate record. The first four implementations are present; the 550-process manual execution remains pending and therefore has not yet completed the fourth batch's acceptance evidence. Deployment-size evidence establishes a conservative TestApp baseline rather than an invented absolute budget. Release publications occur only when their unattended deployment projects execute, not during an ordinary solution build.
+Implementation was split into five reviewable batches: build-mode isolation and launch semantics; self-contained CoreCLR publication/evidence; Native AOT publication and static loader linkage; the manual long-running soak infrastructure; and the Phase 1 gate record. All implementation batches are present. Deployment-size evidence establishes a conservative TestApp baseline rather than an invented absolute budget. Release publications occur only when their unattended deployment projects execute, not during an ordinary solution build.
 
-Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations. Milestone 6 implementation may proceed while mixed-DPI hardware is unavailable, but the gate report remains `Pending — mixed-DPI visible acceptance` and Phase 1 is not complete until that visible scenario passes.
+Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true` separately only when explicitly approving its machine time. A 45-minute attempt completed 397 of 550 processes cleanly and deleted the shared application root before the former deadline expired; the measured 75-minute deadline now allows a complete rerun. The gate record keeps that full run and mixed-DPI visible acceptance open. They are acceptance debt, not unfinished production implementation, so Phase 2 may proceed without weakening or silently discarding either check.
 
 ## Completion criteria
+
+The implementation criteria below are satisfied. The two environment/time-dependent acceptance follow-ups are tracked separately in [`phase1-gate.md`](phase1-gate.md) and do not change the implemented contracts.
 
 - Root `dotnet test` in the default scope never executes integration tests, creates WebView2 or external test processes, or shows or activates a window; bounded fast tests may create hidden raw-Win32 windows on private STA threads.
 - Default `dotnet test` consumes committed interop; the complete unattended test scope verifies it without modifying source files.

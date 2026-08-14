@@ -6,7 +6,9 @@ Nanto is an early-stage .NET framework for building small native applications wi
 
 ## Status
 
-Nanto starts with Phase 1: a clean production implementation of the Windows host and lifecycle kernel. Milestones 1–4 established the portable lifecycle, raw-Win32 and WebView2 host, strict embedded asset manifests, content-addressed publication, concurrent shared leases, and exact declared-asset navigation. Milestone 5 has implemented DPI-aware window behavior, native appearance, renderer recovery, and structured diagnostics; mixed-DPI visible acceptance remains pending. Milestone 6 has established isolated TestApp build modes, self-contained CoreCLR and Native AOT deployment evidence, and manual long-running acceptance infrastructure. The 550-process soak and final evidence record remain to be run.
+Phase 1's Windows host and lifecycle-kernel implementation is complete. It established the portable lifecycle, raw-Win32 and WebView2 host, strict embedded asset manifests, content-addressed publication, concurrent shared leases, exact declared-asset navigation, DPI-aware behavior, native appearance, renderer recovery, structured diagnostics, isolated build modes, and CoreCLR/Native AOT deployment evidence. Phase 2 contract and IPC work is now the implementation priority.
+
+Two Phase 1 acceptance follow-ups remain open without blocking Phase 2: complete the 550-process lifecycle/recovery soak, and pass the visible cross-monitor scenario on two active monitors with different effective DPI. The one-monitor `VisibleDesktop` scenario has passed, and a 45-minute soak attempt completed 397 clean processes before its former safety deadline. See the [Phase 1 gate record](docs/phase1-gate.md) for the exact status and retained evidence.
 
 Window sizes describe the WebView client area in device-independent pixels. Windows chooses the initial screen position in Phase 1, and Nanto uses Per-Monitor-V2 behavior so a user can move the window across displays with different scaling without exposing ambiguous global logical coordinates. Display and work-area changes preserve every partially visible placement; a wholly inaccessible window is moved, without resizing, to the nearest current work area.
 
@@ -22,6 +24,7 @@ Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](htt
 
 - [Architecture and roadmap](docs/Nanto-architecture-and-roadmap.md)
 - [Phase 1 implementation plan](docs/phase1-plan.md)
+- [Phase 1 gate record](docs/phase1-gate.md)
 - [Contributor and coding-agent guidance](AGENTS.md)
 
 ## Requirements
@@ -55,7 +58,7 @@ The visible integration tests are self-driving but intentionally interact with t
 dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
-Successful artifacts are retained beneath `artifacts/phase1/visible/<run-id>` and include the request, report, stdout, stderr, monitor topology, observations, and screenshots. On a machine without two active monitors using different effective DPI, the desktop scenario can pass while the cross-monitor scenario skips and retains `InsufficientDisplays` topology evidence; that skip does not complete Milestone 5. Passing `RunManualTests=true` through `Nanto.slnx` is rejected. Automated agents must not run the project as routine verification and must obtain explicit user approval for its desktop effects.
+Successful artifacts are retained beneath `artifacts/phase1/visible/<run-id>` and include the request, report, stdout, stderr, monitor topology, observations, and screenshots. On a machine without two active monitors using different effective DPI, the desktop scenario can pass while the cross-monitor scenario skips and retains `InsufficientDisplays` topology evidence. That mixed-DPI acceptance item remains open even though Phase 1 implementation is closed. Passing `RunManualTests=true` through `Nanto.slnx` is rejected. Automated agents must not run the project as routine verification and must obtain explicit user approval for its desktop effects.
 
 The long-running project is also manual-only, but uses hidden windows and does not interact with the desktop. It runs ten sequential blocks of 50 `HostLifecycle` and 5 `RendererRecovery` processes: 500 lifecycle processes and 50 recovery processes under one application identity and one kill-on-close process group. A measured partial run completed 397 clean processes in 45 minutes, projecting roughly 62–64 minutes for the complete inventory; allow up to the 75-minute safety deadline and approve it separately:
 

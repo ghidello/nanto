@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1 documentation baseline
+**Status:** Phase 1 implementation complete; Phase 2 is current. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
 
 **Date:** 10 August 2026
 
@@ -1253,6 +1253,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-055 | Resolve the generated `WebView2Loader` imports statically for Native AOT through `DirectPInvoke` and the pinned package's `WebView2LoaderStatic.lib`. | The final native executable exercises the same production loader declarations without shipping or importing `WebView2Loader.dll`; the static library remains a link input rather than a deployment file, while CoreCLR retains the Microsoft-signed adjacent DLL. |
 | D-056 | Project the documented `UISettings` appearance surface through a pinned generated raw `IInspectable` ABI and explicitly own the UI thread's Windows Runtime apartment. | The tracked comparison preserved appearance behavior while removing `WinRT.Runtime` and 1.794 MiB from the otherwise identical Native AOT spike; narrow generated metadata validation and deterministic ownership avoid replacing that dependency with handwritten ABI. |
 | D-057 | Collect Phase 1 lifecycle-soak evidence through sequential isolated TestApp processes under one shared application identity and kill-on-close process group. | Process isolation exposes exit and storage-release failures, identity reuse exercises bundle/UDF reuse, containment bounds cancellation, and one ignored atomic summary preserves evidence without adding production soak behavior or committing machine-specific bulk artifacts. |
+| D-058 | Close Phase 1 implementation while retaining the complete 550-process soak and mixed-DPI visible run as explicit acceptance follow-ups. | Both test systems and their production paths are implemented. A 397-process clean partial soak and passing single-monitor visible run provide useful evidence, while the remaining duration and hardware constraints need not block Phase 2 contract work. Neither pending result may be described as passed. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1314,7 +1315,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 
 This completed stage is evidence for the chosen direction, not a source dependency. Nanto's normative implementation, verification, and failure requirements begin with Phase 1 and are fully stated in [`phase1-plan.md`](phase1-plan.md).
 
-### Phase 1 — Windows host and lifecycle kernel
+### Phase 1 — Windows host and lifecycle kernel (implementation complete)
 
 Deliverables:
 
@@ -1334,6 +1335,8 @@ Exit criteria:
 - injected failure at every initialization step releases prior resources;
 - UI-thread violations fail clearly in development;
 - renderer failure produces a controlled lifecycle event rather than a process crash.
+
+All implementation exit criteria are satisfied. The complete 550-process soak and a passing mixed-DPI visible run remain acceptance follow-ups documented in [`phase1-gate.md`](phase1-gate.md); they do not block Phase 2 implementation and are not waived or reported as passed.
 
 ### Phase 2 — IPC and generated contracts
 
@@ -1532,14 +1535,13 @@ CI should cover:
 
 ## 17. Immediate next actions
 
-Historical feasibility work has passed and is evidence, not a production dependency. Continue with [`phase1-plan.md`](phase1-plan.md) in vertical milestone order:
+Begin Phase 2 with the smallest vertical protocol slice while preserving the completed Phase 1 host contracts:
 
-1. Create the canonical `Nanto.slnx` containing every Phase 1 production, support, and test project, with ordinary `Debug`/`Release` configurations and a repository-level fast, complete, and integration-only test-scope convention.
-2. Create the portable Core and Windows host projects, non-packable repository Testing support, and fast-test projects without adding UI frameworks or broad hosting infrastructure.
-3. Implement and exhaustively test the portable lifecycle state machines, cancellation-first shutdown, cleanup aggregation, application identity, safely published primary-window snapshots, and internal registry ownership.
-4. Add the dedicated STA dispatcher and raw Win32 x64 host, numbering and fault-injecting every native acquisition as it is introduced.
-5. Bring the proven generated WebView2 COM projection, static-loader AOT path, secure origin, embedded versioned cache, routing policy, and teardown ownership into production code through hidden integration tests.
-6. Keep Native AOT, self-contained CoreCLR, and interop-generation tests in explicit projects selected together by the complete or integration-only scope. Keep visible-window and long-running tests in explicit solution-member projects invoked only by direct project commands with the manual opt-in. Do not add Arm64, macOS, Linux, templates, plugins, packaging, or multi-window scope during Phase 1.
+1. Specify the versioned request/response envelope, error shape, cancellation identity, and origin/window binding.
+2. Prototype `[NantoApi]`/`[NantoCommand]` contracts and the incremental generator without runtime assembly scanning.
+3. Generate deterministic dispatcher, source-generated JSON metadata, and framework-neutral ESM/TypeScript bindings for one representative command.
+4. Exercise the slice through the existing secure WebView message boundary under CoreCLR and Native AOT, including malformed, unauthorized, cancellation, and teardown paths.
+5. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
 
 ---
 
