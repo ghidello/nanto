@@ -38,7 +38,10 @@ internal sealed class WindowsAppearanceManager : IDisposable
         IPhase1FailureInjector failureInjector,
         CancellationToken cancellationToken)
     {
-        var systemAppearance = new WindowsSystemAppearanceSource(resourceLedger, failureInjector, cancellationToken);
+        var systemAppearance = new WindowsSystemAppearanceSource(
+            resourceLedger,
+            failureInjector,
+            cancellationToken: cancellationToken);
         try
         {
             return new WindowsAppearanceManager(dispatcher, systemAppearance);

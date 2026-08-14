@@ -127,6 +127,9 @@ public sealed class CoreClrSelfContainedDeploymentTests
             .Should().BeTrue("self-contained CoreCLR retains the managed TestApp assembly rather than compiling it as Native AOT");
         File.ReadAllText(dependencyManifestPath)
             .Should().Contain("runtimepack.Microsoft.NETCore.App.Runtime.win-x64");
+        Phase1DeploymentInspector.ReadManagedAssemblyReferences(
+                Path.Combine(Path.GetDirectoryName(executablePath)!, "Nanto.Hosting.Windows.dll"))
+            .Should().NotContain("WinRT.Runtime");
         foreach (var fragment in _forbiddenFileNameFragments)
         {
             fileNames.Should().NotContain(file => file.Contains(fragment, StringComparison.OrdinalIgnoreCase));

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "targetFramework": "net10.0-windows10.0.19041.0",
+  "targetingPackVersion": "10.0.19041.57",
+  "inputs": [
+    {
+      "path": "Microsoft.Windows.SDK.NET.Ref/10.0.19041.57/winmd/Windows.Foundation.UniversalApiContract.winmd",
+      "sha256": "66970EFC9AAEA4F9FA5EC23F628A0761A9D51670E8E86C9AA1B614A5E45948DA"
+    },
+    {
+      "path": "Microsoft.Windows.SDK.NET.Ref/10.0.19041.57/winmd/Windows.Foundation.FoundationContract.winmd",
+      "sha256": "6AE8576EEA185D9B5A51B20187AC8F17B954BA689F88C228811986044123073A"
+    },
+    {
+      "path": "Microsoft.Windows.SDK.NET.Ref/10.0.19041.57/lib/net8.0/WinRT.Runtime.dll",
+      "sha256": "BCF3A14E8712A90837FC5C0D8C8A24696AF2BD7F74E9767597EC81EDEDFB23DB"
+    },
+    {
+      "path": "eng/Nanto.WinRtAppearanceInteropGen/winrt-appearance-spec.json",
+      "sha256": "3AF5407BD1170FFE3BC89D510E061CB00225D55D431DCE191ECB484424801596"
+    }
+  ],
+  "runtimeClass": {
+    "name": "Windows.UI.ViewManagement.UISettings",
+    "defaultInterface": "Windows.UI.ViewManagement.IUISettings",
+    "defaultInterfaceIid": "85361600-1c63-4627-bcb1-3a89e0bc9c55"
+  },
+  "interface": {
+    "name": "Windows.UI.ViewManagement.IUISettings3",
+    "iid": "03021be4-5254-4781-8194-5168f7d06d7b",
+    "vtablePrefix": [
+      {
+        "name": "GetColorValue",
+        "slot": 6,
+        "signature": "Windows.UI.Color (Windows.UI.ViewManagement.UIColorType)"
+      },
+      {
+        "name": "add_ColorValuesChanged",
+        "slot": 7,
+        "signature": "System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken (Windows.Foundation.TypedEventHandler\u00602\u003CWindows.UI.ViewManagement.UISettings,System.Object\u003E)"
+      },
+      {
+        "name": "remove_ColorValuesChanged",
+        "slot": 8,
+        "signature": "System.Void (System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken)"
+      }
+    ]
+  },
+  "eventHandler": {
+    "name": "Windows.Foundation.TypedEventHandler\u003CWindows.UI.ViewManagement.UISettings, System.Object\u003E",
+    "signature": "pinterface({9de1c534-6ae1-11e0-84e1-18a905bcc53f};rc(Windows.UI.ViewManagement.UISettings;{85361600-1c63-4627-bcb1-3a89e0bc9c55});cinterface(IInspectable))",
+    "iid": "2dbdba9d-20da-519d-9078-09f835bc5bc7"
+  },
+  "output": {
+    "path": "src/Nanto.Hosting.Windows/Interop/Generated/WinRtAppearanceInterop.g.cs",
+    "byteLength": 9075,
+    "sha256": "4234936B3C3CD3988B736BAF2CDB26D38ABD71BDB77FBF0C9EA51A76D7BE4D13",
+    "encoding": "utf-8",
+    "lineEndings": "lf"
+  }
+}

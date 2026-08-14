@@ -12,4 +12,5 @@ internal enum WindowsResourceKind
     AssetLease,
     VirtualHostMapping,
     BrowserProcess,
+    WindowsRuntimeApartment,
 }

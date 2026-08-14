@@ -5,7 +5,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../../eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj" />
+    <ProjectReference Include="../../eng/Nanto.WinRtAppearanceInteropGen/Nanto.WinRtAppearanceInteropGen.csproj" />
     <PackageReference Include="Microsoft.Web.WebView2"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all"
+                      ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.SDK.NET.Ref"
                       GeneratePathProperty="true"
                       PrivateAssets="all"
                       ExcludeAssets="all" />
@@ -14,6 +19,7 @@
   <ItemGroup>
     <AssemblyMetadata Include="Nanto.RepositoryRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))" />
     <AssemblyMetadata Include="Nanto.WebView2PackageRoot" Value="$(PkgMicrosoft_Web_WebView2)" />
+    <AssemblyMetadata Include="Nanto.WindowsSdkPackageRoot" Value="$(PkgMicrosoft_Windows_SDK_NET_Ref)" />
     <AssemblyMetadata Include="Nanto.InteropVerificationDirectory" Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/obj/interop-verification/$(Configuration)'))" />
   </ItemGroup>
 </Project>

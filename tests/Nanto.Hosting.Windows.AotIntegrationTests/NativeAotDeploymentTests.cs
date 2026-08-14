@@ -29,6 +29,7 @@ public sealed class NativeAotDeploymentTests
         var symbolDirectory = GetAssemblyMetadata("NantoSymbolDirectory");
         var packageDirectory = GetAssemblyMetadata("NantoPackageDirectory");
         var evidencePath = GetAssemblyMetadata("NantoEvidencePath");
+        var mapPath = GetAssemblyMetadata("NantoMapPath");
         var executablePath = Path.Combine(publishDirectory, "Nanto.Hosting.Windows.TestApp.exe");
 
         var deployment = Phase1DeploymentInspector.InspectDirectory(publishDirectory);
@@ -36,6 +37,7 @@ public sealed class NativeAotDeploymentTests
         var architecture = Phase1DeploymentInspector.ReadPortableExecutableArchitecture(executablePath);
         var imports = Phase1DeploymentInspector.ReadPortableExecutableImports(executablePath);
         AssertDeploymentStructure(deployment, symbols, architecture, imports, executablePath);
+        File.ReadAllText(mapPath).Should().NotContain("WinRT_Runtime_");
 
         var smokeResults = new List<Phase1DeploymentSmokeResult>();
         foreach (var scenario in _smokeScenarios)

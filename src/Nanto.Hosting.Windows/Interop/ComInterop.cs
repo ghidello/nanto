@@ -37,6 +37,30 @@ internal static class HResult
     }
 }
 
+internal sealed class UniqueWinRtReference : IDisposable
+{
+    private nint _value;
+
+    public nint Value => Volatile.Read(ref _value) is var value and not 0
+        ? value
+        : throw new ObjectDisposedException(nameof(UniqueWinRtReference));
+
+    public UniqueWinRtReference(nint value)
+    {
+        ArgumentOutOfRangeException.ThrowIfEqual(value, 0);
+        _value = value;
+    }
+
+    public void Dispose()
+    {
+        var value = Interlocked.Exchange(ref _value, 0);
+        if (value != 0)
+        {
+            _ = RawWinRtAbi.Release(value);
+        }
+    }
+}
+
 internal sealed unsafe class UniqueComReference<T> : IDisposable
     where T : class
 {

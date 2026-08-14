@@ -9,6 +9,7 @@ public sealed class WindowsUiThreadTests
 {
     public static TheoryData<int> UiThreadCheckpoints => new()
     {
+        (int)Phase1AcquisitionCheckpoint.WindowsRuntimeApartmentInitialized,
         (int)Phase1AcquisitionCheckpoint.UiThreadStarted,
         (int)Phase1AcquisitionCheckpoint.NativeMessageQueueCreated,
         (int)Phase1AcquisitionCheckpoint.DispatcherCreated,
@@ -41,6 +42,7 @@ public sealed class WindowsUiThreadTests
         isPerMonitorV2.Should().BeTrue();
         dispatcher.CheckAccess().Should().BeFalse();
         ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.UiThread).Should().Be(1);
+        ledger.CaptureSnapshot().GetActiveCount(WindowsResourceKind.WindowsRuntimeApartment).Should().Be(1);
     }
 
     [Fact]

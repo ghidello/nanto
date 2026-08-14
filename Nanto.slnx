@@ -15,6 +15,7 @@
   </Folder>
   <Folder Name="/eng/">
     <Project Path="eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj" />
+    <Project Path="eng/Nanto.WinRtAppearanceInteropGen/Nanto.WinRtAppearanceInteropGen.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj" />

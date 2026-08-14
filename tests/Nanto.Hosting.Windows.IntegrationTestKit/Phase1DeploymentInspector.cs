@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -162,6 +163,23 @@ public static class Phase1DeploymentInspector
         using var stream = File.OpenRead(portableExecutablePath);
         using var peReader = new PEReader(stream, PEStreamOptions.LeaveOpen);
         return peReader.HasMetadata;
+    }
+
+    public static string[] ReadManagedAssemblyReferences(string portableExecutablePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(portableExecutablePath);
+        using var stream = File.OpenRead(portableExecutablePath);
+        using var peReader = new PEReader(stream, PEStreamOptions.LeaveOpen);
+        if (!peReader.HasMetadata)
+        {
+            throw new InvalidDataException("The portable executable does not contain managed metadata.");
+        }
+
+        var metadata = peReader.GetMetadataReader();
+        return metadata.AssemblyReferences
+            .Select(handle => metadata.GetString(metadata.GetAssemblyReference(handle).Name))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 
     public static Phase1DeploymentIdentity ReadSelfContainedDeploymentIdentity(

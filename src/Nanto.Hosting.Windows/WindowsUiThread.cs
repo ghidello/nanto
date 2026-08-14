@@ -4,7 +4,10 @@ using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Nanto.Hosting.Windows.Interop;
+
 using Windows.Win32;
+using Windows.Win32.System.WinRT;
 using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.WindowsAndMessaging;
 
@@ -87,8 +90,10 @@ internal sealed class WindowsUiThread : IAsyncDisposable
 
     private void ThreadMain()
     {
+        IDisposable? runtimeApartmentLease = null;
         IDisposable? threadLease = null;
         DPI_AWARENESS_CONTEXT previousDpiAwareness = default;
+        var runtimeApartmentInitialized = false;
         try
         {
             previousDpiAwareness = PInvoke.SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -96,6 +101,15 @@ internal sealed class WindowsUiThread : IAsyncDisposable
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not enable Per-Monitor-V2 awareness on its UI thread.");
             }
+
+            HResult.ThrowIfFailed(
+                PInvoke.RoInitialize(RO_INIT_TYPE.RO_INIT_SINGLETHREADED),
+                "winrt.apartment.initialize",
+                NantoFailureStage.Startup);
+            runtimeApartmentInitialized = true;
+            runtimeApartmentLease = _resourceLedger.Acquire(WindowsResourceKind.WindowsRuntimeApartment, "WindowsRuntimeApartment");
+            _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.WindowsRuntimeApartmentInitialized);
+            _startupCancellationToken.ThrowIfCancellationRequested();
 
             threadLease = _resourceLedger.Acquire(WindowsResourceKind.UiThread, "UiThread");
             _failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.UiThreadStarted);
@@ -153,6 +167,20 @@ internal sealed class WindowsUiThread : IAsyncDisposable
                 AddFailure(
                     new Win32Exception(Marshal.GetLastPInvokeError(), "Nanto could not restore the UI thread DPI-awareness context."),
                     "RestoreDpiAwareness");
+            }
+
+            if (runtimeApartmentInitialized)
+            {
+                PInvoke.RoUninitialize();
+            }
+
+            try
+            {
+                runtimeApartmentLease?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                AddFailure(exception, "ReleaseWindowsRuntimeApartmentLease");
             }
 
             CompleteThread();

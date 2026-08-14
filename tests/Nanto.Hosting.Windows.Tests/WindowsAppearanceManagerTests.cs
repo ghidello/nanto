@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 
+using Nanto.Hosting.Windows.Interop;
+
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Dwm;
@@ -11,7 +13,10 @@ public sealed class WindowsAppearanceManagerTests
 {
     public static TheoryData<int> AppearanceAcquisitionCheckpoints => new()
     {
+        (int)Phase1AcquisitionCheckpoint.SystemAppearanceObjectActivated,
+        (int)Phase1AcquisitionCheckpoint.SystemAppearanceInterfaceAcquired,
         (int)Phase1AcquisitionCheckpoint.SystemAppearanceSourceCreated,
+        (int)Phase1AcquisitionCheckpoint.SystemAppearanceCallbackCreated,
         (int)Phase1AcquisitionCheckpoint.SystemAppearanceSubscriptionAdded,
     };
 
@@ -51,7 +56,7 @@ public sealed class WindowsAppearanceManagerTests
     }
 
     [Fact]
-    public async Task ProjectedSystemAppearanceCanBeReadAndReleasedOnTheUiThread()
+    public async Task NarrowSystemAppearanceCanBeReadAndRepeatedlyReleasedOnTheUiThread()
     {
         var ledger = new ResourceLedger();
         var uiThread = new WindowsUiThread(ledger);
@@ -61,8 +66,61 @@ public sealed class WindowsAppearanceManagerTests
             await dispatcher.InvokeAsync(
                 () =>
                 {
-                    using var source = new WindowsSystemAppearanceSource(ledger, NoOpPhase1FailureInjector.Instance);
-                    _ = source.IsDark;
+                    for (var iteration = 0; iteration < 20; iteration++)
+                    {
+                        using var source = new WindowsSystemAppearanceSource(ledger, NoOpPhase1FailureInjector.Instance);
+                        _ = source.IsDark;
+                    }
+                },
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await uiThread.DisposeAsync();
+        }
+
+        ledger.CaptureSnapshot().TotalActive.Should().Be(0);
+    }
+
+    [Fact]
+    public void GeneratedCallbackDeliversAndSuppressesNotifications()
+    {
+        var notificationCount = 0;
+        using var handler = new RawColorValuesChangedHandler(() => notificationCount++);
+
+        handler.InvokeSynthetic().Should().Be(0);
+        notificationCount.Should().Be(1);
+        handler.SuppressCallbacks();
+        handler.InvokeSynthetic().Should().Be(0);
+        notificationCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void GeneratedCallbackContainsManagedFailures()
+    {
+        using var handler = new RawColorValuesChangedHandler(() => throw new InvalidOperationException("callback failed"));
+
+        handler.InvokeSynthetic().Should().BeLessThan(0);
+    }
+
+    [Fact]
+    public async Task UnsubscribeFailureStillReleasesTheCallbackInterfaceAndLedger()
+    {
+        var ledger = new ResourceLedger();
+        var uiThread = new WindowsUiThread(ledger);
+        try
+        {
+            var dispatcher = await uiThread.DispatcherReady.WaitAsync(TestContext.Current.CancellationToken);
+            await dispatcher.InvokeAsync(
+                () =>
+                {
+                    var source = new WindowsSystemAppearanceSource(
+                        ledger,
+                        NoOpPhase1FailureInjector.Instance,
+                        unsubscribeOverride: static (_, _) => unchecked((int)0x80004005));
+
+                    source.Invoking(static value => value.Dispose()).Should().Throw<NantoHostException>();
+                    source.IsCallbackReleased.Should().BeTrue();
                 },
                 TestContext.Current.CancellationToken);
         }

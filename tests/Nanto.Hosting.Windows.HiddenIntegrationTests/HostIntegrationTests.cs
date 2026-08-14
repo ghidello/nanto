@@ -12,12 +12,16 @@ public sealed class HostIntegrationTests
     private static readonly string[] _expectedAcquisitionCheckpoints =
     [
         "ApplicationHostStarted",
+        "WindowsRuntimeApartmentInitialized",
         "UiThreadStarted",
         "NativeMessageQueueCreated",
         "DispatcherCreated",
         "AssetLeasePrepared",
         "WebViewEnvironmentCreated",
+        "SystemAppearanceObjectActivated",
+        "SystemAppearanceInterfaceAcquired",
         "SystemAppearanceSourceCreated",
+        "SystemAppearanceCallbackCreated",
         "SystemAppearanceSubscriptionAdded",
         "WindowClassRegistered",
         "WindowCreated",

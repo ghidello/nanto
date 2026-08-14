@@ -23,6 +23,10 @@ internal enum Phase1AcquisitionCheckpoint
     ProcessFailedSubscriptionAdded,
     VirtualHostMappingAdded,
     InitialNavigationCompleted,
+    WindowsRuntimeApartmentInitialized,
+    SystemAppearanceObjectActivated,
+    SystemAppearanceInterfaceAcquired,
+    SystemAppearanceCallbackCreated,
 }
 
 internal interface IPhase1FailureInjector

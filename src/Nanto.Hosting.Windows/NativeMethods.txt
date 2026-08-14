@@ -1,4 +1,9 @@
 DispatchMessage
+RoActivateInstance
+RoInitialize
+RoUninitialize
+WindowsCreateString
+WindowsDeleteString
 CreateWindowEx
 AdjustWindowRectExForDpi
 AreDpiAwarenessContextsEqual

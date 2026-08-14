@@ -12,6 +12,7 @@ public sealed class WindowsApplicationHostTests
     public static TheoryData<int> HostAcquisitionCheckpoints => new()
     {
         (int)Phase1AcquisitionCheckpoint.ApplicationHostStarted,
+        (int)Phase1AcquisitionCheckpoint.WindowsRuntimeApartmentInitialized,
         (int)Phase1AcquisitionCheckpoint.UiThreadStarted,
         (int)Phase1AcquisitionCheckpoint.NativeMessageQueueCreated,
         (int)Phase1AcquisitionCheckpoint.DispatcherCreated,
