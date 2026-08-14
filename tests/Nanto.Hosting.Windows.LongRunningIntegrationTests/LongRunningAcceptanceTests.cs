@@ -327,7 +327,24 @@ public sealed class LongRunningAcceptanceTests
             await JsonSerializer.SerializeAsync(stream, progress, LongRunningJsonContext.Default.LongRunningProgress, CancellationToken.None);
         }
 
-        File.Move(pendingPath, progressPath, overwrite: true);
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            try
+            {
+                File.Move(pendingPath, progressPath, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when ((exception is IOException or UnauthorizedAccessException) && attempt < 39)
+            {
+                // Windows readers do not necessarily share deletion. Preserve the previous complete snapshot and retry after the reader closes.
+                await Task.Delay(TimeSpan.FromMilliseconds(25), CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Progress is diagnostic evidence and must never invalidate the lifecycle soak. A later child retries with a fresh snapshot.
+                return;
+            }
+        }
     }
 
     private static void ObserveResources(Dictionary<string, Phase1ResourceCount> maximumResources, Phase1TestReport report)
