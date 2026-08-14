@@ -1,0 +1,16 @@
+RoInitialize
+RoUninitialize
+RoActivateInstance
+WindowsCreateString
+WindowsDeleteString
+CreateWindowEx
+DestroyWindow
+GetMessage
+TranslateMessage
+DispatchMessage
+PostQuitMessage
+WINDOW_EX_STYLE
+WINDOW_STYLE
+CW_USEDEFAULT
+RO_INIT_TYPE
+HSTRING

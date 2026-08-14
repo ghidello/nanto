@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <SelfContained>true</SelfContained>
+    <TrimMode>full</TrimMode>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <IsAotCompatible>true</IsAotCompatible>
+    <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AppearanceInteropMode)' == 'SdkProjection'">
+    <DefineConstants>$(DefineConstants);SDK_PROJECTION</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AppearanceInteropMode)' == 'NarrowAbi'">
+    <DefineConstants>$(DefineConstants);NARROW_ABI</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Generated\WinRtAppearanceInterop.g.cs" Link="Generated\WinRtAppearanceInterop.g.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\..\src\Nanto.Hosting.Windows\Interop\Generated\WebView2Interop.g.cs"
+             Link="Generated\WebView2Interop.g.cs" />
+    <DirectPInvoke Include="WebView2Loader" />
+    <NativeLibrary Include="$(PkgMicrosoft_Web_WebView2)\build\native\x64\WebView2LoaderStatic.lib" />
+  </ItemGroup>
+
+  <Target Name="ValidateAppearanceInteropMode"
+          BeforeTargets="PrepareForBuild;Publish"
+          Condition="'$(AppearanceInteropMode)' != 'SdkProjection' and '$(AppearanceInteropMode)' != 'NarrowAbi'">
+    <Error Text="Unknown AppearanceInteropMode '$(AppearanceInteropMode)'. Expected SdkProjection or NarrowAbi." />
+  </Target>
+</Project>

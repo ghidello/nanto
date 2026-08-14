@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Nanto.WinRtAppearanceAbiGen</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.NET.Ref"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all"
+                      ExcludeAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <SpikeRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))</SpikeRoot>
+    <GenerationSpec>$(SpikeRoot)\winrt-appearance-spec.json</GenerationSpec>
+    <CommittedGenerationDirectory>$(SpikeRoot)\Generated</CommittedGenerationDirectory>
+    <VerificationGenerationDirectory>$(BaseIntermediateOutputPath)verified</VerificationGenerationDirectory>
+  </PropertyGroup>
+
+  <Target Name="GenerateWinRtAppearanceAbi" DependsOnTargets="Build">
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; --package-root &quot;$(PkgMicrosoft_Windows_SDK_NET_Ref)&quot; --spec &quot;$(GenerationSpec)&quot; --output &quot;$(CommittedGenerationDirectory)&quot;" />
+  </Target>
+
+  <Target Name="VerifyWinRtAppearanceAbi" DependsOnTargets="Build">
+    <RemoveDir Directories="$(VerificationGenerationDirectory)" />
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; --package-root &quot;$(PkgMicrosoft_Windows_SDK_NET_Ref)&quot; --spec &quot;$(GenerationSpec)&quot; --output &quot;$(VerificationGenerationDirectory)&quot; --verify &quot;$(CommittedGenerationDirectory)&quot;" />
+  </Target>
+</Project>

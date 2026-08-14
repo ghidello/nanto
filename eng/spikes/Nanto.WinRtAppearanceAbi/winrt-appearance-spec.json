@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "targetFramework": "net10.0-windows10.0.19041.0",
+  "targetingPackVersion": "10.0.19041.57",
+  "contract": "Windows.Foundation.UniversalApiContract.winmd",
+  "foundationContract": "Windows.Foundation.FoundationContract.winmd",
+  "projectionRuntime": "lib/net8.0/WinRT.Runtime.dll",
+  "runtimeClass": "Windows.UI.ViewManagement.UISettings",
+  "interface": "Windows.UI.ViewManagement.IUISettings3",
+  "members": [
+    "GetColorValue",
+    "add_ColorValuesChanged",
+    "remove_ColorValuesChanged"
+  ],
+  "eventHandler": "Windows.Foundation.TypedEventHandler<Windows.UI.ViewManagement.UISettings, System.Object>"
+}

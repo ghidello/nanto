@@ -1,0 +1,10 @@
+<Project>
+  <Import Project="../../../../Directory.Build.props" />
+
+  <PropertyGroup>
+    <AppearanceInteropMode Condition="'$(AppearanceInteropMode)' == ''">SdkProjection</AppearanceInteropMode>
+    <BaseIntermediateOutputPath>obj\$(AppearanceInteropMode)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin\$(AppearanceInteropMode)\</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>
