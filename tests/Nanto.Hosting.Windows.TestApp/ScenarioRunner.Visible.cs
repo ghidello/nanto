@@ -29,7 +29,6 @@ internal static partial class ScenarioRunner
             retainedArtifacts,
             async (host, window) =>
             {
-                await EnsureForegroundFocusAsync(host, window);
                 await WaitForForegroundFocusAsync(host, window);
                 var systemAppearance = await WaitForAppearanceValueAsync(host);
                 appearanceObservations.Add($"System:{systemAppearance}");
@@ -111,7 +110,6 @@ internal static partial class ScenarioRunner
             retainedArtifacts,
             async (host, window) =>
             {
-                await EnsureForegroundFocusAsync(host, window);
                 await WaitForForegroundFocusAsync(host, window);
                 await CaptureVisibleObservationAsync(host, window, request, "WindowsInitialPlacement", null, observations, retainedArtifacts);
                 if (!topology.Any(monitor => Intersects(observations[^1], monitor.Observation)))
@@ -411,9 +409,12 @@ internal static partial class ScenarioRunner
         while (true)
         {
             timeout.Token.ThrowIfCancellationRequested();
-            var observation = await host.Dispatcher.InvokeAsync(
-                () => VisibleDesktopAutomation.CaptureWindow(GetWindowHandle((WindowsWindow)window), window.Size, "Activation", null),
-                timeout.Token);
+            var observation = await host.Dispatcher.InvokeAsync(() =>
+            {
+                var windowHandle = GetWindowHandle((WindowsWindow)window);
+                VisibleDesktopAutomation.RequestForegroundFocus(windowHandle);
+                return VisibleDesktopAutomation.CaptureWindow(windowHandle, window.Size, "Activation", null);
+            }, timeout.Token);
             if (observation.IsForeground && observation.HasKeyboardFocus)
             {
                 return;
@@ -422,9 +423,6 @@ internal static partial class ScenarioRunner
             await Task.Delay(TimeSpan.FromMilliseconds(50), timeout.Token);
         }
     }
-
-    private static ValueTask EnsureForegroundFocusAsync(WindowsApplicationHost host, INantoWindow window) =>
-        host.Dispatcher.InvokeAsync(() => VisibleDesktopAutomation.EnsureForegroundFocus(GetWindowHandle((WindowsWindow)window)));
 
     private static async Task WaitForSizeAsync(INantoWindow window, WindowSize expected)
     {

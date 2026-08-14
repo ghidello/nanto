@@ -1,5 +1,6 @@
 BitBlt
 AttachThreadInput
+BringWindowToTop
 CreateCompatibleBitmap
 CreateCompatibleDC
 DeleteDC
@@ -21,6 +22,7 @@ ReleaseDC
 SelectObject
 SendInput
 SetFocus
+SetActiveWindow
 SetForegroundWindow
 SetThreadDpiAwarenessContext
 SetWindowPos

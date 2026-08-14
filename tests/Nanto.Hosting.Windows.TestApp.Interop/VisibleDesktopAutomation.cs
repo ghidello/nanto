@@ -168,7 +168,7 @@ public static unsafe class VisibleDesktopAutomation
 
     public static uint GetDpi(nint windowHandle) => TestPInvoke.GetDpiForWindow(new HWND(windowHandle));
 
-    public static void EnsureForegroundFocus(nint windowHandle)
+    public static void RequestForegroundFocus(nint windowHandle)
     {
         var window = new HWND(windowHandle);
         var focusedWindow = TestPInvoke.GetFocus();
@@ -183,20 +183,15 @@ public static unsafe class VisibleDesktopAutomation
         var attached = foregroundThreadId != 0
             && foregroundThreadId != currentThreadId
             && TestPInvoke.AttachThreadInput(currentThreadId, foregroundThreadId, true);
-        Exception? detachFailure = null;
-        Exception? operationFailure = null;
+        Win32Exception? detachFailure = null;
         try
         {
-            if (!TestPInvoke.SetForegroundWindow(window))
-            {
-                throw new InvalidOperationException("Windows denied foreground promotion for the visible Nanto test window.");
-            }
-
+            // These APIs are requests subject to Windows foreground policy. Their return values do not establish the eventual
+            // foreground/focus state, so the caller observes that state and retries within a bounded deadline.
+            _ = TestPInvoke.BringWindowToTop(window);
+            _ = TestPInvoke.SetActiveWindow(window);
+            _ = TestPInvoke.SetForegroundWindow(window);
             _ = TestPInvoke.SetFocus(window);
-        }
-        catch (Exception exception)
-        {
-            operationFailure = exception;
         }
         finally
         {
@@ -206,19 +201,9 @@ public static unsafe class VisibleDesktopAutomation
             }
         }
 
-        if (operationFailure is not null && detachFailure is not null)
-        {
-            throw new AggregateException("Foreground promotion and input-queue detachment both failed.", operationFailure, detachFailure);
-        }
-
-        if (operationFailure is not null)
-        {
-            ExceptionDispatchInfo.Capture(operationFailure).Throw();
-        }
-
         if (detachFailure is not null)
         {
-            ExceptionDispatchInfo.Capture(detachFailure).Throw();
+            throw detachFailure;
         }
     }
 
