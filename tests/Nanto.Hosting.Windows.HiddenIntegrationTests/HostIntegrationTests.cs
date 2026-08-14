@@ -232,6 +232,8 @@ public sealed class HostIntegrationTests
             result.Report.Should().BeNull();
             result.ArtifactsRetained.Should().BeTrue();
             Directory.Exists(result.ArtifactDirectory).Should().BeTrue();
+            File.Exists(Path.Combine(result.ArtifactDirectory, "stdout.txt")).Should().BeTrue();
+            File.Exists(Path.Combine(result.ArtifactDirectory, "stderr.txt")).Should().BeTrue();
         }
         finally
         {
@@ -240,6 +242,25 @@ public sealed class HostIntegrationTests
                 Directory.Delete(result.ArtifactDirectory, recursive: true);
             }
         }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("../escape")]
+    [InlineData("nested/child")]
+    [InlineData("UPPERCASE")]
+    [InlineData("contains_space")]
+    public async Task ProcessRunnerRejectsUnsafeArtifactDirectoryNames(string artifactDirectoryName)
+    {
+        var action = () => Phase1TestProcessRunner.RunAsync(new Phase1TestRunOptions
+        {
+            TestAppPath = GetAssemblyMetadata("NantoTestAppPath"),
+            ArtifactRoot = Path.Combine(GetAssemblyMetadata("NantoRepositoryRoot"), "artifacts", "phase1", "runs"),
+            ArtifactDirectoryName = artifactDirectoryName,
+            Scenario = Phase1TestScenario.HostLifecycle,
+        });
+
+        await action.Should().ThrowAsync<ArgumentException>();
     }
 
     private static void AssertFinalLedgerIsZero(Phase1TestReport report)

@@ -110,6 +110,7 @@ Use the following exact project layout:
 | `tests/Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj` | `net10.0-windows10.0.19041.0` | References TestProtocol; contains the process runner, artifact handling, job-object containment, bounded PE/signature inspection, deterministic packaging, and deployment evidence records; it is not a test project. |
 | `tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj` | `net10.0-windows10.0.19041.0` | Publishes TestApp once in fixed self-contained CoreCLR `Release` mode when tests execute, inspects deployment and symbols, and runs the three critical hidden smoke scenarios. |
 | `tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj` | `net10.0-windows10.0.19041.0` | Publishes TestApp once in fixed Native AOT `Release` mode when tests execute, verifies static WebView2 loader linkage and the native deployment/symbol shape, and runs the same three critical hidden smoke scenarios. |
+| `tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj` | `net10.0-windows10.0.19041.0` | Manual-only framework-dependent hidden acceptance; runs 500 lifecycle and 50 renderer-recovery processes under one application identity and writes one aggregate summary. Ordinary and unattended scopes build but never execute it. |
 | `eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj` | `net10.0` executable | Offline deterministic generator for the narrow WebView2 COM projection; consumes official inputs from the pinned SDK package and has no production runtime role. |
 | `eng/Nanto.WinRtAppearanceInteropGen/Nanto.WinRtAppearanceInteropGen.csproj` | `net10.0` executable | Offline deterministic generator for the narrow raw `UISettings` ABI; validates the pinned targeting-pack WinMD and has no production runtime role. |
 | `tests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests/Nanto.Hosting.Windows.InteropGeneration.IntegrationTests.csproj` | `net10.0` | References both production interop generators, regenerates into its own `obj` tree, and compares committed outputs byte-for-byte without creating a window or WebView2 process. |
@@ -963,23 +964,25 @@ This self-driving project intentionally shows one production TestApp window. It 
 
 If no different-DPI pair exists, the second scenario retains an `InsufficientDisplays` report and skips without creating a window. That is useful evidence but is not acceptance. The project is excluded from every unattended test scope and ordinary CI. It runs only when someone names it directly with `RunManualTests=true` on an isolated unlocked session and intentionally accepts foreground changes, resizing/movement, F6 input, and screenshots.
 
-### Planned long-running integration tests
+### Long-running integration tests
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
 ```
 
-- Hidden windows only.
-- Ten sequential blocks, each running 50 isolated `HostLifecycle` processes and 5 isolated `RendererRecovery` processes: 500 lifecycle runs and 50 recovery runs in total.
-- One application identity is shared across the 550 processes so bundle and UDF reuse cross process boundaries; the final root must be deletable.
-- A 45-minute outer deadline stops further blocks, terminates the active contained process tree, and retains partial evidence.
-- Manual-only, with a retained aggregate summary beneath `artifacts/phase1/long-running/<run-id>/summary.json`.
+- The implemented project uses only the framework-dependent TestApp DLL and hidden presentation; it does not add a soak-only protocol scenario.
+- Ten sequential blocks each run 50 isolated `HostLifecycle` processes and 5 isolated `RendererRecovery` processes: 500 lifecycle runs and 50 recovery runs in total.
+- Each soak creates one unique application identity and shares it across all 550 processes so bundle and UDF reuse cross process boundaries without contamination from an earlier run.
+- One shared kill-on-close process group contains every child. A 45-minute outer deadline or first failure terminates the active tree and prevents further launches.
+- Successful child directories are deleted. The first failing child retains its deterministic relative directory, request, report when available, stdout, and stderr.
+- The test atomically writes a source-generated `summary.json` beneath `artifacts/phase1/long-running/<run-id>` with requested/completed counts, block durations, maximum resources, first failure, SDK/runtime/OS/architecture, DLL launch shape, and final application-root deletion result.
+- Success requires all 550 reports to succeed with zero final resources, every contained process tree to exit, and the shared application root to be deleted.
 
 ## CI and documentation policy
 
 - Ordinary CI runs root `dotnet build` and `dotnet test` using the default `Fast` test scope.
 - Requested unattended integration CI runs `dotnet test -p:TestScope=All`, covering interop generation and all three host deployment modes.
-- VisibleIntegrationTests never runs automatically; the planned LongRunningIntegrationTests project will follow the same rule once Milestone 6 introduces it.
+- VisibleIntegrationTests and LongRunningIntegrationTests never run automatically; each requires its exact project path and the two manual opt-ins.
 - Project boundaries define runtime, deployment, visibility, and duration. Repository-generated assembly traits and centrally supplied MTP filters implement the canonical scopes; individual tests do not select their own inventory.
 - Test profiles and environment variables do not select tests or host build modes. Environment variables remain acceptable only for genuinely machine-specific inputs that are explicit in the relevant project contract.
 - Automatic GitHub Actions triggers remain disabled until a separate cost-policy decision enables them.
@@ -1064,7 +1067,7 @@ dotnet test -p:TestScope=All
 
 Framework-dependent CoreCLR runs the exhaustive behavioral suite. Self-contained CoreCLR and Native AOT pass their critical deployment smoke, use isolated build trees and the same production contracts, and validate their loader and symbol policies. Native AOT produces no unexplained trim/AOT warning, deployable directories contain no PDB, and each publish lane retains symbols separately.
 
-Implementation is split into five reviewable batches: build-mode isolation and launch semantics; self-contained CoreCLR publication/evidence; Native AOT publication and static loader linkage; the manual long-running soak; and the final Phase 1 gate record. The first three batches are implemented; the manual long-running soak is next. Deployment-size evidence establishes a conservative TestApp baseline rather than an invented absolute budget. Release publications occur only when their unattended deployment projects execute, not during an ordinary solution build.
+Implementation is split into five reviewable batches: build-mode isolation and launch semantics; self-contained CoreCLR publication/evidence; Native AOT publication and static loader linkage; the manual long-running soak; and the final Phase 1 gate record. The first four implementations are present; the 550-process manual execution remains pending and therefore has not yet completed the fourth batch's acceptance evidence. Deployment-size evidence establishes a conservative TestApp baseline rather than an invented absolute budget. Release publications occur only when their unattended deployment projects execute, not during an ordinary solution build.
 
 Run `dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true` separately only when explicitly approving its machine time. The Phase 1 gate report records the exact commands, SDK/runtime versions, architecture, results, known deferrals, and artifact locations. Milestone 6 implementation may proceed while mixed-DPI hardware is unavailable, but the gate report remains `Pending — mixed-DPI visible acceptance` and Phase 1 is not complete until that visible scenario passes.
 

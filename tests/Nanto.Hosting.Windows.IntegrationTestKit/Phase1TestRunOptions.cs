@@ -8,6 +8,8 @@ public sealed record Phase1TestRunOptions
 
     public required string ArtifactRoot { get; init; }
 
+    public string? ArtifactDirectoryName { get; init; }
+
     public required Phase1TestScenario Scenario { get; init; }
 
     public string? ApplicationId { get; init; }

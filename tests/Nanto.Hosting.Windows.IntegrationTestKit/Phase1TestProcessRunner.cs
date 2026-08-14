@@ -15,10 +15,15 @@ public static class Phase1TestProcessRunner
     {
         ValidateOptions(options);
 
-        var runId = Guid.NewGuid().ToString("N");
+        var runId = options.ArtifactDirectoryName ?? Guid.NewGuid().ToString("N");
         var applicationId = options.ApplicationId ?? $"com.nanto.phase1.{runId}";
         var applicationRoot = GetApplicationRoot(applicationId);
         var artifactDirectory = Path.Combine(Path.GetFullPath(options.ArtifactRoot), runId);
+        if (Directory.Exists(artifactDirectory) || File.Exists(artifactDirectory))
+        {
+            throw new IOException($"The artifact directory '{runId}' already exists.");
+        }
+
         Directory.CreateDirectory(artifactDirectory);
         var requestPath = Path.Combine(artifactDirectory, "request.json");
         var pendingRequestPath = Path.Combine(artifactDirectory, "request.pending.json");
@@ -47,8 +52,8 @@ public static class Phase1TestProcessRunner
         {
             job = options.ProcessGroup?.GetJob() ?? WindowsProcessJob.CreateKillOnClose();
             process = StartProcess(options.TestAppPath, requestPath, reportPath);
-            standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+            standardOutput = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+            standardError = process.StandardError.ReadToEndAsync(CancellationToken.None);
             try
             {
                 if (options.ProcessGroup is null)
@@ -104,6 +109,7 @@ public static class Phase1TestProcessRunner
                     throw new AggregateException("The TestApp scenario was canceled, and stopping its contained process tree also failed.", cancellationException, stopException);
                 }
 
+                await PersistOutputAsync(artifactDirectory, standardOutput, standardError).ConfigureAwait(false);
                 throw;
             }
 
@@ -114,11 +120,9 @@ public static class Phase1TestProcessRunner
             }
             var output = await standardOutput.ConfigureAwait(false);
             var error = await standardError.ConfigureAwait(false);
-            if (options.RetainArtifactsOnSuccess)
-            {
-                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stdout.txt"), output, cancellationToken).ConfigureAwait(false);
-                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stderr.txt"), error, cancellationToken).ConfigureAwait(false);
-            }
+            // Write output before interpreting the report. Successful non-retained runs remove the entire directory below,
+            // while failures keep the diagnostics even when report loading or validation fails.
+            await PersistOutputAsync(artifactDirectory, output, error).ConfigureAwait(false);
             var report = await ReadReportAsync(reportPath, request, cancellationToken).ConfigureAwait(false);
             var result = new Phase1TestRunResult
             {
@@ -159,6 +163,11 @@ public static class Phase1TestProcessRunner
             catch (Exception stopException)
             {
                 throw new AggregateException("The TestApp run failed, and stopping its contained process tree also failed.", processException, stopException);
+            }
+
+            if (standardOutput is not null && standardError is not null)
+            {
+                await PersistOutputAsync(artifactDirectory, standardOutput, standardError).ConfigureAwait(false);
             }
 
             throw;
@@ -203,6 +212,17 @@ public static class Phase1TestProcessRunner
         }
     }
 
+    public static string GetApplicationRoot(string applicationId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        var canonicalId = applicationId.Trim().ToLowerInvariant();
+        var finalSegment = canonicalId.Split('.')[^1];
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalId));
+        var storageKey = $"{finalSegment}-{Convert.ToHexStringLower(hash.AsSpan(0, 16))}";
+        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localApplicationData, "Nanto", "applications", storageKey);
+    }
+
     private static async Task<Phase1TestReport?> ReadReportAsync(
         string reportPath,
         Phase1TestRequest request,
@@ -232,6 +252,17 @@ public static class Phase1TestProcessRunner
 
             return report;
         }
+    }
+
+    private static async Task PersistOutputAsync(string artifactDirectory, Task<string> standardOutput, Task<string> standardError)
+    {
+        await PersistOutputAsync(artifactDirectory, await standardOutput.ConfigureAwait(false), await standardError.ConfigureAwait(false)).ConfigureAwait(false);
+    }
+
+    private static async Task PersistOutputAsync(string artifactDirectory, string standardOutput, string standardError)
+    {
+        await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stdout.txt"), standardOutput, CancellationToken.None).ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "stderr.txt"), standardError, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static Process StartProcess(string testAppPath, string requestPath, string reportPath)
@@ -313,6 +344,13 @@ public static class Phase1TestProcessRunner
             throw new ArgumentException("The artifact root must be an absolute path.", nameof(options));
         }
 
+        if (options.ArtifactDirectoryName is not null && !IsValidArtifactDirectoryName(options.ArtifactDirectoryName))
+        {
+            throw new ArgumentException(
+                "The artifact directory name must contain 1 to 128 lowercase ASCII letters, digits, or hyphens.",
+                nameof(options));
+        }
+
         if (options.Timeout <= TimeSpan.Zero || options.Timeout > TimeSpan.FromMinutes(5))
         {
             throw new ArgumentOutOfRangeException(nameof(options), options.Timeout, "The scenario timeout must be positive and no greater than five minutes.");
@@ -324,14 +362,22 @@ public static class Phase1TestProcessRunner
         }
     }
 
-    private static string GetApplicationRoot(string applicationId)
+    private static bool IsValidArtifactDirectoryName(string value)
     {
-        var canonicalId = applicationId.Trim().ToLowerInvariant();
-        var finalSegment = canonicalId.Split('.')[^1];
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalId));
-        var storageKey = $"{finalSegment}-{Convert.ToHexStringLower(hash.AsSpan(0, 16))}";
-        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localApplicationData, "Nanto", "applications", storageKey);
+        if (value.Length is 0 or > 128)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (character is not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '-')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static async Task WriteRequestAsync(string pendingRequestPath, Phase1TestRequest request, CancellationToken cancellationToken)

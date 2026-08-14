@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj" />
+    <ProjectReference Include="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
+  </ItemGroup>
+  <Target Name="AddNantoLongRunningIntegrationMetadata"
+          BeforeTargets="GetAssemblyAttributes"
+          DependsOnTargets="ResolveProjectReferences">
+    <MSBuild Projects="../Nanto.Hosting.Windows.TestApp/Nanto.Hosting.Windows.TestApp.csproj"
+             Targets="GetNantoTestAppLaunchPath"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_NantoTestAppLaunchPath" />
+    </MSBuild>
+    <PropertyGroup>
+      <_NantoTestAppLaunchPathValue>@(_NantoTestAppLaunchPath)</_NantoTestAppLaunchPathValue>
+    </PropertyGroup>
+    <Error Condition="!$(_NantoTestAppLaunchPathValue.EndsWith('.dll'))"
+           Text="Long-running acceptance requires the framework-dependent TestApp DLL." />
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>NantoRepositoryRoot</_Parameter1>
+        <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>NantoTestAppPath</_Parameter1>
+        <_Parameter2>@(_NantoTestAppLaunchPath)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>NantoSdkVersion</_Parameter1>
+        <_Parameter2>$(NETCoreSdkVersion)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+</Project>

@@ -6,7 +6,7 @@ Nanto is an early-stage .NET framework for building small native applications wi
 
 ## Status
 
-Nanto starts with Phase 1: a clean production implementation of the Windows host and lifecycle kernel. Milestones 1–4 established the portable lifecycle, raw-Win32 and WebView2 host, strict embedded asset manifests, content-addressed publication, concurrent shared leases, and exact declared-asset navigation. Milestone 5 has implemented DPI-aware window behavior, native appearance, renderer recovery, and structured diagnostics; mixed-DPI visible acceptance remains pending. Milestone 6 has established isolated TestApp build modes plus self-contained CoreCLR and Native AOT deployment evidence; the manual long-running lifecycle and recovery soak is the next batch.
+Nanto starts with Phase 1: a clean production implementation of the Windows host and lifecycle kernel. Milestones 1–4 established the portable lifecycle, raw-Win32 and WebView2 host, strict embedded asset manifests, content-addressed publication, concurrent shared leases, and exact declared-asset navigation. Milestone 5 has implemented DPI-aware window behavior, native appearance, renderer recovery, and structured diagnostics; mixed-DPI visible acceptance remains pending. Milestone 6 has established isolated TestApp build modes, self-contained CoreCLR and Native AOT deployment evidence, and manual long-running acceptance infrastructure. The 550-process soak and final evidence record remain to be run.
 
 Window sizes describe the WebView client area in device-independent pixels. Windows chooses the initial screen position in Phase 1, and Nanto uses Per-Monitor-V2 behavior so a user can move the window across displays with different scaling without exposing ambiguous global logical coordinates. Display and work-area changes preserve every partially visible placement; a wholly inaccessible window is moved, without resizing, to the nearest current work area.
 
@@ -56,5 +56,13 @@ dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Wi
 ```
 
 Successful artifacts are retained beneath `artifacts/phase1/visible/<run-id>` and include the request, report, stdout, stderr, monitor topology, observations, and screenshots. On a machine without two active monitors using different effective DPI, the desktop scenario can pass while the cross-monitor scenario skips and retains `InsufficientDisplays` topology evidence; that skip does not complete Milestone 5. Passing `RunManualTests=true` through `Nanto.slnx` is rejected. Automated agents must not run the project as routine verification and must obtain explicit user approval for its desktop effects.
+
+The long-running project is also manual-only, but uses hidden windows and does not interact with the desktop. It runs ten sequential blocks of 50 `HostLifecycle` and 5 `RendererRecovery` processes: 500 lifecycle processes and 50 recovery processes under one application identity and one kill-on-close process group. Allow up to 45 minutes and approve it separately:
+
+```powershell
+dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true
+```
+
+Successful child artifacts are removed. A failure retains its request, report when available, stdout, and stderr; every run atomically writes an ignored aggregate at `artifacts/phase1/long-running/<run-id>/summary.json`. Passing `RunManualTests=true` through `Nanto.slnx` is rejected, and automated agents must obtain explicit approval before consuming the soak's machine time.
 
 The Milestone 4 implementation keeps WebView2 virtual-host mapping and requires an explicit declared startup asset such as `/index.html`. Client-side history and hash routing work after startup; clean-path reload fallback and service workers are deferred because mapped resources do not raise `WebResourceRequested`, and mapped service-worker scripts are unsupported. The robust future option is a custom response-serving asset host, not a redirect/bootstrap workaround.
