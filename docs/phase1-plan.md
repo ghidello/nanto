@@ -975,7 +975,7 @@ dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hostin
 - Each soak creates one unique application identity and shares it across all 550 processes so bundle and UDF reuse cross process boundaries without contamination from an earlier run.
 - One shared kill-on-close process group contains every child. A 45-minute outer deadline or first failure terminates the active tree and prevents further launches.
 - Successful child directories are deleted. The first failing child retains its deterministic relative directory, request, report when available, stdout, and stderr.
-- The test atomically writes a source-generated `summary.json` beneath `artifacts/phase1/long-running/<run-id>` with requested/completed counts, block durations, maximum resources, first failure, SDK/runtime/OS/architecture, DLL launch shape, and final application-root deletion result.
+- While running, the test atomically updates a source-generated `progress.json` with the active block, current child out of 550, scenario iteration, completed counts, and elapsed time, and emits one console message per completed block. The final atomic `summary.json` supersedes that progress file and records requested/completed counts, block durations, maximum resources, first failure, SDK/runtime/OS/architecture, DLL launch shape, and final application-root deletion result.
 - Success requires all 550 reports to succeed with zero final resources, every contained process tree to exit, and the shared application root to be deleted.
 
 ## CI and documentation policy

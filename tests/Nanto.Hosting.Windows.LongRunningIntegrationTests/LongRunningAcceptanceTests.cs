@@ -14,6 +14,7 @@ public sealed class LongRunningAcceptanceTests
     private const int BlockCount = 10;
     private const int HostLifecycleProcessesPerBlock = 50;
     private const int RendererRecoveryProcessesPerBlock = 5;
+    private const int TotalProcessCount = BlockCount * (HostLifecycleProcessesPerBlock + RendererRecoveryProcessesPerBlock);
     private static readonly TimeSpan _outerTimeout = TimeSpan.FromMinutes(45);
     private static readonly TimeSpan _processTimeout = TimeSpan.FromSeconds(45);
     private static readonly string _repositoryRoot = GetAssemblyMetadata("NantoRepositoryRoot");
@@ -48,6 +49,19 @@ public sealed class LongRunningAcceptanceTests
 
         using var deadline = new CancellationTokenSource(_outerTimeout);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, TestContext.Current.CancellationToken);
+        await WriteProgressAsync(
+            runDirectory,
+            runId,
+            startedAt,
+            stopwatch,
+            status: "Starting",
+            currentBlock: 0,
+            currentProcess: 0,
+            completedHostLifecycleProcesses,
+            completedRendererRecoveryProcesses);
+        Console.WriteLine(
+            $"Long-running acceptance started: 0/{TotalProcessCount} processes. " +
+            $"Progress: '{Path.Combine(runDirectory, "progress.json")}'.");
         using (var processGroup = Phase1TestProcessGroup.Create())
         {
             try
@@ -60,6 +74,19 @@ public sealed class LongRunningAcceptanceTests
 
                     for (var iteration = 1; iteration <= HostLifecycleProcessesPerBlock && firstFailure is null; iteration++)
                     {
+                        var currentProcess = completedHostLifecycleProcesses + completedRendererRecoveryProcesses + 1;
+                        await WriteProgressAsync(
+                            runDirectory,
+                            runId,
+                            startedAt,
+                            stopwatch,
+                            status: "Running",
+                            block,
+                            currentProcess,
+                            completedHostLifecycleProcesses,
+                            completedRendererRecoveryProcesses,
+                            Phase1TestScenario.HostLifecycle,
+                            iteration);
                         var outcome = await RunChildAsync(
                             Phase1TestScenario.HostLifecycle,
                             block,
@@ -81,10 +108,36 @@ public sealed class LongRunningAcceptanceTests
                             completedHostLifecycleProcesses++;
                             blockHostLifecycleProcesses++;
                         }
+
+                        await WriteProgressAsync(
+                            runDirectory,
+                            runId,
+                            startedAt,
+                            stopwatch,
+                            status: firstFailure is null ? "Running" : "Failed",
+                            block,
+                            currentProcess,
+                            completedHostLifecycleProcesses,
+                            completedRendererRecoveryProcesses,
+                            Phase1TestScenario.HostLifecycle,
+                            iteration);
                     }
 
                     for (var iteration = 1; iteration <= RendererRecoveryProcessesPerBlock && firstFailure is null; iteration++)
                     {
+                        var currentProcess = completedHostLifecycleProcesses + completedRendererRecoveryProcesses + 1;
+                        await WriteProgressAsync(
+                            runDirectory,
+                            runId,
+                            startedAt,
+                            stopwatch,
+                            status: "Running",
+                            block,
+                            currentProcess,
+                            completedHostLifecycleProcesses,
+                            completedRendererRecoveryProcesses,
+                            Phase1TestScenario.RendererRecovery,
+                            iteration);
                         var outcome = await RunChildAsync(
                             Phase1TestScenario.RendererRecovery,
                             block,
@@ -106,6 +159,19 @@ public sealed class LongRunningAcceptanceTests
                             completedRendererRecoveryProcesses++;
                             blockRendererRecoveryProcesses++;
                         }
+
+                        await WriteProgressAsync(
+                            runDirectory,
+                            runId,
+                            startedAt,
+                            stopwatch,
+                            status: firstFailure is null ? "Running" : "Failed",
+                            block,
+                            currentProcess,
+                            completedHostLifecycleProcesses,
+                            completedRendererRecoveryProcesses,
+                            Phase1TestScenario.RendererRecovery,
+                            iteration);
                     }
 
                     blockSummaries.Add(new LongRunningBlockSummary
@@ -118,6 +184,9 @@ public sealed class LongRunningAcceptanceTests
                     if (firstFailure is null)
                     {
                         completedBlocks++;
+                        Console.WriteLine(
+                            $"Long-running acceptance completed block {completedBlocks}/{BlockCount} " +
+                            $"({completedHostLifecycleProcesses + completedRendererRecoveryProcesses}/{TotalProcessCount} processes).");
                     }
                 }
             }
@@ -218,6 +287,48 @@ public sealed class LongRunningAcceptanceTests
         .Single(attribute => string.Equals(attribute.Key, key, StringComparison.Ordinal))
         .Value
         ?? throw new InvalidOperationException($"Assembly metadata '{key}' does not contain a value.");
+
+    private static async Task WriteProgressAsync(
+        string runDirectory,
+        string runId,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch,
+        string status,
+        int currentBlock,
+        int currentProcess,
+        int completedHostLifecycleProcesses,
+        int completedRendererRecoveryProcesses,
+        Phase1TestScenario? currentScenario = null,
+        int? currentScenarioIteration = null)
+    {
+        var progress = new LongRunningProgress
+        {
+            SchemaVersion = 1,
+            RunId = runId,
+            Status = status,
+            StartedAt = startedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            ElapsedMilliseconds = (long)stopwatch.Elapsed.TotalMilliseconds,
+            CurrentBlock = currentBlock,
+            TotalBlocks = BlockCount,
+            CurrentProcess = currentProcess,
+            TotalProcesses = TotalProcessCount,
+            CompletedProcesses = completedHostLifecycleProcesses + completedRendererRecoveryProcesses,
+            CompletedHostLifecycleProcesses = completedHostLifecycleProcesses,
+            CompletedRendererRecoveryProcesses = completedRendererRecoveryProcesses,
+            CurrentScenario = currentScenario?.ToString(),
+            CurrentScenarioIteration = currentScenarioIteration,
+        };
+        var pendingPath = Path.Combine(runDirectory, "progress.pending.json");
+        var progressPath = Path.Combine(runDirectory, "progress.json");
+        var stream = new FileStream(pendingPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
+        await using (stream.ConfigureAwait(false))
+        {
+            await JsonSerializer.SerializeAsync(stream, progress, LongRunningJsonContext.Default.LongRunningProgress, CancellationToken.None);
+        }
+
+        File.Move(pendingPath, progressPath, overwrite: true);
+    }
 
     private static void ObserveResources(Dictionary<string, Phase1ResourceCount> maximumResources, Phase1TestReport report)
     {
@@ -347,6 +458,7 @@ public sealed class LongRunningAcceptanceTests
         }
 
         File.Move(pendingPath, summaryPath);
+        File.Delete(Path.Combine(runDirectory, "progress.json"));
         return summaryPath;
     }
 
