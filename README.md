@@ -57,7 +57,7 @@ dotnet test tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Wi
 
 Successful artifacts are retained beneath `artifacts/phase1/visible/<run-id>` and include the request, report, stdout, stderr, monitor topology, observations, and screenshots. On a machine without two active monitors using different effective DPI, the desktop scenario can pass while the cross-monitor scenario skips and retains `InsufficientDisplays` topology evidence; that skip does not complete Milestone 5. Passing `RunManualTests=true` through `Nanto.slnx` is rejected. Automated agents must not run the project as routine verification and must obtain explicit user approval for its desktop effects.
 
-The long-running project is also manual-only, but uses hidden windows and does not interact with the desktop. It runs ten sequential blocks of 50 `HostLifecycle` and 5 `RendererRecovery` processes: 500 lifecycle processes and 50 recovery processes under one application identity and one kill-on-close process group. Allow up to 45 minutes and approve it separately:
+The long-running project is also manual-only, but uses hidden windows and does not interact with the desktop. It runs ten sequential blocks of 50 `HostLifecycle` and 5 `RendererRecovery` processes: 500 lifecycle processes and 50 recovery processes under one application identity and one kill-on-close process group. A measured partial run completed 397 clean processes in 45 minutes, projecting roughly 62–64 minutes for the complete inventory; allow up to the 75-minute safety deadline and approve it separately:
 
 ```powershell
 dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hosting.Windows.LongRunningIntegrationTests.csproj -p:TestScope=All -p:RunManualTests=true

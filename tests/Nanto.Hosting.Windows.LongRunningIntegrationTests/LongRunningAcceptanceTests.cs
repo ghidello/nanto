@@ -15,7 +15,7 @@ public sealed class LongRunningAcceptanceTests
     private const int HostLifecycleProcessesPerBlock = 50;
     private const int RendererRecoveryProcessesPerBlock = 5;
     private const int TotalProcessCount = BlockCount * (HostLifecycleProcessesPerBlock + RendererRecoveryProcessesPerBlock);
-    private static readonly TimeSpan _outerTimeout = TimeSpan.FromMinutes(45);
+    private static readonly TimeSpan _outerTimeout = TimeSpan.FromMinutes(75);
     private static readonly TimeSpan _processTimeout = TimeSpan.FromSeconds(45);
     private static readonly string _repositoryRoot = GetAssemblyMetadata("NantoRepositoryRoot");
     private static readonly string _testAppPath = GetAssemblyMetadata("NantoTestAppPath");
@@ -37,6 +37,10 @@ public sealed class LongRunningAcceptanceTests
         var completedHostLifecycleProcesses = 0;
         var completedRendererRecoveryProcesses = 0;
         var completedBlocks = 0;
+        var activeBlock = 0;
+        var activeIteration = 0;
+        Phase1TestScenario? activeScenario = null;
+        var activeArtifactPath = "children";
         var hostEnvironment = new Phase1HostEnvironment
         {
             FrameworkDescription = RuntimeInformation.FrameworkDescription,
@@ -74,6 +78,10 @@ public sealed class LongRunningAcceptanceTests
 
                     for (var iteration = 1; iteration <= HostLifecycleProcessesPerBlock && firstFailure is null; iteration++)
                     {
+                        activeBlock = block;
+                        activeIteration = iteration;
+                        activeScenario = Phase1TestScenario.HostLifecycle;
+                        activeArtifactPath = GetRelativeArtifactPath(runDirectory, childArtifactRoot, activeScenario.Value, block, iteration);
                         var currentProcess = completedHostLifecycleProcesses + completedRendererRecoveryProcesses + 1;
                         await WriteProgressAsync(
                             runDirectory,
@@ -125,6 +133,10 @@ public sealed class LongRunningAcceptanceTests
 
                     for (var iteration = 1; iteration <= RendererRecoveryProcessesPerBlock && firstFailure is null; iteration++)
                     {
+                        activeBlock = block;
+                        activeIteration = iteration;
+                        activeScenario = Phase1TestScenario.RendererRecovery;
+                        activeArtifactPath = GetRelativeArtifactPath(runDirectory, childArtifactRoot, activeScenario.Value, block, iteration);
                         var currentProcess = completedHostLifecycleProcesses + completedRendererRecoveryProcesses + 1;
                         await WriteProgressAsync(
                             runDirectory,
@@ -195,11 +207,11 @@ public sealed class LongRunningAcceptanceTests
                 status = deadline.IsCancellationRequested ? LongRunningStatus.TimedOut : LongRunningStatus.Canceled;
                 firstFailure ??= new LongRunningFailure
                 {
-                    BlockNumber = completedBlocks + 1,
-                    Iteration = 0,
-                    Scenario = "OuterRun",
-                    Reason = status == LongRunningStatus.TimedOut ? "The 45-minute outer deadline expired." : "The test run was canceled.",
-                    RelativeArtifactPath = "children",
+                    BlockNumber = activeBlock == 0 ? completedBlocks + 1 : activeBlock,
+                    Iteration = activeIteration,
+                    Scenario = activeScenario?.ToString() ?? "OuterRun",
+                    Reason = status == LongRunningStatus.TimedOut ? "The 75-minute outer deadline expired." : "The test run was canceled.",
+                    RelativeArtifactPath = activeArtifactPath,
                 };
                 processGroup.Dispose();
             }
@@ -208,11 +220,11 @@ public sealed class LongRunningAcceptanceTests
                 status = LongRunningStatus.Failed;
                 firstFailure ??= new LongRunningFailure
                 {
-                    BlockNumber = completedBlocks + 1,
-                    Iteration = 0,
-                    Scenario = "OuterRun",
+                    BlockNumber = activeBlock == 0 ? completedBlocks + 1 : activeBlock,
+                    Iteration = activeIteration,
+                    Scenario = activeScenario?.ToString() ?? "OuterRun",
                     Reason = $"{exception.GetType().Name}: aggregate execution failed.",
-                    RelativeArtifactPath = "children",
+                    RelativeArtifactPath = activeArtifactPath,
                 };
                 processGroup.Dispose();
             }
@@ -365,6 +377,16 @@ public sealed class LongRunningAcceptanceTests
         }
     }
 
+    private static string GetRelativeArtifactPath(
+        string runDirectory,
+        string childArtifactRoot,
+        Phase1TestScenario scenario,
+        int block,
+        int iteration)
+    {
+        return Path.GetRelativePath(runDirectory, Path.Combine(childArtifactRoot, GetArtifactDirectoryName(scenario, block, iteration)));
+    }
+
     private static async Task<ChildOutcome> RunChildAsync(
         Phase1TestScenario scenario,
         int block,
@@ -375,8 +397,7 @@ public sealed class LongRunningAcceptanceTests
         Phase1TestProcessGroup processGroup,
         CancellationToken cancellationToken)
     {
-        var scenarioName = scenario == Phase1TestScenario.HostLifecycle ? "lifecycle" : "recovery";
-        var artifactDirectoryName = $"block-{block:D2}-{scenarioName}-{iteration:D3}";
+        var artifactDirectoryName = GetArtifactDirectoryName(scenario, block, iteration);
         var relativeArtifactPath = Path.GetRelativePath(runDirectory, Path.Combine(childArtifactRoot, artifactDirectoryName));
         try
         {
@@ -427,6 +448,12 @@ public sealed class LongRunningAcceptanceTests
                 },
             };
         }
+    }
+
+    private static string GetArtifactDirectoryName(Phase1TestScenario scenario, int block, int iteration)
+    {
+        var scenarioName = scenario == Phase1TestScenario.HostLifecycle ? "lifecycle" : "recovery";
+        return $"block-{block:D2}-{scenarioName}-{iteration:D3}";
     }
 
     private static string? GetFailureReason(Phase1TestRunResult result, Phase1TestScenario scenario)
