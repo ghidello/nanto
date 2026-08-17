@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Nanto.Sdk</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddNantoSdkToolsToPackage</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <ProjectReference Include="../Nanto.Generators/Nanto.Generators.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Nanto.Generators.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="buildTransitive/Nanto.Sdk.targets" Pack="true" PackagePath="buildTransitive/Nanto.Sdk.targets" />
+  </ItemGroup>
+  <Target Name="AddNantoSdkToolsToPackage">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(TargetDir)*.dll;$(TargetDir)Nanto.Sdk.deps.json;$(TargetDir)Nanto.Sdk.runtimeconfig.json">
+        <PackagePath>tools/net10.0</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+</Project>

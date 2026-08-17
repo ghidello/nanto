@@ -85,6 +85,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                 assetResourceLease,
                 resourceLedger,
                 failureInjector,
+                options.Bridge,
+                dispatcher,
                 options.LoggerFactory,
                 timeProvider);
         }
@@ -158,6 +160,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         private readonly IPhase1FailureInjector _failureInjector;
         private readonly ResourceLedger _resourceLedger;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly NantoBridgeConfigurationSnapshot _bridge;
+        private readonly IUiDispatcher _dispatcher;
         private readonly TimeProvider _timeProvider;
         private IWebAssetLease? _assetLease;
         private IDisposable? _assetResourceLease;
@@ -170,6 +174,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             IDisposable assetResourceLease,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
+            NantoBridgeConfigurationSnapshot bridge,
+            IUiDispatcher dispatcher,
             ILoggerFactory loggerFactory,
             TimeProvider timeProvider)
         {
@@ -179,6 +185,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             _assetResourceLease = assetResourceLease;
             _resourceLedger = resourceLedger;
             _failureInjector = failureInjector;
+            _bridge = bridge;
+            _dispatcher = dispatcher;
             _loggerFactory = loggerFactory;
             _timeProvider = timeProvider;
         }
@@ -210,6 +218,8 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                     _assetLease,
                     _resourceLedger,
                     _failureInjector,
+                    _bridge,
+                    _dispatcher,
                     reportRendererFailure,
                     requestClose,
                     canRecoverRenderer,

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 
 using Nanto.Hosting.Windows.TestProtocol;
+using Nanto.Generated;
 
 using Windows.Win32;
 
@@ -84,6 +85,17 @@ internal static partial class ScenarioRunner
         Phase1TestRequest request,
         DateTimeOffset startedAt,
         Stopwatch stopwatch) => await RunOrderlyShutdownAsync(request, startedAt, stopwatch, ShutdownAction.Stop);
+
+    public static async Task<Phase1TestReport> RunBridgeUnaryAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(
+            request,
+            startedAt,
+            stopwatch,
+            ShutdownAction.Stop,
+            "/bridge.html",
+            VerifyBridgeUnaryAsync);
 
     public static async Task<Phase1TestReport> RunStartupCancellationAsync(
         Phase1TestRequest request,
@@ -541,20 +553,33 @@ internal static partial class ScenarioRunner
         };
     }
 
-    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request) => new()
+    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request)
     {
-        ApplicationId = request.ApplicationId,
-        Assets = VersionedWebAssetProvider.FromAssembly<TestAppAssetMarker>(
-            "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json"),
-        PrimaryWindow = new WindowOptions
+        var bridge = new NantoBridgeConfiguration();
+        bridge.Add(new ProjectsApi(1));
+        bridge.Add(new ProjectBuildsApi(100));
+        return new NantoApplicationOptions
         {
-            InitialRoute = "/index.html",
-            Title = "Nanto Phase 1 integration host",
-            StartVisible = request.PresentationMode == Phase1TestPresentationMode.Visible,
-        },
-        ShutdownMode = ShutdownMode.OnPrimaryWindowClosed,
-        ShutdownTimeout = TimeSpan.FromSeconds(15),
-    };
+            ApplicationId = request.ApplicationId,
+            Assets = VersionedWebAssetProvider.FromAssembly<TestAppAssetMarker>(
+                "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json"),
+            Bridge = bridge,
+            PrimaryWindow = new WindowOptions
+            {
+                Capabilities =
+                [
+                    AppCapabilities.Projects.Open,
+                    AppCapabilities.Projects.Build,
+                    AppCapabilities.Projects.Changed,
+                ],
+                InitialRoute = "/index.html",
+                Title = "Nanto Phase 1 integration host",
+                StartVisible = request.PresentationMode == Phase1TestPresentationMode.Visible,
+            },
+            ShutdownMode = ShutdownMode.OnPrimaryWindowClosed,
+            ShutdownTimeout = TimeSpan.FromSeconds(15),
+        };
+    }
 
     private static async Task WaitForAppearanceAsync(WindowsApplicationHost host, string expected, List<string> observations)
     {
@@ -640,7 +665,8 @@ internal static partial class ScenarioRunner
         DateTimeOffset startedAt,
         Stopwatch stopwatch,
         ShutdownAction shutdownAction,
-        string initialRoute = "/index.html")
+        string initialRoute = "/index.html",
+        Func<WindowsApplicationHost, Task>? verify = null)
     {
         var failureInjector = new RecordingFailureInjector(null);
         var transitions = new List<Phase1LifecycleTransition>();
@@ -671,8 +697,19 @@ internal static partial class ScenarioRunner
             runCancellation.Token);
         try
         {
-            await activated.Task.WaitAsync(Program.ActivationTimeout);
+            var activation = activated.Task.WaitAsync(Program.ActivationTimeout);
+            if (await Task.WhenAny(activation, run) == run)
+            {
+                await run;
+            }
+
+            await activation;
             await WaitForReadinessAsync(host);
+            if (verify is not null)
+            {
+                await verify(host);
+            }
+
             presentationMatched = host.PrimaryWindow?.IsVisible == (request.PresentationMode == Phase1TestPresentationMode.Visible);
             peakResources = CaptureResources(host.ResourceSnapshot);
             await RequestShutdownAsync(host, runCancellation, shutdownAction);
@@ -720,6 +757,16 @@ internal static partial class ScenarioRunner
             finalResources,
             CaptureOwnershipEvents(finalSnapshot),
             observedFailure);
+    }
+
+    private static async Task VerifyBridgeUnaryAsync(WindowsApplicationHost host)
+    {
+        using var timeout = new CancellationTokenSource(Program.ActivationTimeout);
+        var message = await host.WaitForDiagnosticMessageAsync(timeout.Token);
+        if (!string.Equals(message, "nanto:test:bridge:unary:passed", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"The bridge fixture returned an unexpected result: '{message}'.");
+        }
     }
 
     private static async Task RequestShutdownAsync(

@@ -8,6 +8,24 @@
       "sha256": "EF81358CF4B088729F922D2DF4B43F204EEB2A147898E1F153ECCE3E35B270CA"
     },
     {
+      "path": "/bridge.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.bridge.html",
+      "length": 1742,
+      "sha256": "0A8A7B0E8083A3B1406A121B8B159B168CF9945E22F7F91AB1732AF8796200D2"
+    },
+    {
+      "path": "/nanto-core.js",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js",
+      "length": 8123,
+      "sha256": "B09753CA4F81D8F5EF55DFD13A483628C0E48A1B77807DF17BEBA382262F1391"
+    },
+    {
+      "path": "/nanto-app.js",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-app.js",
+      "length": 662,
+      "sha256": "92B8750813A419C5849B80F419E1370F8090027B193C69F741D21220B28AC0AF"
+    },
+    {
       "path": "/navigation.html",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html",
       "length": 1549,

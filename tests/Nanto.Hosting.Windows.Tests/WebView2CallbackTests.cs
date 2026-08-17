@@ -61,10 +61,11 @@ public sealed class WebView2CallbackTests
             {
                 calls.Add($"cancel:{cancel}");
                 return 0;
-            });
+            },
+            uri => calls.Add($"rotate:{uri}"));
 
         result.Should().Be(0);
-        calls.Should().Equal("cancel:1", "read", "cancel:0");
+        calls.Should().Equal("cancel:1", "read", "cancel:0", "rotate:https://app.nanto.invalid/index.html");
     }
 
     [Theory]
@@ -73,6 +74,7 @@ public sealed class WebView2CallbackTests
     public void NavigationStartingRemainsCancelledForRejectedUri(string uri)
     {
         var cancelValues = new List<int>();
+        var rotated = false;
 
         var result = NavigationStartingHandler.Evaluate(
             _assets,
@@ -81,10 +83,12 @@ public sealed class WebView2CallbackTests
             {
                 cancelValues.Add(cancel);
                 return 0;
-            });
+            },
+            _ => rotated = true);
 
         result.Should().Be(0);
         cancelValues.Should().Equal(1);
+        rotated.Should().BeFalse();
     }
 
     [Fact]
@@ -123,6 +127,23 @@ public sealed class WebView2CallbackTests
 
         result.Should().Be(failure);
         cancelValues.Should().Equal(1);
+    }
+
+    [Fact]
+    public void NavigationStartingDoesNotRotateWhenAllowingNavigationFails()
+    {
+        var rotated = false;
+        var calls = 0;
+        const int failure = unchecked((int)0x80004005);
+
+        var result = NavigationStartingHandler.Evaluate(
+            _assets,
+            () => (0, "https://app.nanto.invalid/index.html"),
+            _ => ++calls == 1 ? 0 : failure,
+            _ => rotated = true);
+
+        result.Should().Be(failure);
+        rotated.Should().BeFalse();
     }
 
     [Fact]

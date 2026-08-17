@@ -88,6 +88,9 @@ internal static partial class WindowsDiagnostics
     [LoggerMessage(308, LogLevel.Debug, "Browser operation {Operation} was unavailable during teardown.")]
     public static partial void BrowserOperationUnavailableDuringTeardown(ILogger logger, string operation);
 
+    [LoggerMessage(309, LogLevel.Error, "Bridge request {RequestId} failed unexpectedly during {Operation}.")]
+    public static partial void BridgeCommandFailed(ILogger logger, uint requestId, string operation, Exception exception);
+
     [LoggerMessage(500, LogLevel.Debug, "Application teardown started.")]
     public static partial void TeardownStarted(ILogger logger);
 

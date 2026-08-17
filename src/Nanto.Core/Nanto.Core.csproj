@@ -8,5 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Nanto.Core.Tests" />
+    <InternalsVisibleTo Include="Nanto.Hosting.Windows" />
   </ItemGroup>
 </Project>

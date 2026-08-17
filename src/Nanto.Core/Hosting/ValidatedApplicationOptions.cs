@@ -16,6 +16,8 @@ public sealed record ValidatedApplicationOptions
 
     public IWebAssetProvider Assets { get; }
 
+    internal NantoBridgeConfigurationSnapshot Bridge { get; }
+
     public ColorSchemePreference PreferredColorScheme { get; }
 
     public ShutdownMode ShutdownMode { get; }
@@ -28,6 +30,7 @@ public sealed record ValidatedApplicationOptions
         ApplicationIdentity identity,
         WindowOptions primaryWindow,
         IWebAssetProvider assets,
+        NantoBridgeConfigurationSnapshot bridge,
         ColorSchemePreference preferredColorScheme,
         ShutdownMode shutdownMode,
         ILoggerFactory loggerFactory,
@@ -36,6 +39,7 @@ public sealed record ValidatedApplicationOptions
         Identity = identity;
         PrimaryWindow = primaryWindow;
         Assets = assets;
+        Bridge = bridge;
         PreferredColorScheme = preferredColorScheme;
         ShutdownMode = shutdownMode;
         LoggerFactory = loggerFactory;
@@ -50,6 +54,7 @@ public sealed record ValidatedApplicationOptions
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.PrimaryWindow);
         ArgumentNullException.ThrowIfNull(options.Assets);
+        ArgumentNullException.ThrowIfNull(options.Bridge);
 
         var identity = ApplicationIdentity.Parse(options.ApplicationId);
         ValidateWindowOptions(options.PrimaryWindow);
@@ -69,8 +74,9 @@ public sealed record ValidatedApplicationOptions
 
         return new ValidatedApplicationOptions(
             identity,
-            options.PrimaryWindow,
+            options.PrimaryWindow with { Capabilities = [.. options.PrimaryWindow.Capabilities] },
             options.Assets,
+            options.Bridge.CaptureSnapshot(),
             options.PreferredColorScheme,
             options.ShutdownMode,
             options.LoggerFactory ?? NullLoggerFactory.Instance,
@@ -98,6 +104,7 @@ public sealed record ValidatedApplicationOptions
     private static void ValidateWindowOptions(WindowOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
+        ArgumentNullException.ThrowIfNull(options.Capabilities);
 
         ArgumentOutOfRangeException.ThrowIfEqual(options.InitialSize, default, nameof(options.InitialSize));
 

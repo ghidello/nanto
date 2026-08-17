@@ -69,6 +69,17 @@ public sealed class HostIntegrationTests
         AssertReverseOwnershipCleanup(report);
     }
 
+    [Fact]
+    public async Task GeneratedUnaryBridgeRunsThroughTheRealWebViewBoundary()
+    {
+        var result = await RunAsync(Phase1TestScenario.BridgeUnary);
+        var report = RequireSuccessfulReport(result);
+
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
     [Theory]
     [MemberData(nameof(AcquisitionCheckpoints))]
     public async Task EveryImplementedAcquisitionCheckpointFailsAndCleansUpInTheExternalProcess(string checkpoint)

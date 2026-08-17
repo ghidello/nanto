@@ -108,17 +108,52 @@ internal static class Program
 
     private static Phase1ObservedFailure CreateObservedFailure(Exception exception)
     {
-        var hostException = exception as NantoHostException;
+        var hostException = FindException<NantoHostException>(exception);
+        var primaryException = hostException?.InnerException ?? FindLeafException(exception);
         return new Phase1ObservedFailure
         {
             ExceptionType = exception.GetType().FullName ?? exception.GetType().Name,
             Message = exception.Message,
             FailureStage = hostException?.Stage.ToString(),
             Operation = hostException?.Operation,
-            PrimaryExceptionType = exception.InnerException?.GetType().FullName,
-            PrimaryMessage = exception.InnerException?.Message,
+            PrimaryExceptionType = primaryException?.GetType().FullName,
+            PrimaryMessage = primaryException?.Message,
             CleanupFailures = hostException?.CleanupExceptions.Select(CreateExceptionDetail).ToArray() ?? [],
         };
+    }
+
+    private static TException? FindException<TException>(Exception exception)
+        where TException : Exception
+    {
+        if (exception is TException matched)
+        {
+            return matched;
+        }
+
+        if (exception is AggregateException aggregate)
+        {
+            foreach (var innerException in aggregate.InnerExceptions)
+            {
+                if (FindException<TException>(innerException) is { } nested)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
+        }
+
+        return exception.InnerException is null ? null : FindException<TException>(exception.InnerException);
+    }
+
+    private static Exception? FindLeafException(Exception exception)
+    {
+        if (exception is AggregateException { InnerExceptions.Count: > 0 } aggregate)
+        {
+            return FindLeafException(aggregate.InnerExceptions[0]);
+        }
+
+        return exception.InnerException is null ? exception : FindLeafException(exception.InnerException);
     }
 
     private static Phase1ExceptionDetail CreateExceptionDetail(Exception exception) => new()
@@ -147,6 +182,7 @@ internal static class Program
             Phase1TestScenario.SharedProfile => await ScenarioRunner.RunSharedProfileAsync(request, startedAt, stopwatch),
             Phase1TestScenario.VisibleDesktop => await ScenarioRunner.RunVisibleDesktopAsync(request, startedAt, stopwatch),
             Phase1TestScenario.VisibleCrossMonitorDpi => await ScenarioRunner.RunVisibleCrossMonitorDpiAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.BridgeUnary => await ScenarioRunner.RunBridgeUnaryAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),
         };

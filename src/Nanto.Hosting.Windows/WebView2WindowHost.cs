@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices.Marshalling;
+using System.Threading.Channels;
 
 using Microsoft.Extensions.Logging;
 
 using Nanto.Hosting.Windows.Interop;
+using Nanto.Hosting;
 
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -19,6 +21,19 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     private readonly ProcessFailedHandler _processFailedHandler;
     private readonly RendererRecoveryCoordinator _rendererRecovery;
     private readonly WebMessageReceivedHandler _webMessageReceivedHandler;
+    private readonly NantoBridgeConfigurationSnapshot _bridge;
+    private readonly Channel<BridgeMessage> _bridgeMessages = Channel.CreateBounded<BridgeMessage>(new BoundedChannelOptions(
+        NantoBridgeProtocolSession.MaximumActiveCommands * 2)
+    {
+        FullMode = BoundedChannelFullMode.Wait,
+        SingleReader = true,
+        SingleWriter = true,
+    });
+    private readonly Task _bridgeProcessing;
+    private NantoBridgeProtocolSession _bridgeSession;
+    private readonly IUiDispatcher _dispatcher;
+    private readonly WindowOptions _options;
+    private readonly WindowId _windowId;
     private readonly ILogger _logger;
     private readonly TimeProvider _timeProvider;
     private bool _browserProcessExited;
@@ -50,11 +65,18 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         Func<bool> canRecoverRenderer,
         ILoggerFactory loggerFactory,
         TimeProvider timeProvider,
-        WindowId windowId)
+        WindowId windowId,
+        WindowOptions options,
+        NantoBridgeConfigurationSnapshot bridge,
+        IUiDispatcher dispatcher)
     {
         _logger = loggerFactory.CreateLogger<WebView2WindowHost>();
         _timeProvider = timeProvider;
-        _navigationStartingHandler = new NavigationStartingHandler(assetPaths);
+        _dispatcher = dispatcher;
+        _bridge = bridge;
+        _options = options;
+        _windowId = windowId;
+        _navigationStartingHandler = new NavigationStartingHandler(assetPaths, RotateBridgeSession);
         _rendererRecovery = new RendererRecoveryCoordinator(
             reportRendererFailure,
             Reload,
@@ -65,7 +87,9 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             windowId);
         _navigationCompletedHandler = new NavigationCompletedHandler { NavigationCompleted = HandleNavigationCompleted };
         _processFailedHandler = new ProcessFailedHandler(HandleProcessFailed);
-        _webMessageReceivedHandler = new WebMessageReceivedHandler();
+        _bridgeSession = CreateBridgeSession();
+        _webMessageReceivedHandler = new WebMessageReceivedHandler(HandleBridgeMessage);
+        _bridgeProcessing = Task.Run(ProcessBridgeMessagesAsync);
     }
 
     public static async ValueTask<WebView2WindowHost> CreateAsync(
@@ -77,6 +101,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         IWebAssetLease assetLease,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
+        NantoBridgeConfigurationSnapshot bridge,
+        IUiDispatcher dispatcher,
         Action<RendererFailureKind, string, bool> reportRendererFailure,
         Action requestClose,
         Func<bool> canRecoverRenderer,
@@ -89,6 +115,8 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         ArgumentNullException.ThrowIfNull(assetLease);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
+        ArgumentNullException.ThrowIfNull(bridge);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(reportRendererFailure);
         ArgumentNullException.ThrowIfNull(requestClose);
         ArgumentNullException.ThrowIfNull(canRecoverRenderer);
@@ -103,7 +131,10 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
             canRecoverRenderer,
             loggerFactory,
             timeProvider,
-            windowId);
+            windowId,
+            options,
+            bridge,
+            dispatcher);
         var creationStartedAt = timeProvider.GetTimestamp();
         try
         {
@@ -279,14 +310,25 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         return processId;
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
         List<Exception>? failures = null;
+        try
+        {
+            _bridgeMessages.Writer.TryComplete();
+            await Task.Run(StopBridgeAsync);
+        }
+        catch (Exception exception)
+        {
+            failures ??= [];
+            failures.Add(exception);
+        }
+
         TryCleanup(RemoveProcessFailedSubscription, ref failures);
         TryCleanup(RemoveMessageSubscription, ref failures);
         TryCleanup(RemoveNavigationCompletedSubscription, ref failures);
@@ -305,13 +347,142 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         TryCleanup(() => _controller?.Dispose(), ref failures);
         _controller = null;
         TryCleanup(() => Interlocked.Exchange(ref _controllerResourceLease, null)?.Dispose(), ref failures);
-        return failures switch
+        var failure = failures switch
         {
-            null => ValueTask.CompletedTask,
-            [var failure] => ValueTask.FromException(failure),
-            _ => ValueTask.FromException(new AggregateException("WebView2 window cleanup encountered multiple failures.", failures)),
+            null => null,
+            [var singleFailure] => singleFailure,
+            _ => new AggregateException("WebView2 window cleanup encountered multiple failures.", failures),
         };
+        if (failure is not null)
+        {
+            throw failure;
+        }
     }
+
+    private void HandleBridgeMessage(string json)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        var byteCount = System.Text.Encoding.UTF8.GetByteCount(json);
+        if (byteCount > NantoBridgeProtocolSession.MaximumMessageBytes)
+        {
+            PostBridgeResponse("{\"type\":\"error\",\"code\":\"invalidRequest\"}");
+            return;
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var session = Volatile.Read(ref _bridgeSession);
+        if (!_bridgeMessages.Writer.TryWrite(new BridgeMessage(session, bytes)))
+        {
+            var retired = Interlocked.Exchange(ref _bridgeSession, CreateBridgeSession());
+            _ = DisposeRetiredBridgeSessionAsync(retired);
+            PostBridgeResponse("{\"type\":\"error\",\"code\":\"resourceExhausted\"}");
+        }
+    }
+
+    private async Task ProcessBridgeMessagesAsync()
+    {
+        await foreach (var message in _bridgeMessages.Reader.ReadAllAsync().ConfigureAwait(false))
+        {
+            try
+            {
+                if (!ReferenceEquals(message.Session, Volatile.Read(ref _bridgeSession)))
+                {
+                    continue;
+                }
+
+                _ = HandleBridgeMessageAsync(message);
+            }
+            catch
+            {
+                // Protocol failures are sanitized by the session; teardown races discard late output.
+            }
+        }
+    }
+
+    private async Task StopBridgeAsync()
+    {
+        await Volatile.Read(ref _bridgeSession).DisposeAsync().ConfigureAwait(false);
+        await _bridgeProcessing.ConfigureAwait(false);
+    }
+
+    private async Task HandleBridgeMessageAsync(BridgeMessage message)
+    {
+        try
+        {
+            var response = await message.Session.HandleAsync(message.Bytes).ConfigureAwait(false);
+            if (response is null || Volatile.Read(ref _disposed) != 0
+                || !ReferenceEquals(message.Session, Volatile.Read(ref _bridgeSession)))
+            {
+                return;
+            }
+
+            await _dispatcher.InvokeAsync(() => PostBridgeResponse(response)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Protocol failures are sanitized by the session; teardown races discard late output.
+        }
+    }
+
+    private NantoBridgeProtocolSession CreateBridgeSession() => new(
+        _bridge,
+        _options.Capabilities,
+        _windowId,
+        new Uri($"https://{NavigationPolicy.ApplicationHostName}"),
+        _dispatcher,
+        PostBridgeOutputAsync,
+        (requestId, operation, exception) => WindowsDiagnostics.BridgeCommandFailed(_logger, requestId, operation, exception));
+
+    private void RotateBridgeSession(string navigationUri)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(navigationUri);
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        var previous = Interlocked.Exchange(ref _bridgeSession, CreateBridgeSession());
+        _ = DisposeRetiredBridgeSessionAsync(previous);
+    }
+
+    private static async Task DisposeRetiredBridgeSessionAsync(NantoBridgeProtocolSession session)
+    {
+        try
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // The active navigation owns forward progress; the retired session can no longer post output.
+        }
+    }
+
+    private void PostBridgeResponse(string response)
+    {
+        if (Volatile.Read(ref _disposed) != 0 || _webView is null)
+        {
+            return;
+        }
+
+        using var json = new Utf16String(response);
+        HResult.ThrowIfFailed(_webView.Value.PostWebMessageAsJson(json.Pointer), "webview2.message.post-json", NantoFailureStage.Runtime);
+    }
+
+    private ValueTask PostBridgeOutputAsync(NantoBridgeProtocolSession session, string response)
+    {
+        if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(session, Volatile.Read(ref _bridgeSession)))
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        return _dispatcher.InvokeAsync(() => PostBridgeResponse(response));
+    }
+
+    private readonly record struct BridgeMessage(NantoBridgeProtocolSession Session, ReadOnlyMemory<byte> Bytes);
 
     private unsafe void AddMessageSubscription(ResourceLedger resourceLedger)
     {

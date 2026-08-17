@@ -17,7 +17,8 @@ public sealed class OptionsValidationTests
 
         validated.Identity.CanonicalId.Should().Be("com.example.nanto");
         validated.LoggerFactory.Should().BeSameAs(NullLoggerFactory.Instance);
-        validated.PrimaryWindow.Should().BeSameAs(options.PrimaryWindow);
+        validated.PrimaryWindow.Should().NotBeSameAs(options.PrimaryWindow);
+        validated.PrimaryWindow.Should().BeEquivalentTo(options.PrimaryWindow);
         validated.PreferredColorScheme.Should().Be(ColorSchemePreference.System);
         var applicationRoot = Path.Combine(Path.GetTempPath(), "nanto-options-test");
         var preparationContext = validated.CreateWebAssetPreparationContext(applicationRoot);

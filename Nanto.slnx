@@ -11,6 +11,8 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Nanto.Core/Nanto.Core.csproj" />
+    <Project Path="src/Nanto.Generators/Nanto.Generators.csproj" />
+    <Project Path="src/Nanto.Sdk/Nanto.Sdk.csproj" />
     <Project Path="src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
   </Folder>
   <Folder Name="/eng/">
@@ -19,6 +21,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj" />
+    <Project Path="tests/Nanto.Generators.Tests/Nanto.Generators.Tests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.HiddenIntegrationTests/Nanto.Hosting.Windows.HiddenIntegrationTests.csproj" />

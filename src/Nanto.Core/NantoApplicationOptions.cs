@@ -10,6 +10,9 @@ public sealed record NantoApplicationOptions
 
     public required IWebAssetProvider Assets { get; init; }
 
+    /// <summary>Gets the explicitly registered, generated frontend bridge configuration.</summary>
+    public NantoBridgeConfiguration Bridge { get; init; } = new();
+
     /// <summary>
     /// Gets the application-wide color-scheme preference. The application owns persistence of a user-selected value.
     /// </summary>

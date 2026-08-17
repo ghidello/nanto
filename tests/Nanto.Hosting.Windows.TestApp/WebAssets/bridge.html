@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'">
+  <title>Nanto generated bridge integration fixture</title>
+</head>
+<body>
+  <main>Nanto generated bridge integration fixture</main>
+  <script type="module">
+    import { NantoClient } from "/nanto-core.js";
+    import { createApp, manifest, OpenProjectError } from "/nanto-app.js";
+
+    const transport = {
+      post(message) {
+        window.chrome.webview.postMessage(JSON.parse(message));
+      },
+      subscribe(listener) {
+        const receive = event => listener(JSON.stringify(event.data));
+        window.chrome.webview.addEventListener("message", receive);
+        return () => window.chrome.webview.removeEventListener("message", receive);
+      },
+    };
+
+    const client = new NantoClient(transport);
+    try {
+      await client.connect(manifest);
+      const projects = createApp(client).projects;
+      const success = await projects.open(7);
+      if (!success.ok || success.value.id !== 7) {
+        throw new Error("unexpected-success-result");
+      }
+
+      const failure = await projects.open(0);
+      if (failure.ok || failure.error !== OpenProjectError.NotFound) {
+        throw new Error("unexpected-failure-result");
+      }
+
+      window.chrome.webview.postMessage("nanto:test:bridge:unary:passed");
+      window.chrome.webview.postMessage("nanto:ready:v1");
+    } catch (error) {
+      const name = error instanceof Error ? error.name : "unknown";
+      window.chrome.webview.postMessage(`nanto:test:bridge:error:generated-client:${name}`);
+    } finally {
+      await client[Symbol.asyncDispose]();
+    }
+  </script>
+</body>
+</html>

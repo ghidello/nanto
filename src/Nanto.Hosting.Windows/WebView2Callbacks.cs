@@ -156,10 +156,12 @@ internal sealed partial class ControllerCreatedHandler : ICoreWebView2CreateCore
 internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2NavigationStartingEventHandler
 {
     private readonly IReadOnlySet<string> _assetPaths;
+    private readonly Action<string>? _navigationStarting;
 
-    public NavigationStartingHandler(IReadOnlySet<string> assetPaths)
+    public NavigationStartingHandler(IReadOnlySet<string> assetPaths, Action<string>? navigationStarting = null)
     {
         _assetPaths = assetPaths ?? throw new ArgumentNullException(nameof(assetPaths));
+        _navigationStarting = navigationStarting;
     }
 
     public int Invoke(nint sender, nint args)
@@ -167,7 +169,7 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
         try
         {
             using var eventArgs = UniqueComReference<ICoreWebView2NavigationStartingEventArgs>.FromPointer(args);
-            return Evaluate(_assetPaths, () => ReadUri(eventArgs.Value), eventArgs.Value.put_Cancel);
+            return Evaluate(_assetPaths, () => ReadUri(eventArgs.Value), eventArgs.Value.put_Cancel, _navigationStarting);
         }
         catch (Exception exception)
         {
@@ -178,7 +180,8 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
     internal static int Evaluate(
         IReadOnlySet<string> assetPaths,
         Func<(int Result, string Uri)> readUri,
-        Func<int, int> setCancel)
+        Func<int, int> setCancel,
+        Action<string>? navigationStarting = null)
     {
         var cancelResult = setCancel(1);
         if (cancelResult < 0)
@@ -192,7 +195,18 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
             return uriResult;
         }
 
-        return NavigationPolicy.IsAllowed(uri, assetPaths) ? setCancel(0) : 0;
+        if (!NavigationPolicy.IsAllowed(uri, assetPaths))
+        {
+            return 0;
+        }
+
+        var allowResult = setCancel(0);
+        if (allowResult >= 0)
+        {
+            navigationStarting?.Invoke(uri);
+        }
+
+        return allowResult;
     }
 
     private static (int Result, string Uri) ReadUri(ICoreWebView2NavigationStartingEventArgs eventArgs)
@@ -328,6 +342,7 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
     private const string ReadyMessage = "nanto:ready:v1";
 
     private readonly TaskCompletionSource _readiness = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Action<string> _bridgeMessage;
     private readonly Channel<string> _messages = Channel.CreateBounded<string>(new BoundedChannelOptions(DiagnosticMessageCapacity)
     {
         FullMode = BoundedChannelFullMode.DropOldest,
@@ -336,6 +351,11 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
     });
 
     public Task Readiness => _readiness.Task;
+
+    public WebMessageReceivedHandler(Action<string> bridgeMessage)
+    {
+        _bridgeMessage = bridgeMessage ?? throw new ArgumentNullException(nameof(bridgeMessage));
+    }
 
     public ValueTask<string> WaitForMessageAsync(CancellationToken cancellationToken) => _messages.Reader.ReadAsync(cancellationToken);
 
@@ -351,6 +371,19 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
                 || !sourceUri.IsDefaultPort
                 || !string.IsNullOrEmpty(sourceUri.UserInfo))
             {
+                return 0;
+            }
+
+            var json = ReadString(eventArgs.Value.get_WebMessageAsJson, "webview2.message.read-json");
+            var firstToken = 0;
+            while (firstToken < json.Length && char.IsWhiteSpace(json[firstToken]))
+            {
+                firstToken++;
+            }
+
+            if (firstToken < json.Length && json[firstToken] != '"')
+            {
+                _bridgeMessage(json);
                 return 0;
             }
 

@@ -1,0 +1,29 @@
+<Project>
+  <PropertyGroup>
+    <NantoSdkAssembly Condition="'$(NantoSdkAssembly)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Nanto.Sdk.dll</NantoSdkAssembly>
+  </PropertyGroup>
+
+  <Target Name="GenerateNantoContracts" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences">
+    <PropertyGroup>
+      <NantoFrontendIntermediateDirectory Condition="'$(NantoFrontendIntermediateDirectory)' == ''">$(IntermediateOutputPath)Nanto\Frontend</NantoFrontendIntermediateDirectory>
+      <NantoFrontendOutputPath Condition="'$(NantoFrontendOutputPath)' == ''">$(NantoFrontendIntermediateDirectory)\@nanto\app</NantoFrontendOutputPath>
+      <_NantoSdkResponseFile>$(NantoFrontendIntermediateDirectory)\compiler-inputs.rsp</_NantoSdkResponseFile>
+      <_NantoJsonContextFile>$(NantoFrontendIntermediateDirectory)\NantoGeneratedJsonContext.g.cs</_NantoJsonContextFile>
+      <_NantoTypeScriptFile>$(NantoFrontendOutputPath)\index.ts</_NantoTypeScriptFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NantoSdkInput Include="define=$(DefineConstants)" />
+      <_NantoSdkInput Include="langversion=$(LangVersion)" />
+      <_NantoSdkInput Include="nullable=$(Nullable)" />
+      <_NantoSdkInput Include="@(Compile->'source=%(FullPath)')" />
+      <_NantoSdkInput Include="@(ReferencePath->'reference=%(FullPath)')" />
+    </ItemGroup>
+    <MakeDir Directories="$(NantoFrontendIntermediateDirectory)" />
+    <WriteLinesToFile File="$(_NantoSdkResponseFile)" Lines="@(_NantoSdkInput)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <Exec Command="dotnet &quot;$(NantoSdkAssembly)&quot; &quot;$(_NantoSdkResponseFile)&quot; &quot;$(_NantoJsonContextFile)&quot; &quot;$(_NantoTypeScriptFile)&quot;" />
+    <ItemGroup>
+      <Compile Include="$(_NantoJsonContextFile)" />
+      <FileWrites Include="$(_NantoSdkResponseFile);$(_NantoJsonContextFile);$(_NantoTypeScriptFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

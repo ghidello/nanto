@@ -16,4 +16,5 @@ public enum Phase1TestScenario
     ContainmentTimeout,
     VisibleDesktop,
     VisibleCrossMonitorDpi,
+    BridgeUnary,
 }

@@ -1,0 +1,224 @@
+export class NantoCommandError extends Error {
+    code;
+    constructor(code) {
+        super(`Nanto command failed: ${code}`);
+        this.code = code;
+        this.name = "NantoCommandError";
+    }
+}
+export class NantoClient {
+    #transport;
+    #activeIds = new Set();
+    #cleanupMessages = new Map();
+    #queues = new Map();
+    #buffered = new Map();
+    #unsubscribe;
+    #session;
+    #nextId = 1;
+    #disposed = false;
+    constructor(transport) {
+        this.#transport = transport;
+        this.#unsubscribe = transport.subscribe(message => this.#receive(JSON.parse(message)));
+    }
+    async connect(manifest) {
+        if (this.#disposed)
+            throw new NantoCommandError("internal");
+        this.#activeIds.add(0);
+        const ready = new Promise((resolve, reject) => this.#queues.set(0, [{ resolve, reject }]));
+        try {
+            this.#transport.post(JSON.stringify({ v: 1, type: "hello", manifest }));
+            const message = await ready;
+            if (message.type !== "ready" || !message.session)
+                throw new NantoCommandError(message.code ?? "protocolMismatch");
+            this.#session = message.session;
+        }
+        finally {
+            this.#clear(0);
+        }
+    }
+    async invoke(command, args, signal) {
+        signal?.throwIfAborted();
+        const id = this.#allocateId();
+        let abort = () => undefined;
+        try {
+            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+            abort = this.#bindAbort(id, signal);
+            return this.#value(await this.#next(id, signal));
+        }
+        finally {
+            abort();
+            this.#clear(id);
+        }
+    }
+    async *stream(command, args, signal) {
+        signal?.throwIfAborted();
+        const id = this.#allocateId();
+        let abort = () => undefined;
+        try {
+            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+            abort = this.#bindAbort(id, signal);
+            const opened = await this.#next(id, signal);
+            if (opened.type === "error")
+                this.#throw(opened);
+            while (true) {
+                signal?.throwIfAborted();
+                this.#transport.post(JSON.stringify({ v: 1, type: "streamNext", session: this.#requireSession(), id }));
+                const message = await this.#next(id, signal);
+                if (message.type === "completion")
+                    return;
+                yield this.#value(message);
+            }
+        }
+        finally {
+            abort();
+            this.#transport.post(JSON.stringify({ v: 1, type: "cancel", session: this.#requireSession(), id }));
+            this.#clear(id);
+        }
+    }
+    async *subscribe(event, signal) {
+        signal?.throwIfAborted();
+        const id = this.#allocateId();
+        let abort = () => undefined;
+        try {
+            this.#transport.post(JSON.stringify({ v: 1, type: "subscribe", session: this.#requireSession(), id, event }));
+            abort = this.#bindAbort(id, signal, "unsubscribe");
+            const opened = await this.#next(id, signal);
+            if (opened.type === "error")
+                this.#throw(opened);
+            while (true) {
+                const message = await this.#next(id, signal);
+                if (message.type === "completion")
+                    return;
+                yield this.#value(message);
+            }
+        }
+        finally {
+            abort();
+            this.#transport.post(JSON.stringify({ v: 1, type: "unsubscribe", session: this.#requireSession(), id }));
+            this.#clear(id);
+        }
+    }
+    async [Symbol.asyncDispose]() {
+        if (this.#disposed)
+            return;
+        this.#disposed = true;
+        const cleanupFailures = [];
+        if (this.#session) {
+            for (const [id, type] of this.#cleanupMessages) {
+                try {
+                    this.#transport.post(JSON.stringify({ v: 1, type, session: this.#session, id }));
+                }
+                catch (error) {
+                    cleanupFailures.push(error);
+                }
+            }
+        }
+        const disposed = new NantoCommandError("internal");
+        for (const queue of this.#queues.values()) {
+            for (const waiter of queue)
+                waiter.reject(disposed);
+        }
+        try {
+            this.#unsubscribe();
+        }
+        catch (error) {
+            cleanupFailures.push(error);
+        }
+        this.#activeIds.clear();
+        this.#cleanupMessages.clear();
+        this.#queues.clear();
+        this.#buffered.clear();
+        if (cleanupFailures.length)
+            throw new AggregateError(cleanupFailures, "Nanto client cleanup failed.");
+    }
+    #receive(message) {
+        if (message.type === "error" && message.id === undefined) {
+            for (const id of this.#activeIds) {
+                const queue = this.#queues.get(id);
+                if (queue?.length) {
+                    for (const waiter of queue.splice(0))
+                        waiter.resolve(message);
+                }
+                else {
+                    this.#buffered.set(id, [message]);
+                }
+            }
+            return;
+        }
+        const id = message.id ?? 0;
+        if (!this.#activeIds.has(id))
+            return;
+        const queue = this.#queues.get(id);
+        const waiter = queue?.shift();
+        if (waiter)
+            waiter.resolve(message);
+        else
+            this.#buffered.set(id, [...(this.#buffered.get(id) ?? []), message]);
+    }
+    #next(id, signal) {
+        signal?.throwIfAborted();
+        const buffered = this.#buffered.get(id)?.shift();
+        if (buffered)
+            return Promise.resolve(buffered);
+        return new Promise((resolve, reject) => {
+            const waiter = {
+                resolve: message => {
+                    signal?.removeEventListener("abort", abort);
+                    resolve(message);
+                },
+                reject,
+            };
+            const abort = () => {
+                const queue = this.#queues.get(id);
+                if (queue)
+                    this.#queues.set(id, queue.filter(candidate => candidate !== waiter));
+                reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+            };
+            signal?.addEventListener("abort", abort, { once: true });
+            this.#queues.set(id, [...(this.#queues.get(id) ?? []), waiter]);
+            if (signal?.aborted)
+                abort();
+        });
+    }
+    #clear(id) {
+        this.#activeIds.delete(id);
+        this.#cleanupMessages.delete(id);
+        this.#queues.delete(id);
+        this.#buffered.delete(id);
+    }
+    #value(message) {
+        if (message.type === "error")
+            this.#throw(message);
+        return message.value;
+    }
+    #throw(message) {
+        if (message.code === "cancelled")
+            throw new DOMException("The operation was aborted.", "AbortError");
+        throw new NantoCommandError(message.code ?? "internal");
+    }
+    #bindAbort(id, signal, messageType = "cancel") {
+        this.#cleanupMessages.set(id, messageType);
+        if (!signal)
+            return () => undefined;
+        const abort = () => this.#transport.post(JSON.stringify({ v: 1, type: messageType, session: this.#requireSession(), id }));
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted)
+            abort();
+        return () => signal.removeEventListener("abort", abort);
+    }
+    #allocateId() {
+        const id = this.#nextId++;
+        if (this.#nextId > 0xffffffff)
+            this.#nextId = 1;
+        this.#activeIds.add(id);
+        return id;
+    }
+    #requireSession() {
+        if (this.#disposed)
+            throw new NantoCommandError("internal");
+        if (!this.#session)
+            throw new NantoCommandError("protocolMismatch");
+        return this.#session;
+    }
+}
+//# sourceMappingURL=index.js.map

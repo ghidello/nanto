@@ -1,0 +1,37 @@
+# Phase 2 plan — versioned IPC and generated contracts
+
+**Status:** In progress.
+
+Phase 2 adds the versioned, generated frontend bridge without weakening the completed Phase 1 Windows host, lifecycle, asset, appearance, diagnostics, or deployment guarantees. The complete 550-process lifecycle/recovery soak and a visible mixed-DPI run on two suitable monitors remain open Phase 1 acceptance follow-ups; neither is waived or considered passed.
+
+## Decisions
+
+- Individual API classes require only `[NantoCommand]` methods or `[NantoEvent]` properties. The containing type supplies the frontend group name, with an `Api` suffix removed.
+- `[NantoApi]` marks a composed group root. `[NantoApiPart<TApi>]` lets separately constructed classes contribute to that group without a string name.
+- CLR namespaces never form part of the frontend API. Partial declarations are aggregated, and generated-name collisions fail compilation.
+- Application services are registered explicitly through generated `NantoBridgeConfiguration.Add(...)` overloads. Nanto neither constructs nor disposes them.
+- Window access is separately default-deny and uses generated `AppCapabilities` values. Registration never grants access implicitly and Phase 2 provides no group wildcard.
+- Expected application failures use `NantoResult<T, TError>`. Transport, authorization, lifecycle, protocol, and unexpected handler failures reject with a sanitized frontend `NantoCommandError`. Caller cancellation follows `AbortSignal`/`AbortError` semantics.
+- `[NantoEvent] NantoEvent<T>` is hot and non-replayed. The generated frontend exposes an explicitly cancellable async-iterable subscription.
+- JSON is the Phase 2 transport. Command and event IDs are private generated values; public code, manifests, capabilities, and diagnostics retain symbolic names.
+- TypeScript is the canonical frontend implementation. A pinned TypeScript compiler produces ESM JavaScript, declarations, and source maps; there is no independent JavaScript emitter.
+
+## Delivery sequence
+
+1. Add the portable bridge, result, capability, invocation-context, and event contracts.
+2. Specify and test the versioned session/request/response protocol, authorization, cancellation, and sanitized failure behavior.
+3. Add the incremental C# generator and the shared semantic model used by the SDK TypeScript emitter.
+4. Exercise one unary generated command through the existing origin-checked WebView2 boundary under CoreCLR and Native AOT.
+5. Add pull-based command streams and bounded typed event subscriptions with deterministic shutdown.
+6. Add the pinned npm workspace, generated application fixture, TypeScript type/runtime tests, and compiled JavaScript verification.
+7. Run the complete unattended Release gate without opting into either manual Phase 1 follow-up.
+
+## Acceptance
+
+- Contract changes deterministically change generated C#, the symbolic manifest, and TypeScript.
+- Invalid or ambiguous contracts fail at compile time with source diagnostics.
+- CoreCLR and Native AOT use the same generated registry, JSON metadata, authorization, and lifecycle paths.
+- No runtime assembly scanning, dynamic proxies, runtime code emission, or unbounded reflection is used.
+- Wrong-origin, malformed, stale-session, unauthorized, oversized, and unknown-command messages fail safely.
+- Cancellation, navigation, close, late completion, stream disposal, event overflow, and repeated teardown are race-tested.
+- Strict Native AOT publish produces no unexplained trimming or AOT warnings.

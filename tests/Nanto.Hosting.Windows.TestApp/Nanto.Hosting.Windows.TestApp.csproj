@@ -6,6 +6,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsAotCompatible>true</IsAotCompatible>
+    <NantoSdkAssembly>$(MSBuildThisFileDirectory)..\..\src\Nanto.Sdk\bin\$(Configuration)\net10.0\Nanto.Sdk.dll</NantoSdkAssembly>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
@@ -13,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
     <ProjectReference Include="../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
+    <ProjectReference Include="../../src/Nanto.Generators/Nanto.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
     <ProjectReference Include="../Nanto.Hosting.Windows.TestApp.Interop/Nanto.Hosting.Windows.TestApp.Interop.csproj" />
   </ItemGroup>
@@ -23,9 +25,18 @@
     <EmbeddedResource Include="WebAssets/assets/shared-worker.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.shared-worker.js" />
     <EmbeddedResource Include="WebAssets/assets/worker.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.assets.worker.js" />
     <EmbeddedResource Include="WebAssets/index.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.index.html" />
+    <EmbeddedResource Include="WebAssets/bridge.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.bridge.html" />
+    <EmbeddedResource Include="../../frontend/packages/core/dist/index.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js" />
+    <EmbeddedResource Include="../../frontend/packages/app/dist/index.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-app.js" />
     <EmbeddedResource Include="WebAssets/navigation.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html" />
     <EmbeddedResource Include="WebAssets/nanto-assets.json" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json" />
   </ItemGroup>
+  <Target Name="BuildNantoSdkTool" BeforeTargets="GenerateNantoContracts">
+    <MSBuild Projects="../../src/Nanto.Sdk/Nanto.Sdk.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishAot;PublishSingleFile" />
+  </Target>
   <Target Name="GetNantoTestAppLaunchPath" Returns="@(_NantoTestAppLaunchPath)">
     <ItemGroup>
       <_NantoTestAppLaunchPath Include="$(TargetPath)" Condition="'$(UseAppHost)' != 'true'" />
@@ -33,4 +44,5 @@
     </ItemGroup>
   </Target>
   <Import Project="../../src/Nanto.Hosting.Windows/buildTransitive/Nanto.Hosting.Windows.targets" />
+  <Import Project="../../src/Nanto.Sdk/buildTransitive/Nanto.Sdk.targets" />
 </Project>

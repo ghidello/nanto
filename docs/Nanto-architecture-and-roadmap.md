@@ -685,23 +685,29 @@ Typed C# ↔ TypeScript bindings are a defining Nanto feature, not optional tool
 
 ### 8.1 C# authoring model
 
-An application exposes explicitly annotated services or methods:
+An ordinary API type exposes explicitly annotated methods and needs no type-level attribute. `[NantoApi]` marks only a composed group root; `[NantoApiPart<TApi>]` contributes independently constructed parts to that group:
 
 ```csharp
 [NantoApi]
 public sealed class ProjectsApi
 {
     [NantoCommand]
-    public async Task<ProjectDetails> OpenAsync(
-        ProjectId id,
+    public ValueTask<NantoResult<ProjectDetails, OpenProjectError>> OpenAsync(
+        ProjectId projectId,
         CancellationToken cancellationToken)
     {
         // Application logic
     }
 
+}
+
+[NantoApiPart<ProjectsApi>]
+public sealed class ProjectBuildsApi
+{
     [NantoCommand]
-    public IAsyncEnumerable<BuildProgress> BuildAsync(
-        ProjectId id,
+    public IAsyncEnumerable<NantoResult<BuildProgress, BuildError>> BuildAsync(
+        ProjectId projectId,
+        BuildOptions options,
         CancellationToken cancellationToken)
     {
         // Stream progress
@@ -709,7 +715,7 @@ public sealed class ProjectsApi
 }
 ```
 
-The exact attribute names remain provisional, but registration must be explicit and analyzable.
+The generated `NantoBridgeConfiguration.Add(...)` overloads register application-owned instances. Nanto holds references but neither constructs nor disposes those services. An `Api` type suffix and an `Async` method suffix are removed from frontend names; CLR namespaces do not participate. Partial types aggregate automatically, while duplicate generated group/member names are compilation errors.
 
 ### 8.2 Generated output
 
@@ -744,7 +750,8 @@ Initial mappings:
 | `IAsyncEnumerable<T>` | `AsyncIterable<T>` |
 | nullable reference/value | `T \| null`, with optionality defined separately |
 | records/classes | generated TypeScript interfaces or types |
-| enum | string union by default |
+| enum | generated constant object plus matching string-union type |
+| `NantoResult<T, TError>` | `{ ok: true, value: T } \| { ok: false, error: TError }` |
 | `Guid` | string, validated at the native boundary |
 | `DateOnly` | ISO date string |
 | `DateTimeOffset` | ISO timestamp string |
@@ -797,17 +804,18 @@ Large binary payloads should not be base64-encoded JSON once a platform transpor
 
 ### 8.6 Structured errors
 
-Native exception details and stack traces must not be sent to production frontends by default. Commands return a generated error contract such as:
+Expected application failures are values expressed as `NantoResult<T, TError>`. Unexpected handler exceptions, transport, authorization, lifecycle, and protocol failures reject with `NantoCommandError`; caller cancellation rejects with the platform-standard `AbortError`. Native exception details and stack traces are never sent to frontends. The transport error codes are bounded symbolic values:
 
 ```typescript
-type NantoError = {
-  code: string;
-  message: string;
-  details?: unknown;
-};
+type NantoCommandErrorCode =
+  | "commandUnavailable"
+  | "invalidRequest"
+  | "protocolMismatch"
+  | "resourceExhausted"
+  | "internal";
 ```
 
-Development builds may include a separately flagged diagnostic payload.
+Unknown and unauthorized commands intentionally produce the same `commandUnavailable` response. Unexpected failures include only the opaque request ID needed to correlate sanitized native logs.
 
 ---
 
@@ -1254,16 +1262,18 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-056 | Project the documented `UISettings` appearance surface through a pinned generated raw `IInspectable` ABI and explicitly own the UI thread's Windows Runtime apartment. | The tracked comparison preserved appearance behavior while removing `WinRT.Runtime` and 1.794 MiB from the otherwise identical Native AOT spike; narrow generated metadata validation and deterministic ownership avoid replacing that dependency with handwritten ABI. |
 | D-057 | Collect Phase 1 lifecycle-soak evidence through sequential isolated TestApp processes under one shared application identity and kill-on-close process group. | Process isolation exposes exit and storage-release failures, identity reuse exercises bundle/UDF reuse, containment bounds cancellation, and one ignored atomic summary preserves evidence without adding production soak behavior or committing machine-specific bulk artifacts. |
 | D-058 | Close Phase 1 implementation while retaining the complete 550-process soak and mixed-DPI visible run as explicit acceptance follow-ups. | Both test systems and their production paths are implemented. A 397-process clean partial soak and passing single-monitor visible run provide useful evidence, while the remaining duration and hardware constraints need not block Phase 2 contract work. Neither pending result may be described as passed. |
+| D-059 | Use method-level `[NantoCommand]` as the ordinary authoring surface and reserve `[NantoApi]` plus `[NantoApiPart<TApi>]` for composed groups. | Keeps simple APIs annotation-light while allowing large groups to be split across independently owned services without string names or runtime discovery. |
+| D-060 | Model expected failures as `NantoResult<T, TError>` and sanitize all exceptional failures into bounded transport codes. | Preserves exhaustive application-domain errors without leaking exception implementation details across the trust boundary. |
+| D-061 | Derive private 32-bit member IDs from SHA-256 canonical signatures and bind protocol v1 sessions to a full SHA-256 manifest fingerprint. | Provides compact dispatch with deterministic collision detection and prevents mismatched clients from invoking the wrong contract. |
+| D-062 | Generate TypeScript as the frontend source of truth and compile JavaScript, declarations, and source maps mechanically with a pinned compiler. | Avoids two emitters drifting while supporting both TypeScript and JavaScript consumers. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
 | ID | Recommendation | Proof required |
 | --- | --- | --- |
-| R-001 | Use a Roslyn incremental generator plus an MSBuild/CLI TypeScript emission step. | Incremental performance, stable output, IDE behavior. |
 | R-002 | Make NuGet the plugin source of truth and generate frontend plugin modules. | Package-consumer ergonomics and JS bundler compatibility. |
 | R-003 | Default `--runtime auto`, with strict `native-aot` for CI. | Ensure fallback is visible and never surprising. |
 | R-005 | Use application/window/plugin lifetime scopes without a heavy mandatory DI dependency. | AOT size and ergonomics benchmark. |
-| R-006 | Use compact generated command IDs in the private IPC wire format. | Measure payload/dispatch benefits; prove collision and version-mismatch safety. |
 | R-007 | Provide an inspectable MSBuild execution plan and CLI dry-run. | Confirm the build remains customizable without exposing unstable internal targets. |
 | R-009 | Prefer a native OTLP relay for packaged WebView telemetry, while allowing direct OTLP/HTTP in development. | Prove batching, correlation, AOT size, origin checks, limits, shutdown flushing, and interoperability with Aspire Dashboard and a generic collector. |
 

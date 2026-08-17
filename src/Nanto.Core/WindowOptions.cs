@@ -14,6 +14,9 @@ public sealed record WindowOptions
 
     public bool Resizable { get; init; } = true;
 
+    /// <summary>Gets the generated frontend capabilities granted to this window.</summary>
+    public IReadOnlyList<NantoFrontendCapability> Capabilities { get; init; } = [];
+
     /// <summary>
     /// Gets the root-relative URI of the declared asset used for initial navigation.
     /// </summary>
