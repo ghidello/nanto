@@ -26,6 +26,18 @@ Phase 2 adds the versioned, generated frontend bridge without weakening the comp
 6. Add the pinned npm workspace, generated application fixture, TypeScript type/runtime tests, and compiled JavaScript verification.
 7. Run the complete unattended Release gate without opting into either manual Phase 1 follow-up.
 
+## Implementation progress
+
+As of 17 August 2026, the portable contracts, protocol v1 session, generated registration and dispatch, source-generated JSON metadata,
+TypeScript emitter, XML-documentation and normalized source-location preservation, compiled ESM package, bounded streams and events, and the Windows WebView2 adapter are implemented. The real hidden WebView2
+suite exercises typed unary results, application failures, pull streams, hot events, caller cancellation, navigation session rotation, and close-time
+cancellation. The latest unattended Release gate passed 413 tests across the fast, hidden WebView2, self-contained CoreCLR, and Native AOT projects;
+the manual visible and long-running projects did not execute their opted-in scenarios.
+
+Phase 2 remains in progress. The next slices are broader generator golden/incremental-stability fixtures and real-WebView malformed, wrong-origin,
+unauthorized, stale-session, and manifest-mismatch cases.
+The complete 550-process soak and mixed-DPI visible run remain separately approved Phase 1 follow-ups.
+
 ## Acceptance
 
 - Contract changes deterministically change generated C#, the symbolic manifest, and TypeScript.

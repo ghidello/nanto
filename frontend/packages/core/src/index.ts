@@ -3,8 +3,17 @@ export interface BridgeTransport {
   subscribe(listener: (message: string) => void): () => void;
 }
 
+export const NantoCommandErrorCode = {
+  CommandUnavailable: "commandUnavailable",
+  InvalidRequest: "invalidRequest",
+  ProtocolMismatch: "protocolMismatch",
+  ResourceExhausted: "resourceExhausted",
+  Internal: "internal",
+} as const;
+export type NantoCommandErrorCode = typeof NantoCommandErrorCode[keyof typeof NantoCommandErrorCode];
+
 export class NantoCommandError extends Error {
-  public constructor(public readonly code: string) {
+  public constructor(public readonly code: NantoCommandErrorCode) {
     super(`Nanto command failed: ${code}`);
     this.name = "NantoCommandError";
   }
@@ -30,13 +39,15 @@ export class NantoClient implements AsyncDisposable {
   }
 
   public async connect(manifest: string): Promise<void> {
-    if (this.#disposed) throw new NantoCommandError("internal");
+    if (this.#disposed) throw new NantoCommandError(NantoCommandErrorCode.Internal);
     this.#activeIds.add(0);
     const ready = new Promise<Message>((resolve, reject) => this.#queues.set(0, [{ resolve, reject }]));
     try {
       this.#transport.post(JSON.stringify({ v: 1, type: "hello", manifest }));
       const message = await ready;
-      if (message.type !== "ready" || !message.session) throw new NantoCommandError(message.code ?? "protocolMismatch");
+      if (message.type !== "ready" || !message.session) {
+        throw new NantoCommandError(this.#normalizeErrorCode(message.code, NantoCommandErrorCode.ProtocolMismatch));
+      }
       this.#session = message.session;
     } finally {
       this.#clear(0);
@@ -114,7 +125,7 @@ export class NantoClient implements AsyncDisposable {
         }
       }
     }
-    const disposed = new NantoCommandError("internal");
+    const disposed = new NantoCommandError(NantoCommandErrorCode.Internal);
     for (const queue of this.#queues.values()) {
       for (const waiter of queue) waiter.reject(disposed);
     }
@@ -188,7 +199,7 @@ export class NantoClient implements AsyncDisposable {
 
   #throw(message: Message): never {
     if (message.code === "cancelled") throw new DOMException("The operation was aborted.", "AbortError");
-    throw new NantoCommandError(message.code ?? "internal");
+    throw new NantoCommandError(this.#normalizeErrorCode(message.code, NantoCommandErrorCode.Internal));
   }
 
   #bindAbort(id: number, signal?: AbortSignal, messageType: "cancel" | "unsubscribe" = "cancel"): () => void {
@@ -208,8 +219,21 @@ export class NantoClient implements AsyncDisposable {
   }
 
   #requireSession(): string {
-    if (this.#disposed) throw new NantoCommandError("internal");
-    if (!this.#session) throw new NantoCommandError("protocolMismatch");
+    if (this.#disposed) throw new NantoCommandError(NantoCommandErrorCode.Internal);
+    if (!this.#session) throw new NantoCommandError(NantoCommandErrorCode.ProtocolMismatch);
     return this.#session;
+  }
+
+  #normalizeErrorCode(code: string | undefined, fallback: NantoCommandErrorCode): NantoCommandErrorCode {
+    switch (code) {
+      case NantoCommandErrorCode.CommandUnavailable:
+      case NantoCommandErrorCode.InvalidRequest:
+      case NantoCommandErrorCode.ProtocolMismatch:
+      case NantoCommandErrorCode.ResourceExhausted:
+      case NantoCommandErrorCode.Internal:
+        return code;
+      default:
+        return fallback;
+    }
   }
 }

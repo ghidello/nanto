@@ -10,20 +10,32 @@
     {
       "path": "/bridge.html",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.bridge.html",
-      "length": 1742,
-      "sha256": "0A8A7B0E8083A3B1406A121B8B159B168CF9945E22F7F91AB1732AF8796200D2"
+      "length": 3265,
+      "sha256": "92C42EED2E8BA2BB734CD8F4734D8A9CEC6B3812F3BE22C0D3E54CA2CE8CBD77"
+    },
+    {
+      "path": "/bridge-navigation.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.bridge-navigation.html",
+      "length": 2824,
+      "sha256": "6B911694216F8CCA91FABBE8F3661FF60EDC10F5EFBA997E00FDD6D4EC8C1850"
+    },
+    {
+      "path": "/bridge-close.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.bridge-close.html",
+      "length": 1728,
+      "sha256": "A20E14E98F2918C53BFD5A4BDCA352BDE3E3BDACA23E68B9400FB8BC45852654"
     },
     {
       "path": "/nanto-core.js",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js",
-      "length": 8123,
-      "sha256": "B09753CA4F81D8F5EF55DFD13A483628C0E48A1B77807DF17BEBA382262F1391"
+      "length": 8988,
+      "sha256": "725567A66AEE246C08CE516EB3AC8E162E40CB42427FAED8E320D460384DA902"
     },
     {
       "path": "/nanto-app.js",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-app.js",
-      "length": 662,
-      "sha256": "92B8750813A419C5849B80F419E1370F8090027B193C69F741D21220B28AC0AF"
+      "length": 1805,
+      "sha256": "1E45469E4D7CED12435023AB9FA2D73E9B001401BA11AB2D2006E2BE31A74190"
     },
     {
       "path": "/navigation.html",

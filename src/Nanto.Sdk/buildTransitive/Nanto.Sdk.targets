@@ -15,6 +15,7 @@
       <_NantoSdkInput Include="define=$(DefineConstants)" />
       <_NantoSdkInput Include="langversion=$(LangVersion)" />
       <_NantoSdkInput Include="nullable=$(Nullable)" />
+      <_NantoSdkInput Include="projectdir=$(MSBuildProjectDirectory)" />
       <_NantoSdkInput Include="@(Compile->'source=%(FullPath)')" />
       <_NantoSdkInput Include="@(ReferencePath->'reference=%(FullPath)')" />
     </ItemGroup>

@@ -6,9 +6,15 @@ namespace Nanto.Hosting.Windows.TestApp;
 internal sealed class ProjectsApi(int minimumProjectId)
 {
     private readonly int _minimumProjectId = minimumProjectId;
+    private int _activeWaitCount;
+    private int _cancellationCount;
 
     [NantoEvent]
     public NantoEvent<ProjectChange> Changed { get; } = new();
+
+    internal int ActiveWaitCount => Volatile.Read(ref _activeWaitCount);
+
+    internal int CancellationCount => Volatile.Read(ref _cancellationCount);
 
     [NantoCommand]
     public ValueTask<NantoResult<ProjectDetails, OpenProjectError>> OpenAsync(
@@ -19,6 +25,35 @@ internal sealed class ProjectsApi(int minimumProjectId)
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult<NantoResult<ProjectDetails, OpenProjectError>>(
             projectId >= _minimumProjectId ? new ProjectDetails(projectId, context.WindowId.Value.ToString("N")) : OpenProjectError.NotFound);
+    }
+
+    [NantoCommand]
+    public ValueTask ChangeAsync(int projectId, CancellationToken cancellationToken) =>
+        Changed.PublishAsync(new ProjectChange(projectId, "changed"), cancellationToken);
+
+    [NantoCommand]
+    public ValueTask<int> GetCancellationCountAsync() => ValueTask.FromResult(Volatile.Read(ref _cancellationCount));
+
+    [NantoCommand]
+    public ValueTask<int> GetActiveWaitCountAsync() => ValueTask.FromResult(Volatile.Read(ref _activeWaitCount));
+
+    [NantoCommand]
+    public async ValueTask WaitAsync(CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _activeWaitCount);
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Interlocked.Increment(ref _cancellationCount);
+            throw;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeWaitCount);
+        }
     }
 }
 

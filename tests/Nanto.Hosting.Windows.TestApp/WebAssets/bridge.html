@@ -36,6 +36,53 @@
         throw new Error("unexpected-failure-result");
       }
 
+      const progress = [];
+      for await (const item of projects.build(7)) {
+        if (!item.ok) {
+          throw new Error("unexpected-stream-error");
+        }
+
+        progress.push(item.value);
+      }
+
+      if (progress.length !== 1 || progress[0].projectId !== 7 || progress[0].percent !== 100) {
+        throw new Error("unexpected-stream-result");
+      }
+
+      const subscription = projects.changed.subscribe();
+      const nextChange = subscription.next();
+      await projects.change(8);
+      const change = await nextChange;
+      if (change.done || change.value.projectId !== 8 || change.value.kind !== "changed") {
+        throw new Error("unexpected-event-result");
+      }
+
+      await subscription.return();
+
+      const cancellation = new AbortController();
+      const waiting = projects.wait({ signal: cancellation.signal });
+      cancellation.abort();
+      try {
+        await waiting;
+        throw new Error("missing-abort-error");
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== "AbortError") {
+          throw error;
+        }
+      }
+
+      let cancellationCount = 0;
+      for (let attempt = 0; attempt < 100 && cancellationCount === 0; attempt++) {
+        cancellationCount = await projects.getCancellationCount();
+        if (cancellationCount === 0) {
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+      }
+
+      if (cancellationCount !== 1) {
+        throw new Error("native-cancellation-not-observed");
+      }
+
       window.chrome.webview.postMessage("nanto:test:bridge:unary:passed");
       window.chrome.webview.postMessage("nanto:ready:v1");
     } catch (error) {

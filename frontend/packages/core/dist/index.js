@@ -1,3 +1,10 @@
+export const NantoCommandErrorCode = {
+    CommandUnavailable: "commandUnavailable",
+    InvalidRequest: "invalidRequest",
+    ProtocolMismatch: "protocolMismatch",
+    ResourceExhausted: "resourceExhausted",
+    Internal: "internal",
+};
 export class NantoCommandError extends Error {
     code;
     constructor(code) {
@@ -22,14 +29,15 @@ export class NantoClient {
     }
     async connect(manifest) {
         if (this.#disposed)
-            throw new NantoCommandError("internal");
+            throw new NantoCommandError(NantoCommandErrorCode.Internal);
         this.#activeIds.add(0);
         const ready = new Promise((resolve, reject) => this.#queues.set(0, [{ resolve, reject }]));
         try {
             this.#transport.post(JSON.stringify({ v: 1, type: "hello", manifest }));
             const message = await ready;
-            if (message.type !== "ready" || !message.session)
-                throw new NantoCommandError(message.code ?? "protocolMismatch");
+            if (message.type !== "ready" || !message.session) {
+                throw new NantoCommandError(this.#normalizeErrorCode(message.code, NantoCommandErrorCode.ProtocolMismatch));
+            }
             this.#session = message.session;
         }
         finally {
@@ -113,7 +121,7 @@ export class NantoClient {
                 }
             }
         }
-        const disposed = new NantoCommandError("internal");
+        const disposed = new NantoCommandError(NantoCommandErrorCode.Internal);
         for (const queue of this.#queues.values()) {
             for (const waiter of queue)
                 waiter.reject(disposed);
@@ -194,7 +202,7 @@ export class NantoClient {
     #throw(message) {
         if (message.code === "cancelled")
             throw new DOMException("The operation was aborted.", "AbortError");
-        throw new NantoCommandError(message.code ?? "internal");
+        throw new NantoCommandError(this.#normalizeErrorCode(message.code, NantoCommandErrorCode.Internal));
     }
     #bindAbort(id, signal, messageType = "cancel") {
         this.#cleanupMessages.set(id, messageType);
@@ -215,10 +223,22 @@ export class NantoClient {
     }
     #requireSession() {
         if (this.#disposed)
-            throw new NantoCommandError("internal");
+            throw new NantoCommandError(NantoCommandErrorCode.Internal);
         if (!this.#session)
-            throw new NantoCommandError("protocolMismatch");
+            throw new NantoCommandError(NantoCommandErrorCode.ProtocolMismatch);
         return this.#session;
+    }
+    #normalizeErrorCode(code, fallback) {
+        switch (code) {
+            case NantoCommandErrorCode.CommandUnavailable:
+            case NantoCommandErrorCode.InvalidRequest:
+            case NantoCommandErrorCode.ProtocolMismatch:
+            case NantoCommandErrorCode.ResourceExhausted:
+            case NantoCommandErrorCode.Internal:
+                return code;
+            default:
+                return fallback;
+        }
     }
 }
 //# sourceMappingURL=index.js.map

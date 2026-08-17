@@ -102,17 +102,18 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
         foreach (var eventProperty in eventSymbols)
         {
-            if (!IsNantoEvent(eventProperty.Type))
+            var failure = ValidateEvent(eventProperty);
+            if (failure is not null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     _unsupportedCommand,
                     eventProperty.Locations.FirstOrDefault(),
                     eventProperty.Name,
-                    "[NantoEvent] properties must have type NantoEvent<T>"));
+                    failure));
                 continue;
             }
 
-            var failure = ValidateSerializationTypes(eventProperty);
+            failure = ValidateSerializationTypes(eventProperty);
             if (failure is not null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(_unsupportedCommand, eventProperty.Locations.FirstOrDefault(), eventProperty.Name, failure));
@@ -197,6 +198,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
     private static string? ValidateCommand(IMethodSymbol command)
     {
+        if (!IsAccessibleFromGeneratedCode(command) || !IsAccessibleFromGeneratedCode(command.ContainingType))
+        {
+            return "the method and its containing types must be accessible from generated code";
+        }
+
         if (command.IsStatic)
         {
             return "static methods are not supported";
@@ -215,6 +221,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
         if (command.Parameters.Any(static parameter => parameter.IsOptional || parameter.IsParams))
         {
             return "optional and params-array serialized parameters are not supported";
+        }
+
+        if (command.Parameters.Any(static parameter => parameter.RefKind != RefKind.None))
+        {
+            return "ref, in, and out parameters are not supported";
         }
 
         var encounteredInjectedParameter = false;
@@ -256,6 +267,32 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
         return ValidateSerializationTypes(command);
     }
+
+    private static string? ValidateEvent(IPropertySymbol eventProperty)
+    {
+        if (!IsAccessibleFromGeneratedCode(eventProperty)
+            || !IsAccessibleFromGeneratedCode(eventProperty.ContainingType)
+            || eventProperty.GetMethod is null
+            || !IsAccessibleFromGeneratedCode(eventProperty.GetMethod))
+        {
+            return "the property, getter, and containing types must be accessible from generated code";
+        }
+
+        if (eventProperty.IsStatic)
+        {
+            return "static event properties are not supported";
+        }
+
+        if (eventProperty.IsIndexer)
+        {
+            return "indexed event properties are not supported";
+        }
+
+        return IsNantoEvent(eventProperty.Type) ? null : "[NantoEvent] properties must have type NantoEvent<T>";
+    }
+
+    private static bool IsAccessibleFromGeneratedCode(ISymbol symbol) => symbol.DeclaredAccessibility is
+        Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal;
 
     private static string? ValidateSerializationTypes(ISymbol symbol)
     {

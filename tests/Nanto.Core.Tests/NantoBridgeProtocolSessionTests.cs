@@ -179,6 +179,141 @@ public sealed class NantoBridgeProtocolSessionTests
     }
 
     [Fact]
+    public async Task RejectsStreamsBeyondThePerWindowLimit()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var command = new TestCommand(
+            42,
+            static (_, _, _) => ValueTask.FromResult<NantoGeneratedCommandInvocation>(
+                new NantoGeneratedStreamInvocation(new EmptySequence())),
+            kind: NantoGeneratedCommandKind.Stream);
+        await using var session = CreateSession(command, grant: true);
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        for (uint requestId = 1; requestId <= NantoBridgeProtocolSession.MaximumStreams; requestId++)
+        {
+            var accepted = await session.HandleAsync(Invoke(sessionId, requestId, 42), cancellationToken);
+            Assert.Equal("result", JsonDocument.Parse(accepted!).RootElement.GetProperty("type").GetString());
+        }
+
+        var rejected = await session.HandleAsync(
+            Invoke(sessionId, NantoBridgeProtocolSession.MaximumStreams + 1U, 42),
+            cancellationToken);
+
+        Assert.Equal("resourceExhausted", ReadCode(rejected));
+    }
+
+    [Fact]
+    public async Task RejectsCommandsBeyondThePerWindowLimit()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var allStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0;
+        var command = new TestCommand(42, async (_, _, invocationCancellation) =>
+        {
+            if (Interlocked.Increment(ref started) == NantoBridgeProtocolSession.MaximumActiveCommands)
+            {
+                allStarted.TrySetResult();
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, invocationCancellation).ConfigureAwait(false);
+            return new NantoGeneratedUnaryInvocation(NantoGeneratedJson.Null);
+        });
+        var session = CreateSession(command, grant: true);
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        var active = new List<Task<string?>>();
+        for (uint requestId = 1; requestId <= NantoBridgeProtocolSession.MaximumActiveCommands; requestId++)
+        {
+            active.Add(session.HandleAsync(Invoke(sessionId, requestId, 42), cancellationToken).AsTask());
+        }
+
+        await allStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        var rejected = await session.HandleAsync(
+            Invoke(sessionId, NantoBridgeProtocolSession.MaximumActiveCommands + 1U, 42),
+            cancellationToken);
+
+        Assert.Equal("resourceExhausted", ReadCode(rejected));
+        await session.DisposeAsync();
+        var completions = await Task.WhenAll(active).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        Assert.All(completions, response => Assert.Equal("cancelled", ReadCode(response)));
+    }
+
+    [Fact]
+    public async Task RejectsEventSubscriptionsBeyondThePerWindowLimit()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var source = new NantoEvent<int>();
+        var eventDescriptor = CreateEventDescriptor(source);
+        var bridge = new NantoBridgeConfiguration();
+        bridge.AddGenerated(new TestRegistration([], [eventDescriptor]));
+        await using var session = new NantoBridgeProtocolSession(
+            bridge.CaptureSnapshot(),
+            [new NantoFrontendCapability(77, "projects.changed", NantoFrontendCapabilityKind.Event)],
+            WindowId.Create(),
+            new Uri("https://app.nanto.invalid"),
+            new InlineDispatcher());
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        for (uint subscriptionId = 1; subscriptionId <= NantoBridgeProtocolSession.MaximumEventSubscriptions; subscriptionId++)
+        {
+            var accepted = await session.HandleAsync(Subscribe(sessionId, subscriptionId), cancellationToken);
+            Assert.Equal("result", JsonDocument.Parse(accepted!).RootElement.GetProperty("type").GetString());
+        }
+
+        var rejected = await session.HandleAsync(
+            Subscribe(sessionId, NantoBridgeProtocolSession.MaximumEventSubscriptions + 1U),
+            cancellationToken);
+
+        Assert.Equal("resourceExhausted", ReadCode(rejected));
+    }
+
+    [Fact]
+    public async Task EventBufferOverflowTerminatesOnlyTheSlowSubscription()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var source = new NantoEvent<int>();
+        var bridge = new NantoBridgeConfiguration();
+        bridge.AddGenerated(new TestRegistration([], [CreateEventDescriptor(source)]));
+        var output = Channel.CreateUnbounded<string>();
+        var releaseFirstOutput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var outputCount = 0;
+        await using var session = new NantoBridgeProtocolSession(
+            bridge.CaptureSnapshot(),
+            [new NantoFrontendCapability(77, "projects.changed", NantoFrontendCapabilityKind.Event)],
+            WindowId.Create(),
+            new Uri("https://app.nanto.invalid"),
+            new InlineDispatcher(),
+            async (_, message) =>
+            {
+                output.Writer.TryWrite(message);
+                if (Interlocked.Increment(ref outputCount) == 1)
+                {
+                    await releaseFirstOutput.Task.ConfigureAwait(false);
+                }
+            });
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        _ = await session.HandleAsync(Subscribe(sessionId, 1), cancellationToken);
+        for (var item = 0; item < NantoBridgeProtocolSession.EventBufferCapacity + 2; item++)
+        {
+            await source.PublishAsync(item, cancellationToken);
+        }
+
+        releaseFirstOutput.TrySetResult();
+        string? terminal = null;
+        while (terminal is null)
+        {
+            var message = await output.Reader.ReadAsync(cancellationToken);
+            using var document = JsonDocument.Parse(message);
+            if (document.RootElement.GetProperty("type").GetString() == "error")
+            {
+                terminal = document.RootElement.GetProperty("code").GetString();
+            }
+        }
+
+        Assert.Equal("resourceExhausted", terminal);
+        var secondSubscription = await session.HandleAsync(Subscribe(sessionId, 2), cancellationToken);
+        Assert.Equal("result", JsonDocument.Parse(secondSubscription!).RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
     public async Task ManifestChangesWhenOnlyDtoSchemaChanges()
     {
         var first = new TestCommand(
@@ -297,6 +432,16 @@ public sealed class NantoBridgeProtocolSessionTests
     private static ReadOnlyMemory<byte> Invoke(string session, uint id, uint command) =>
         Utf8(JsonSerializer.Serialize(new { v = 1, type = "invoke", session, id, command, args = new { } }));
 
+    private static ReadOnlyMemory<byte> Subscribe(string session, uint id) =>
+        Utf8(JsonSerializer.Serialize(new { v = 1, type = "subscribe", session, id, @event = 77 }));
+
+    private static NantoGeneratedEvent<int> CreateEventDescriptor(NantoEvent<int> source) => new(
+        77,
+        "projects.changed",
+        "event:projects.changed->int|schemas:int=scalar",
+        source,
+        static value => JsonSerializer.SerializeToElement(value));
+
     private sealed class TestRegistration(
         IReadOnlyList<NantoGeneratedCommand> commands,
         IReadOnlyList<NantoGeneratedEvent> events) : NantoGeneratedApiRegistration
@@ -332,6 +477,13 @@ public sealed class NantoBridgeProtocolSessionTests
             ValueTask.FromException<NantoGeneratedStreamItem>(new InvalidOperationException("move failed"));
 
         public override ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException("dispose failed"));
+    }
+
+    private sealed class EmptySequence : NantoGeneratedSequence
+    {
+        public override ValueTask<NantoGeneratedStreamItem> MoveNextAsync(CancellationToken cancellationToken) => ValueTask.FromResult(default(NantoGeneratedStreamItem));
+
+        public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class InlineDispatcher : IUiDispatcher

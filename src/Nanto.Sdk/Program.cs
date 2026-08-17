@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using System.Xml.Linq;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -28,6 +29,7 @@ internal static class Program
         var defines = Array.Empty<string>();
         var languageVersion = LanguageVersion.Latest;
         var nullableContext = NullableContextOptions.Disable;
+        var projectDirectory = Directory.GetCurrentDirectory();
         foreach (var line in File.ReadLines(responsePath))
         {
             if (line.StartsWith("define=", StringComparison.Ordinal))
@@ -42,6 +44,10 @@ internal static class Program
             else if (line.StartsWith("nullable=", StringComparison.Ordinal))
             {
                 nullableContext = ParseNullableContext(line[9..]);
+            }
+            else if (line.StartsWith("projectdir=", StringComparison.Ordinal))
+            {
+                projectDirectory = line[11..];
             }
             else if (line.StartsWith("source=", StringComparison.Ordinal))
             {
@@ -67,7 +73,7 @@ internal static class Program
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: nullableContext));
         var types = DiscoverTypes(compilation);
         WriteContext(contextOutputPath, types);
-        WriteTypeScript(typeScriptOutputPath, DiscoverFrontendMembers(compilation));
+        WriteTypeScript(typeScriptOutputPath, DiscoverFrontendMembers(compilation), projectDirectory);
         return 0;
     }
 
@@ -203,9 +209,16 @@ internal static class Program
         File.WriteAllText(outputPath, builder.ToString().Replace("\r\n", "\n", StringComparison.Ordinal), new UTF8Encoding(false));
     }
 
-    private static void WriteTypeScript(string outputPath, IReadOnlyList<NantoContractMember> members)
+    private static void WriteTypeScript(string outputPath, IReadOnlyList<NantoContractMember> members, string projectDirectory)
     {
-        var emitter = new TypeScriptEmitter();
+        var source = CreateTypeScript(members, projectDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        File.WriteAllText(outputPath, source, new UTF8Encoding(false));
+    }
+
+    internal static string CreateTypeScript(IReadOnlyList<NantoContractMember> members, string projectDirectory)
+    {
+        var emitter = new TypeScriptEmitter(projectDirectory);
         foreach (var member in members)
         {
             foreach (var parameter in member.Parameters)
@@ -251,9 +264,11 @@ internal static class Program
         builder.AppendLine("  return {");
         foreach (var group in members.GroupBy(static member => member.GroupName).OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
+            AppendDocumentation(builder, group.First().GroupType, "    ", projectDirectory);
             builder.Append("    ").Append(group.Key).AppendLine(": {");
             foreach (var member in group.OrderBy(static member => member.MemberName, StringComparer.Ordinal))
             {
+                AppendDocumentation(builder, member.Symbol, "      ", projectDirectory);
                 var payloadType = member.PayloadType is null ? "void" : emitter.GetTypeName(member.PayloadType);
                 if (member.Kind == NantoContractMemberKind.Event)
                 {
@@ -284,8 +299,115 @@ internal static class Program
 
         builder.AppendLine("  } as const;");
         builder.AppendLine("}");
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        File.WriteAllText(outputPath, builder.ToString().Replace("\r\n", "\n", StringComparison.Ordinal), new UTF8Encoding(false));
+        return builder.ToString().Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    private static void AppendDocumentation(StringBuilder builder, ISymbol symbol, string indent, string projectDirectory)
+    {
+        var entries = new List<string>();
+        var xml = symbol.GetDocumentationCommentXml(preferredCulture: CultureInfo.InvariantCulture, expandIncludes: true);
+        if (!string.IsNullOrWhiteSpace(xml))
+        {
+            try
+            {
+                var member = XElement.Parse(xml);
+                AddDocumentationEntry(entries, null, member.Element("summary"));
+                AddDocumentationEntry(entries, "Remarks: ", member.Element("remarks"));
+                foreach (var parameter in member.Elements("param"))
+                {
+                    AddDocumentationEntry(entries, "@param " + parameter.Attribute("name")?.Value + " ", parameter);
+                }
+
+                AddDocumentationEntry(entries, "@returns ", member.Element("returns"));
+            }
+            catch (System.Xml.XmlException)
+            {
+                // Invalid XML documentation is already reported by the C# compiler; generation remains deterministic.
+            }
+        }
+
+        if (GetProjectRelativeSource(symbol, projectDirectory) is { } source)
+        {
+            entries.Add("@source " + source);
+        }
+
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        builder.Append(indent).AppendLine("/**");
+        foreach (var entry in entries)
+        {
+            builder.Append(indent).Append(" * ").AppendLine(entry.Replace("*/", "* /", StringComparison.Ordinal));
+        }
+
+        builder.Append(indent).AppendLine(" */");
+    }
+
+    private static void AddDocumentationEntry(List<string> entries, string? prefix, XElement? element)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var text = NormalizeDocumentationText(RenderDocumentation(element));
+        if (text.Length > 0)
+        {
+            entries.Add((prefix ?? string.Empty) + text);
+        }
+    }
+
+    private static string RenderDocumentation(XContainer container)
+    {
+        var builder = new StringBuilder();
+        foreach (var node in container.Nodes())
+        {
+            switch (node)
+            {
+                case XText text:
+                    builder.Append(text.Value);
+                    break;
+                case XElement { Name.LocalName: "see" or "seealso" } reference:
+                    var target = reference.Attribute("cref")?.Value ?? reference.Attribute("href")?.Value;
+                    builder.Append(target is { Length: > 2 } && target[1] == ':' ? target[2..] : target);
+                    break;
+                case XElement { Name.LocalName: "paramref" or "typeparamref" } parameterReference:
+                    builder.Append(parameterReference.Attribute("name")?.Value);
+                    break;
+                case XElement { Name.LocalName: "c" } code:
+                    builder.Append('`').Append(code.Value).Append('`');
+                    break;
+                case XElement element:
+                    builder.Append(RenderDocumentation(element));
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string NormalizeDocumentationText(string value) => string.Join(
+        " ",
+        value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private static string? GetProjectRelativeSource(ISymbol symbol, string projectDirectory)
+    {
+        var location = symbol.Locations.FirstOrDefault(static location => location.IsInSource);
+        if (location?.SourceTree?.FilePath is not { Length: > 0 } sourcePath || string.IsNullOrWhiteSpace(projectDirectory))
+        {
+            return null;
+        }
+
+        var relativePath = Path.GetRelativePath(Path.GetFullPath(projectDirectory), Path.GetFullPath(sourcePath));
+        if (Path.IsPathRooted(relativePath) || relativePath == ".." || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var line = location.GetLineSpan().StartLinePosition.Line + 1;
+        return relativePath.Replace('\\', '/') + ":" + line.ToString(CultureInfo.InvariantCulture);
     }
 
     internal sealed class TypeScriptEmitter
@@ -293,8 +415,14 @@ internal static class Program
         private readonly HashSet<ITypeSymbol> _declared = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<ITypeSymbol, string> _names = new(SymbolEqualityComparer.Default);
         private readonly HashSet<ITypeSymbol> _types = new(SymbolEqualityComparer.Default);
+        private readonly string _projectDirectory;
 
         internal StringBuilder Declarations { get; } = new();
+
+        internal TypeScriptEmitter(string? projectDirectory = null)
+        {
+            _projectDirectory = projectDirectory ?? string.Empty;
+        }
 
         internal void AddRootType(ITypeSymbol type) => DiscoverType(type.WithNullableAnnotation(NullableAnnotation.None));
 
@@ -493,10 +621,12 @@ internal static class Program
             }
 
             var name = _names[type];
+            AppendDocumentation(Declarations, type, string.Empty, _projectDirectory);
             Declarations.Append("export const ").Append(name).AppendLine(" = {");
             foreach (var field in type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue)
                 .OrderBy(static field => field.Name, StringComparer.Ordinal))
             {
+                AppendDocumentation(Declarations, field, "  ", _projectDirectory);
                 Declarations.Append("  ").Append(field.Name).Append(": \"").Append(field.Name).AppendLine("\",");
             }
 
@@ -517,10 +647,12 @@ internal static class Program
                 .OrderBy(static property => property.Name, StringComparer.Ordinal)
                 .ToArray();
             var propertyTypes = properties.Select(property => (Property: property, TypeName: GetTypeName(property.Type))).ToArray();
+            AppendDocumentation(Declarations, type, string.Empty, _projectDirectory);
             Declarations.Append("export interface ").Append(_names[type]).AppendLine(" {");
             foreach (var property in propertyTypes)
             {
-            Declarations.Append("  ").Append(NantoContractTypes.ToCamelCase(property.Property.Name)).Append(": ").Append(property.TypeName).AppendLine(";");
+                AppendDocumentation(Declarations, property.Property, "  ", _projectDirectory);
+                Declarations.Append("  ").Append(NantoContractTypes.ToCamelCase(property.Property.Name)).Append(": ").Append(property.TypeName).AppendLine(";");
             }
 
             Declarations.AppendLine("}\n");

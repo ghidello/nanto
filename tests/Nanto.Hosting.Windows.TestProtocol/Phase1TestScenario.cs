@@ -17,4 +17,6 @@ public enum Phase1TestScenario
     VisibleDesktop,
     VisibleCrossMonitorDpi,
     BridgeUnary,
+    BridgeNavigation,
+    BridgeClose,
 }

@@ -1545,13 +1545,12 @@ CI should cover:
 
 ## 17. Immediate next actions
 
-Begin Phase 2 with the smallest vertical protocol slice while preserving the completed Phase 1 host contracts:
+Continue Phase 2 from the implemented versioned protocol and generated vertical slice while preserving the completed Phase 1 host contracts:
 
-1. Specify the versioned request/response envelope, error shape, cancellation identity, and origin/window binding.
-2. Prototype `[NantoApi]`/`[NantoCommand]` contracts and the incremental generator without runtime assembly scanning.
-3. Generate deterministic dispatcher, source-generated JSON metadata, and framework-neutral ESM/TypeScript bindings for one representative command.
-4. Exercise the slice through the existing secure WebView message boundary under CoreCLR and Native AOT, including malformed, unauthorized, cancellation, and teardown paths.
-5. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
+1. Expand generator golden and incremental-stability coverage across every rejected signature and deterministic-output requirement.
+2. Exercise malformed, wrong-origin, unauthorized, stale-session, and manifest-mismatch traffic through the real hidden WebView2 boundary.
+3. Keep the generated registry and serializers identical across framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT verification.
+4. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
 
 ---
 

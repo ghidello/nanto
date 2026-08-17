@@ -116,6 +116,88 @@ public sealed class NantoBridgeGeneratorTests
         result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002");
     }
 
+    [Theory]
+    [InlineData("ref")]
+    [InlineData("in")]
+    [InlineData("out")]
+    public void ReportsByReferenceCommandParameters(string modifier)
+    {
+        var initialization = modifier == "out" ? "projectId = 0; " : string.Empty;
+        var source = $$"""
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task OpenAsync({{modifier}} int projectId) { {{initialization}}return Task.CompletedTask; }
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("ref, in, and out", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsCommandThatIsInaccessibleFromGeneratedCode()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                private Task OpenAsync() => Task.CompletedTask;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("accessible from generated code", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsEventWhoseGetterIsInaccessibleFromGeneratedCode()
+    {
+        const string source = """
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoEvent]
+                public NantoEvent<int> Changed { private get; set; } = new();
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("property, getter", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsStaticEventProperty()
+    {
+        const string source = """
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoEvent]
+                public static NantoEvent<int> Changed { get; } = new();
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("static event properties", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ReportsCyclicDtoGraph()
     {
@@ -266,6 +348,40 @@ public sealed class NantoBridgeGeneratorTests
         generated.Should().Contain(member.ManifestEntry);
     }
 
+    [Fact]
+    public void TypeScriptEmitterPreservesDocumentationAndProjectRelativeSourceLocations()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            /// <summary>Project operations.</summary>
+            public sealed class ProjectsApi
+            {
+                /// <summary>Opens the requested <see cref="Project"/>.</summary>
+                /// <param name="projectId">The stable project identifier.</param>
+                /// <returns>The matching project.</returns>
+                [NantoCommand]
+                public Task<Project> OpenAsync(int projectId) => Task.FromResult(new Project(projectId));
+            }
+
+            /// <summary>A project returned to the frontend.</summary>
+            /// <param name="Id">The stable identifier.</param>
+            public sealed record Project(int Id);
+            """;
+        const string projectDirectory = "D:\\repo";
+        var compilation = CreateCompilation(source, "D:\\repo\\Contracts\\ProjectsApi.cs");
+        var generated = Nanto.Sdk.Program.CreateTypeScript(Nanto.Sdk.Program.DiscoverFrontendMembers(compilation), projectDirectory);
+
+        generated.Should().Contain("Project operations.");
+        generated.Should().Contain("Opens the requested Project.");
+        generated.Should().Contain("@param projectId The stable project identifier.");
+        generated.Should().Contain("@returns The matching project.");
+        generated.Should().Contain("A project returned to the frontend.");
+        generated.Should().Contain("@source Contracts/ProjectsApi.cs:");
+        generated.Should().NotContain(projectDirectory);
+    }
+
     private static GeneratorDriverRunResult Run(string source)
     {
         var compilation = CreateCompilation(source);
@@ -283,7 +399,7 @@ public sealed class NantoBridgeGeneratorTests
         return result;
     }
 
-    private static CSharpCompilation CreateCompilation(string source)
+    private static CSharpCompilation CreateCompilation(string source, string path = "")
     {
         var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
             .Split(Path.PathSeparator)
@@ -291,7 +407,7 @@ public sealed class NantoBridgeGeneratorTests
             .Append(MetadataReference.CreateFromFile(typeof(NantoCommandAttribute).Assembly.Location));
         return CSharpCompilation.Create(
             "GeneratorTests",
-            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview, documentationMode: DocumentationMode.Diagnose), path)],
             references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
     }

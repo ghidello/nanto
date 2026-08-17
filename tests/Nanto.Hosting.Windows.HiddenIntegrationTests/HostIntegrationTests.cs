@@ -80,6 +80,28 @@ public sealed class HostIntegrationTests
         AssertReverseOwnershipCleanup(report);
     }
 
+    [Fact]
+    public async Task NavigationCancelsGeneratedBridgeWorkAndReconnectsWithANewSession()
+    {
+        var result = await RunAsync(Phase1TestScenario.BridgeNavigation);
+        var report = RequireSuccessfulReport(result);
+
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
+    [Fact]
+    public async Task ClosingCancelsGeneratedBridgeWorkBeforeWebViewTeardown()
+    {
+        var result = await RunAsync(Phase1TestScenario.BridgeClose);
+        var report = RequireSuccessfulReport(result);
+
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
     [Theory]
     [MemberData(nameof(AcquisitionCheckpoints))]
     public async Task EveryImplementedAcquisitionCheckpointFailsAndCleansUpInTheExternalProcess(string checkpoint)

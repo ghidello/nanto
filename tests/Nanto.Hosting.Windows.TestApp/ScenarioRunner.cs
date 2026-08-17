@@ -97,6 +97,34 @@ internal static partial class ScenarioRunner
             "/bridge.html",
             VerifyBridgeUnaryAsync);
 
+    public static async Task<Phase1TestReport> RunBridgeNavigationAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(
+            request,
+            startedAt,
+            stopwatch,
+            ShutdownAction.Stop,
+            "/bridge-navigation.html",
+            VerifyBridgeNavigationAsync);
+
+    public static async Task<Phase1TestReport> RunBridgeCloseAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch)
+    {
+        var projectsApi = new ProjectsApi(1);
+        return await RunOrderlyShutdownAsync(
+            request,
+            startedAt,
+            stopwatch,
+            ShutdownAction.Stop,
+            "/bridge-close.html",
+            VerifyBridgeCloseStartedAsync,
+            projectsApi,
+            () => VerifyBridgeCloseCancellationAsync(projectsApi));
+    }
+
     public static async Task<Phase1TestReport> RunStartupCancellationAsync(
         Phase1TestRequest request,
         DateTimeOffset startedAt,
@@ -553,10 +581,10 @@ internal static partial class ScenarioRunner
         };
     }
 
-    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request)
+    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request, ProjectsApi? projectsApi = null)
     {
         var bridge = new NantoBridgeConfiguration();
-        bridge.Add(new ProjectsApi(1));
+        bridge.Add(projectsApi ?? new ProjectsApi(1));
         bridge.Add(new ProjectBuildsApi(100));
         return new NantoApplicationOptions
         {
@@ -571,6 +599,10 @@ internal static partial class ScenarioRunner
                     AppCapabilities.Projects.Open,
                     AppCapabilities.Projects.Build,
                     AppCapabilities.Projects.Changed,
+                    AppCapabilities.Projects.Change,
+                    AppCapabilities.Projects.GetActiveWaitCount,
+                    AppCapabilities.Projects.GetCancellationCount,
+                    AppCapabilities.Projects.Wait,
                 ],
                 InitialRoute = "/index.html",
                 Title = "Nanto Phase 1 integration host",
@@ -666,7 +698,9 @@ internal static partial class ScenarioRunner
         Stopwatch stopwatch,
         ShutdownAction shutdownAction,
         string initialRoute = "/index.html",
-        Func<WindowsApplicationHost, Task>? verify = null)
+        Func<WindowsApplicationHost, Task>? verify = null,
+        ProjectsApi? projectsApi = null,
+        Func<Task>? verifyAfterShutdown = null)
     {
         var failureInjector = new RecordingFailureInjector(null);
         var transitions = new List<Phase1LifecycleTransition>();
@@ -691,7 +725,7 @@ internal static partial class ScenarioRunner
         Exception? observedFailure = null;
         var presentationMatched = false;
         var peakResources = initialResources;
-        var options = CreateOptions(request);
+        var options = CreateOptions(request, projectsApi);
         var run = host.RunAsync(
             options with { PrimaryWindow = options.PrimaryWindow with { InitialRoute = initialRoute } },
             runCancellation.Token);
@@ -714,6 +748,10 @@ internal static partial class ScenarioRunner
             peakResources = CaptureResources(host.ResourceSnapshot);
             await RequestShutdownAsync(host, runCancellation, shutdownAction);
             await run;
+            if (verifyAfterShutdown is not null)
+            {
+                await verifyAfterShutdown();
+            }
         }
         catch (Exception exception)
         {
@@ -766,6 +804,40 @@ internal static partial class ScenarioRunner
         if (!string.Equals(message, "nanto:test:bridge:unary:passed", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"The bridge fixture returned an unexpected result: '{message}'.");
+        }
+    }
+
+    private static async Task VerifyBridgeNavigationAsync(WindowsApplicationHost host)
+    {
+        using var timeout = new CancellationTokenSource(Program.ActivationTimeout);
+        var message = await host.WaitForDiagnosticMessageAsync(timeout.Token);
+        if (!string.Equals(message, "nanto:test:bridge:navigation:passed", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"The bridge navigation fixture returned an unexpected result: '{message}'.");
+        }
+    }
+
+    private static async Task VerifyBridgeCloseStartedAsync(WindowsApplicationHost host)
+    {
+        using var timeout = new CancellationTokenSource(Program.ActivationTimeout);
+        var message = await host.WaitForDiagnosticMessageAsync(timeout.Token);
+        if (!string.Equals(message, "nanto:test:bridge:close:started", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"The bridge close fixture returned an unexpected result: '{message}'.");
+        }
+    }
+
+    private static async Task VerifyBridgeCloseCancellationAsync(ProjectsApi projectsApi)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        while (projectsApi.CancellationCount != 1 || projectsApi.ActiveWaitCount != 0)
+        {
+            if (Stopwatch.GetElapsedTime(startedAt) >= Program.ActivationTimeout)
+            {
+                throw new TimeoutException("Closing the bridge did not cancel its active native invocation.");
+            }
+
+            await Task.Delay(10);
         }
     }
 
