@@ -1549,8 +1549,8 @@ CI should cover:
 
 Continue Phase 2 from the implemented versioned protocol and generated vertical slice while preserving the completed Phase 1 host contracts:
 
-1. Expand generator golden and incremental-stability coverage across every rejected signature and deterministic-output requirement.
-2. Exercise malformed, wrong-origin, unauthorized, stale-session, and manifest-mismatch traffic through the real hidden WebView2 boundary.
+1. Complete the remaining rejected-signature diagnostic matrix; representative generator golden fingerprints, syntax-tree ordering, and unchanged-input caching are covered.
+2. Audit and record the Phase 2 exit criteria now that malformed, wrong-origin, unauthorized, stale-session, and manifest-mismatch traffic passes through the real hidden WebView2 boundary.
 3. Keep the generated registry and serializers identical across framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT verification.
 4. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
 

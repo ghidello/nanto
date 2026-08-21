@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 using AwesomeAssertions;
 
@@ -140,6 +142,33 @@ public sealed class NantoBridgeGeneratorTests
             && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("ref, in, and out", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("public static Task OpenAsync() => Task.CompletedTask;", "static methods")]
+    [InlineData("public Task OpenAsync<T>() => Task.CompletedTask;", "generic methods")]
+    [InlineData("public Task OpenAsync(int projectId = 0) => Task.CompletedTask;", "optional and params-array")]
+    [InlineData("public Task OpenAsync(params int[] projectIds) => Task.CompletedTask;", "optional and params-array")]
+    [InlineData("public Task OpenAsync(NantoCommandContext first, NantoCommandContext second) => Task.CompletedTask;", "at most one NantoCommandContext")]
+    [InlineData("public int Open() => 0;", "return type must be Task")]
+    [InlineData("public Task<NantoResult<int, int>> OpenAsync() => Task.FromResult(default(NantoResult<int, int>));", "requires different value and error types")]
+    public void ReportsUnsupportedCommandShapes(string declaration, string expectedMessage)
+    {
+        var source = $$"""
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                {{declaration}}
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ReportsCommandThatIsInaccessibleFromGeneratedCode()
     {
@@ -196,6 +225,27 @@ public sealed class NantoBridgeGeneratorTests
 
         result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
             && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("static event properties", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public NantoEvent<int> this[int index] => new();", "indexed event properties")]
+    [InlineData("public int Changed { get; }", "must have type NantoEvent<T>")]
+    public void ReportsUnsupportedEventShapes(string declaration, string expectedMessage)
+    {
+        var source = $$"""
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoEvent]
+                {{declaration}}
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains(expectedMessage, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -469,6 +519,126 @@ public sealed class NantoBridgeGeneratorTests
     }
 
     [Fact]
+    public void GeneratedCSharpIsStableAcrossSyntaxTreeOrder()
+    {
+        const string projectsSource = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            [NantoApi]
+            public sealed partial class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<int> OpenAsync(int projectId) => Task.FromResult(projectId);
+            }
+
+            namespace Nanto.Generated
+            {
+                [global::System.Text.Json.Serialization.JsonSerializable(typeof(int))]
+                internal sealed partial class NantoGeneratedJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext;
+            }
+            """;
+        const string buildsSource = """
+            using System.Collections.Generic;
+            using Nanto;
+
+            [NantoApiPart<ProjectsApi>]
+            public sealed class ProjectBuilds
+            {
+                [NantoCommand]
+                public async IAsyncEnumerable<int> BuildAsync(int projectId)
+                {
+                    yield return projectId;
+                    await System.Threading.Tasks.Task.CompletedTask;
+                }
+
+                [NantoEvent]
+                public NantoEvent<int> Changed { get; } = new();
+            }
+            """;
+
+        var first = Run(CreateCompilation([projectsSource, buildsSource])).GeneratedTrees.Should().ContainSingle().Subject.ToString();
+        var reordered = Run(CreateCompilation([buildsSource, projectsSource])).GeneratedTrees.Should().ContainSingle().Subject.ToString();
+
+        reordered.Should().Be(first);
+    }
+
+    [Fact]
+    public void UnchangedCompilationReusesIncrementalGeneratorOutput()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<int> OpenAsync(int projectId) => Task.FromResult(projectId);
+            }
+            """;
+        var compilation = CreateCompilation(source);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            [new NantoBridgeGenerator().AsSourceGenerator()],
+            parseOptions: new CSharpParseOptions(LanguageVersion.Preview),
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        driver = driver.RunGenerators(compilation, TestContext.Current.CancellationToken);
+        driver = driver.RunGenerators(compilation, TestContext.Current.CancellationToken);
+
+        var outputs = driver.GetRunResult().Results.Should().ContainSingle().Subject.TrackedOutputSteps
+            .SelectMany(static step => step.Value)
+            .SelectMany(static step => step.Outputs)
+            .ToArray();
+        outputs.Should().NotBeEmpty();
+        outputs.Should().OnlyContain(static output => output.Reason == IncrementalStepRunReason.Cached);
+    }
+
+    [Fact]
+    public void RepresentativeContractMatchesCSharpAndTypeScriptGoldenFingerprints()
+    {
+        const string source = """
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public enum ProjectStatus { Ready, Complete }
+            public sealed record Project(int Id, string Name, ProjectStatus Status);
+            public sealed record ProjectFailure(string Code);
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<NantoResult<Project, ProjectFailure>> OpenAsync(int projectId) =>
+                    Task.FromResult(NantoResult.Success<Project, ProjectFailure>(new Project(projectId, "sample", ProjectStatus.Ready)));
+
+                [NantoCommand]
+                public async IAsyncEnumerable<Project> BuildAsync(int projectId)
+                {
+                    yield return new Project(projectId, "sample", ProjectStatus.Complete);
+                    await Task.CompletedTask;
+                }
+
+                [NantoEvent]
+                public NantoEvent<Project> Changed { get; } = new();
+            }
+
+            namespace Nanto.Generated
+            {
+                [global::System.Text.Json.Serialization.JsonSerializable(typeof(int))]
+                [global::System.Text.Json.Serialization.JsonSerializable(typeof(Project))]
+                [global::System.Text.Json.Serialization.JsonSerializable(typeof(ProjectFailure))]
+                internal sealed partial class NantoGeneratedJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext;
+            }
+            """;
+        var compilation = CreateCompilation(source);
+        var generatedCSharp = Run(compilation).GeneratedTrees.Should().ContainSingle().Subject.ToString();
+        var generatedTypeScript = Nanto.Sdk.Program.CreateTypeScript(Nanto.Sdk.Program.DiscoverFrontendMembers(compilation), string.Empty);
+
+        Fingerprint(generatedCSharp).Should().Be("4E41B6474A76DB20BEC9C2CF3A5D78C4D63B3DE18E0DC70266AD4506DB90F2EE");
+        Fingerprint(generatedTypeScript).Should().Be("183B43F9B098C5D246980AADF616590AC024C6498290076FC831FC602F235577");
+    }
+
+    [Fact]
     public void TypeScriptEmitterQualifiesCollidingDtoNames()
     {
         const string source = """
@@ -559,7 +729,11 @@ public sealed class NantoBridgeGeneratorTests
 
     private static GeneratorDriverRunResult Run(string source)
     {
-        var compilation = CreateCompilation(source);
+        return Run(CreateCompilation(source));
+    }
+
+    private static GeneratorDriverRunResult Run(CSharpCompilation compilation)
+    {
         GeneratorDriver driver = CSharpGeneratorDriver.Create(new NantoBridgeGenerator())
             .WithUpdatedParseOptions(new CSharpParseOptions(LanguageVersion.Preview));
         driver = driver.RunGenerators(compilation);
@@ -576,14 +750,29 @@ public sealed class NantoBridgeGeneratorTests
 
     private static CSharpCompilation CreateCompilation(string source, string path = "")
     {
+        return CreateCompilation([(source, path)]);
+    }
+
+    private static CSharpCompilation CreateCompilation(IReadOnlyList<string> sources)
+    {
+        return CreateCompilation(sources.Select(static source => (source, string.Empty)));
+    }
+
+    private static CSharpCompilation CreateCompilation(IEnumerable<(string Source, string Path)> sources)
+    {
         var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
             .Split(Path.PathSeparator)
             .Select(static path => MetadataReference.CreateFromFile(path))
             .Append(MetadataReference.CreateFromFile(typeof(NantoCommandAttribute).Assembly.Location));
         return CSharpCompilation.Create(
             "GeneratorTests",
-            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview, documentationMode: DocumentationMode.Diagnose), path)],
+            [.. sources.Select(static source => CSharpSyntaxTree.ParseText(
+                source.Source,
+                new CSharpParseOptions(LanguageVersion.Preview, documentationMode: DocumentationMode.Diagnose),
+                source.Path))],
             references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
     }
+
+    private static string Fingerprint(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

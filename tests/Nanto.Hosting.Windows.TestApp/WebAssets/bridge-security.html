@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; frame-src 'self'">
+  <title>Nanto bridge security fixture</title>
+</head>
+<body>
+  <main>Nanto bridge security fixture</main>
+  <script type="module">
+    import { NantoClient, NantoCommandError, NantoCommandErrorCode } from "/nanto-core.js";
+    import { createApp, manifest } from "/nanto-app.js";
+
+    let session;
+    let openCommand;
+    let changeCommand;
+    const transport = {
+      post(message) {
+        const parsed = JSON.parse(message);
+        if (parsed.type === "invoke" && parsed.args?.projectId === 7) openCommand = parsed.command;
+        if (parsed.type === "invoke" && parsed.args?.projectId === 10) changeCommand = parsed.command;
+        window.chrome.webview.postMessage(parsed);
+      },
+      subscribe(listener) {
+        const receive = event => {
+          if (event.data?.type === "ready") session = event.data.session;
+          listener(JSON.stringify(event.data));
+        };
+        window.chrome.webview.addEventListener("message", receive);
+        return () => window.chrome.webview.removeEventListener("message", receive);
+      },
+    };
+
+    function waitForBridgeMessage(predicate) {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          window.chrome.webview.removeEventListener("message", receive);
+          reject(new Error("bridge-response-timeout"));
+        }, 5000);
+        const receive = event => {
+          if (!predicate(event.data)) return;
+          clearTimeout(timeout);
+          window.chrome.webview.removeEventListener("message", receive);
+          resolve(event.data);
+        };
+        window.chrome.webview.addEventListener("message", receive);
+      });
+    }
+
+    async function sendRaw(message, predicate) {
+      const response = waitForBridgeMessage(predicate);
+      window.chrome.webview.postMessage(message);
+      return await response;
+    }
+
+    const client = new NantoClient(transport);
+    try {
+      const mismatch = await sendRaw(
+        { v: 1, type: "hello", manifest: "mismatched-manifest" },
+        message => message?.type === "error" && message.code === "protocolMismatch");
+      if (mismatch.id !== undefined) throw new Error("manifest-mismatch-exposed-id");
+
+      const malformed = await sendRaw(
+        { v: 1, type: "invoke" },
+        message => message?.type === "error" && message.code === "invalidRequest");
+      if (malformed.id !== undefined) throw new Error("malformed-request-exposed-id");
+
+      await client.connect(manifest);
+      const projects = createApp(client).projects;
+      try {
+        await projects.open(7);
+        throw new Error("unauthorized-command-succeeded");
+      } catch (error) {
+        if (!(error instanceof NantoCommandError) || error.code !== NantoCommandErrorCode.CommandUnavailable) throw error;
+      }
+
+      const stale = await sendRaw(
+        { v: 1, type: "invoke", session: "00000000000000000000000000000000", id: 1000, command: openCommand, args: { projectId: 7 } },
+        message => message?.type === "error" && message.id === 1000);
+      if (stale.code !== "invalidRequest") throw new Error("stale-session-not-rejected");
+
+      const subscription = projects.changed.subscribe();
+      const firstChange = subscription.next();
+      await projects.change(10);
+      const first = await firstChange;
+      if (first.done || first.value.projectId !== 10) throw new Error("valid-event-setup-failed");
+
+      const nextChange = subscription.next();
+      const iframe = document.createElement("iframe");
+      iframe.sandbox = "allow-scripts";
+      iframe.srcdoc = `<script>
+        addEventListener("message", event => {
+          try {
+            window.chrome.webview.postMessage(event.data);
+            parent.postMessage("nanto-wrong-origin-sent", "*");
+          } catch (error) {
+            parent.postMessage("nanto-wrong-origin-error:" + (error?.message ?? "unknown"), "*");
+          }
+        });
+      <\/script>`;
+      document.body.append(iframe);
+      await new Promise((resolve, reject) => {
+        iframe.addEventListener("load", resolve, { once: true });
+        iframe.addEventListener("error", () => reject(new Error("wrong-origin-frame-load-failed")), { once: true });
+      });
+      const sent = new Promise((resolve, reject) => {
+        const receive = event => {
+          if (event.source !== iframe.contentWindow || typeof event.data !== "string" || !event.data.startsWith("nanto-wrong-origin-")) return;
+          window.removeEventListener("message", receive);
+          if (event.data === "nanto-wrong-origin-sent") resolve();
+          else reject(new Error(event.data));
+        };
+        window.addEventListener("message", receive);
+      });
+      iframe.contentWindow.postMessage(
+        { v: 1, type: "invoke", session, id: 1001, command: changeCommand, args: { projectId: 999 } },
+        "*");
+      await sent;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await projects.change(11);
+      const second = await nextChange;
+      if (second.done || second.value.projectId !== 11) throw new Error("wrong-origin-command-was-accepted");
+
+      await subscription.return();
+      iframe.remove();
+      window.chrome.webview.postMessage("nanto:test:bridge:security:passed");
+      window.chrome.webview.postMessage("nanto:ready:v1");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown";
+      window.chrome.webview.postMessage(`nanto:test:bridge:error:security:${message}`);
+    } finally {
+      await client[Symbol.asyncDispose]();
+    }
+  </script>
+</body>
+</html>

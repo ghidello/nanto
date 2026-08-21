@@ -26,6 +26,12 @@
       "sha256": "A20E14E98F2918C53BFD5A4BDCA352BDE3E3BDACA23E68B9400FB8BC45852654"
     },
     {
+      "path": "/bridge-security.html",
+      "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.bridge-security.html",
+      "length": 5752,
+      "sha256": "243D47B70D4363808A073E6CE6715FA0C98386D5CF0CE5053199299EBB6C64FE"
+    },
+    {
       "path": "/nanto-core.js",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js",
       "length": 10465,

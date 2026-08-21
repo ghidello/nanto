@@ -28,6 +28,7 @@
     <EmbeddedResource Include="WebAssets/bridge.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.bridge.html" />
     <EmbeddedResource Include="WebAssets/bridge-navigation.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.bridge-navigation.html" />
     <EmbeddedResource Include="WebAssets/bridge-close.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.bridge-close.html" />
+    <EmbeddedResource Include="WebAssets/bridge-security.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.bridge-security.html" />
     <EmbeddedResource Include="../../frontend/packages/core/dist/index.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js" />
     <EmbeddedResource Include="../../frontend/packages/app/dist/index.js" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.nanto-app.js" />
     <EmbeddedResource Include="WebAssets/navigation.html" LogicalName="Nanto.Hosting.Windows.TestApp.WebAssets.navigation.html" />

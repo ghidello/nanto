@@ -102,6 +102,17 @@ public sealed class HostIntegrationTests
         AssertReverseOwnershipCleanup(report);
     }
 
+    [Fact]
+    public async Task RealWebViewBoundaryRejectsMalformedMismatchedUnauthorizedStaleAndWrongOriginTraffic()
+    {
+        var result = await RunAsync(Phase1TestScenario.BridgeSecurity);
+        var report = RequireSuccessfulReport(result);
+
+        report.ObservedFailure.Should().BeNull();
+        AssertFinalLedgerIsZero(report);
+        AssertReverseOwnershipCleanup(report);
+    }
+
     [Theory]
     [MemberData(nameof(AcquisitionCheckpoints))]
     public async Task EveryImplementedAcquisitionCheckpointFailsAndCleansUpInTheExternalProcess(string checkpoint)

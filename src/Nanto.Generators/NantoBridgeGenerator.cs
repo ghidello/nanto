@@ -58,12 +58,12 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
     {
         var commands = context.SyntaxProvider.ForAttributeWithMetadataName(
             CommandAttributeName,
-            static (node, _) => node is MethodDeclarationSyntax,
+            static (node, _) => node is BaseMethodDeclarationSyntax,
             static (attributeContext, _) => (IMethodSymbol)attributeContext.TargetSymbol);
 
         var events = context.SyntaxProvider.ForAttributeWithMetadataName(
             EventAttributeName,
-            static (node, _) => node is PropertyDeclarationSyntax,
+            static (node, _) => node is PropertyDeclarationSyntax or IndexerDeclarationSyntax,
             static (attributeContext, _) => (IPropertySymbol)attributeContext.TargetSymbol);
 
         context.RegisterSourceOutput(

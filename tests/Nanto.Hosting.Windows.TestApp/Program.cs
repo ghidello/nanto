@@ -185,6 +185,7 @@ internal static class Program
             Phase1TestScenario.BridgeUnary => await ScenarioRunner.RunBridgeUnaryAsync(request, startedAt, stopwatch),
             Phase1TestScenario.BridgeNavigation => await ScenarioRunner.RunBridgeNavigationAsync(request, startedAt, stopwatch),
             Phase1TestScenario.BridgeClose => await ScenarioRunner.RunBridgeCloseAsync(request, startedAt, stopwatch),
+            Phase1TestScenario.BridgeSecurity => await ScenarioRunner.RunBridgeSecurityAsync(request, startedAt, stopwatch),
             Phase1TestScenario.ContainmentTimeout => await WaitForContainmentAsync(),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.Scenario, "The scenario is not supported."),
         };

@@ -19,4 +19,5 @@ public enum Phase1TestScenario
     BridgeUnary,
     BridgeNavigation,
     BridgeClose,
+    BridgeSecurity,
 }

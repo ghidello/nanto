@@ -125,6 +125,18 @@ internal static partial class ScenarioRunner
             () => VerifyBridgeCloseCancellationAsync(projectsApi));
     }
 
+    public static async Task<Phase1TestReport> RunBridgeSecurityAsync(
+        Phase1TestRequest request,
+        DateTimeOffset startedAt,
+        Stopwatch stopwatch) => await RunOrderlyShutdownAsync(
+            request,
+            startedAt,
+            stopwatch,
+            ShutdownAction.Stop,
+            "/bridge-security.html",
+            VerifyBridgeSecurityAsync,
+            grantOpen: false);
+
     public static async Task<Phase1TestReport> RunStartupCancellationAsync(
         Phase1TestRequest request,
         DateTimeOffset startedAt,
@@ -581,7 +593,7 @@ internal static partial class ScenarioRunner
         };
     }
 
-    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request, ProjectsApi? projectsApi = null)
+    private static NantoApplicationOptions CreateOptions(Phase1TestRequest request, ProjectsApi? projectsApi = null, bool grantOpen = true)
     {
         var bridge = new NantoBridgeConfiguration();
         bridge.Add(projectsApi ?? new ProjectsApi(1));
@@ -594,16 +606,26 @@ internal static partial class ScenarioRunner
             Bridge = bridge,
             PrimaryWindow = new WindowOptions
             {
-                Capabilities =
-                [
-                    AppCapabilities.Projects.Open,
-                    AppCapabilities.Projects.Build,
-                    AppCapabilities.Projects.Changed,
-                    AppCapabilities.Projects.Change,
-                    AppCapabilities.Projects.GetActiveWaitCount,
-                    AppCapabilities.Projects.GetCancellationCount,
-                    AppCapabilities.Projects.Wait,
-                ],
+                Capabilities = grantOpen
+                    ?
+                    [
+                        AppCapabilities.Projects.Open,
+                        AppCapabilities.Projects.Build,
+                        AppCapabilities.Projects.Changed,
+                        AppCapabilities.Projects.Change,
+                        AppCapabilities.Projects.GetActiveWaitCount,
+                        AppCapabilities.Projects.GetCancellationCount,
+                        AppCapabilities.Projects.Wait,
+                    ]
+                    :
+                    [
+                        AppCapabilities.Projects.Build,
+                        AppCapabilities.Projects.Changed,
+                        AppCapabilities.Projects.Change,
+                        AppCapabilities.Projects.GetActiveWaitCount,
+                        AppCapabilities.Projects.GetCancellationCount,
+                        AppCapabilities.Projects.Wait,
+                    ],
                 InitialRoute = "/index.html",
                 Title = "Nanto Phase 1 integration host",
                 StartVisible = request.PresentationMode == Phase1TestPresentationMode.Visible,
@@ -700,7 +722,8 @@ internal static partial class ScenarioRunner
         string initialRoute = "/index.html",
         Func<WindowsApplicationHost, Task>? verify = null,
         ProjectsApi? projectsApi = null,
-        Func<Task>? verifyAfterShutdown = null)
+        Func<Task>? verifyAfterShutdown = null,
+        bool grantOpen = true)
     {
         var failureInjector = new RecordingFailureInjector(null);
         var transitions = new List<Phase1LifecycleTransition>();
@@ -725,7 +748,7 @@ internal static partial class ScenarioRunner
         Exception? observedFailure = null;
         var presentationMatched = false;
         var peakResources = initialResources;
-        var options = CreateOptions(request, projectsApi);
+        var options = CreateOptions(request, projectsApi, grantOpen);
         var run = host.RunAsync(
             options with { PrimaryWindow = options.PrimaryWindow with { InitialRoute = initialRoute } },
             runCancellation.Token);
@@ -838,6 +861,16 @@ internal static partial class ScenarioRunner
             }
 
             await Task.Delay(10);
+        }
+    }
+
+    private static async Task VerifyBridgeSecurityAsync(WindowsApplicationHost host)
+    {
+        using var timeout = new CancellationTokenSource(Program.ActivationTimeout);
+        var message = await host.WaitForDiagnosticMessageAsync(timeout.Token);
+        if (!string.Equals(message, "nanto:test:bridge:security:passed", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"The bridge security fixture returned an unexpected result: '{message}'.");
         }
     }
 
