@@ -28,14 +28,14 @@
     {
       "path": "/nanto-core.js",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-core.js",
-      "length": 8988,
-      "sha256": "725567A66AEE246C08CE516EB3AC8E162E40CB42427FAED8E320D460384DA902"
+      "length": 10465,
+      "sha256": "E23FA97A7F67DAF0859895FCBC451BB876D82C9F779667DA492FA2BE39681064"
     },
     {
       "path": "/nanto-app.js",
       "resourceName": "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-app.js",
-      "length": 1805,
-      "sha256": "1E45469E4D7CED12435023AB9FA2D73E9B001401BA11AB2D2006E2BE31A74190"
+      "length": 1804,
+      "sha256": "74CC384A30DBBBB6944BDC2EEBE09624E2B080BFEB650AF1F404E6D9B951B152"
     },
     {
       "path": "/navigation.html",

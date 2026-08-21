@@ -83,6 +83,9 @@ public sealed class NantoContractMember
 
 public static class NantoContractTypes
 {
+    private static readonly SymbolDisplayFormat _canonicalTypeFormat = SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+        SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
+
     public static bool TryCreateMember(
         INamedTypeSymbol containingType,
         ISymbol symbol,
@@ -230,14 +233,15 @@ public static class NantoContractTypes
     {
         if (symbol is IMethodSymbol method)
         {
-            var parameters = string.Join(",", method.Parameters.Select(static parameter =>
-                parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            var parameters = string.Join(",", method.Parameters.Select(static parameter => IsInjected(parameter)
+                ? "injected:" + FormatCanonicalType(parameter.Type)
+                : "argument:" + parameter.Name + ":" + FormatCanonicalType(parameter.Type)));
             return "command:" + groupName + "." + memberName + "(" + parameters + ")->"
-                + method.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                + FormatCanonicalType(method.ReturnType);
         }
 
         var property = (IPropertySymbol)symbol;
-        return "event:" + groupName + "." + memberName + "->" + property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return "event:" + groupName + "." + memberName + "->" + FormatCanonicalType(property.Type);
     }
 
     private static string RemoveSuffix(string value, string suffix) =>
@@ -258,7 +262,7 @@ public static class NantoContractTypes
 
     private static void AddSchema(ITypeSymbol type, ISet<string> schemas, ISet<string> visiting)
     {
-        var typeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var typeName = FormatCanonicalType(type);
         if (schemas.Any(schema => schema.StartsWith(typeName + "=", StringComparison.Ordinal)))
         {
             return;
@@ -275,7 +279,7 @@ public static class NantoContractTypes
             if (type is IArrayTypeSymbol array)
             {
                 AddSchema(array.ElementType, schemas, visiting);
-                schemas.Add(typeName + "=array(" + array.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ")");
+                schemas.Add(typeName + "=array(" + FormatCanonicalType(array.ElementType) + ")");
                 return;
             }
 
@@ -316,7 +320,7 @@ public static class NantoContractTypes
             }
 
             schemas.Add(typeName + "=object(" + string.Join(",", properties.Select(static property =>
-                property.Name + ":" + property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ")");
+                ToCamelCase(property.Name) + ":" + FormatCanonicalType(property.Type))) + ")");
         }
         finally
         {
@@ -332,4 +336,6 @@ public static class NantoContractTypes
         var name = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         return name is "global::Nanto.NantoCommandContext" or "global::System.Threading.CancellationToken";
     }
+
+    private static string FormatCanonicalType(ITypeSymbol type) => type.ToDisplayString(_canonicalTypeFormat);
 }

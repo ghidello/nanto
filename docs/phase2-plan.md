@@ -14,6 +14,7 @@ Phase 2 adds the versioned, generated frontend bridge without weakening the comp
 - Expected application failures use `NantoResult<T, TError>`. Transport, authorization, lifecycle, protocol, and unexpected handler failures reject with a sanitized frontend `NantoCommandError`. Caller cancellation follows `AbortSignal`/`AbortError` semantics.
 - `[NantoEvent] NantoEvent<T>` is hot and non-replayed. The generated frontend exposes an explicitly cancellable async-iterable subscription.
 - JSON is the Phase 2 transport. Command and event IDs are private generated values; public code, manifests, capabilities, and diagnostics retain symbolic names.
+- Binary command and event types are rejected while Phase 2 is JSON-only. A `Uint8Array` projection requires a future explicit binary mapping instead of exposing JSON base64 strings under a misleading type.
 - TypeScript is the canonical frontend implementation. A pinned TypeScript compiler produces ESM JavaScript, declarations, and source maps; there is no independent JavaScript emitter.
 
 ## Delivery sequence
@@ -31,7 +32,7 @@ Phase 2 adds the versioned, generated frontend bridge without weakening the comp
 As of 17 August 2026, the portable contracts, protocol v1 session, generated registration and dispatch, source-generated JSON metadata,
 TypeScript emitter, XML-documentation and normalized source-location preservation, compiled ESM package, bounded streams and events, and the Windows WebView2 adapter are implemented. The real hidden WebView2
 suite exercises typed unary results, application failures, pull streams, hot events, caller cancellation, navigation session rotation, and close-time
-cancellation. The latest unattended Release gate passed 413 tests across the fast, hidden WebView2, self-contained CoreCLR, and Native AOT projects;
+cancellation. The latest unattended Release gate passed 425 tests across the fast, hidden WebView2, self-contained CoreCLR, and Native AOT projects;
 the manual visible and long-running projects did not execute their opted-in scenarios.
 
 Phase 2 remains in progress. The next slices are broader generator golden/incremental-stability fixtures and real-WebView malformed, wrong-origin,

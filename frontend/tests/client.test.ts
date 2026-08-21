@@ -29,7 +29,7 @@ test("generated application client performs a typed unary call", async () => {
   const pending = app.projects.open(7);
   transport.receive({ type: "result", id: 1, value: { ok: true, value: { id: 7, window: "window" } } });
   assert.deepEqual(await pending, { ok: true, value: { id: 7, window: "window" } });
-  assert.deepEqual(transport.sent[1], { v: 1, type: "invoke", session: "opaque", id: 1, command: 1407742092, args: { projectId: 7 } });
+  assert.deepEqual(transport.sent[1], { v: 1, type: "invoke", session: "opaque", id: 1, command: 3836943207, args: { projectId: 7 } });
 });
 
 test("command failures expose only bounded symbolic error codes", async () => {
@@ -168,4 +168,125 @@ test("returning an event subscription sends unsubscribe", async () => {
     session: "opaque",
     id: 1,
   })));
+});
+
+test("a slow event consumer is terminated when its bounded buffer overflows", async () => {
+  const transport = new FakeTransport();
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const subscription = client.subscribe<number>(23);
+  const opened = subscription.next();
+  transport.receive({ type: "result", id: 1 });
+  transport.receive({ type: "item", id: 1, value: -1 });
+  assert.deepEqual(await opened, { done: false, value: -1 });
+
+  for (let value = 0; value <= 64; value++) transport.receive({ type: "item", id: 1, value });
+
+  assert.deepEqual(transport.sent[2], { v: 1, type: "unsubscribe", session: "opaque", id: 1 });
+  for (let value = 0; value < 64; value++) assert.deepEqual(await subscription.next(), { done: false, value });
+  await assert.rejects(subscription.next(), error => error instanceof NantoCommandError && error.code === NantoCommandErrorCode.ResourceExhausted);
+  await client[Symbol.asyncDispose]();
+});
+
+test("event completion remains observable when the item buffer is full", async () => {
+  const transport = new FakeTransport();
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const subscription = client.subscribe<number>(23);
+  const opened = subscription.next();
+  transport.receive({ type: "result", id: 1 });
+  transport.receive({ type: "item", id: 1, value: -1 });
+  assert.deepEqual(await opened, { done: false, value: -1 });
+
+  for (let value = 0; value < 64; value++) transport.receive({ type: "item", id: 1, value });
+  transport.receive({ type: "completion", id: 1 });
+
+  assert.equal(transport.sent.filter(message => (message as { type: string }).type === "unsubscribe").length, 0);
+  for (let value = 0; value < 64; value++) assert.deepEqual(await subscription.next(), { done: false, value });
+  assert.deepEqual(await subscription.next(), { done: true, value: undefined });
+  await client[Symbol.asyncDispose]();
+});
+
+test("event overflow remains terminal when unsubscribe posting fails", async () => {
+  const transport = new FakeTransport(message => {
+    if ((message as { type?: string }).type === "unsubscribe") throw new Error("transport closed");
+  });
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const subscription = client.subscribe<number>(23);
+  const opened = subscription.next();
+  transport.receive({ type: "result", id: 1 });
+  transport.receive({ type: "item", id: 1, value: -1 });
+  assert.deepEqual(await opened, { done: false, value: -1 });
+
+  for (let value = 0; value < 64; value++) transport.receive({ type: "item", id: 1, value });
+  assert.doesNotThrow(() => transport.receive({ type: "item", id: 1, value: 64 }));
+
+  for (let value = 0; value < 64; value++) assert.deepEqual(await subscription.next(), { done: false, value });
+  await assert.rejects(subscription.next(), error => error instanceof NantoCommandError && error.code === NantoCommandErrorCode.ResourceExhausted);
+  await client[Symbol.asyncDispose]();
+});
+
+test("aborting after event overflow does not resend unsubscribe", async () => {
+  const transport = new FakeTransport();
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const controller = new AbortController();
+  const subscription = client.subscribe<number>(23, controller.signal);
+  const opened = subscription.next();
+  transport.receive({ type: "result", id: 1 });
+  transport.receive({ type: "item", id: 1, value: -1 });
+  assert.deepEqual(await opened, { done: false, value: -1 });
+
+  for (let value = 0; value <= 64; value++) transport.receive({ type: "item", id: 1, value });
+  controller.abort();
+
+  assert.equal(transport.sent.filter(message => (message as { type: string }).type === "unsubscribe").length, 1);
+  await subscription.return(undefined);
+  await client[Symbol.asyncDispose]();
+});
+
+test("synchronous event overflow does not recreate unsubscribe cleanup", async () => {
+  let transport: FakeTransport;
+  transport = new FakeTransport(message => {
+    if ((message as { type?: string }).type !== "subscribe") return;
+    transport.receive({ type: "result", id: 1 });
+    for (let value = 0; value <= 64; value++) transport.receive({ type: "item", id: 1, value });
+  });
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const subscription = client.subscribe<number>(23);
+
+  assert.deepEqual(await subscription.next(), { done: false, value: 0 });
+  await subscription.return(undefined);
+
+  assert.equal(transport.sent.filter(message => (message as { type: string }).type === "unsubscribe").length, 1);
+  await client[Symbol.asyncDispose]();
+});
+
+test("resuming a paused event subscription after client disposal rejects", async () => {
+  const transport = new FakeTransport();
+  const client = new NantoClient(transport);
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+  const subscription = client.subscribe<number>(23);
+  const first = subscription.next();
+  transport.receive({ type: "result", id: 1 });
+  transport.receive({ type: "item", id: 1, value: 1 });
+  assert.deepEqual(await first, { done: false, value: 1 });
+
+  await client[Symbol.asyncDispose]();
+
+  await assert.rejects(subscription.next(), error => error instanceof NantoCommandError && error.code === NantoCommandErrorCode.Internal);
 });

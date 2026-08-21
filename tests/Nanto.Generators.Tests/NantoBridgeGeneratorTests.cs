@@ -293,6 +293,181 @@ public sealed class NantoBridgeGeneratorTests
             && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("TypeScript wire representation", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("ReadOnlyMemory<byte>")]
+    public void ReportsDeferredBinaryContracts(string type)
+    {
+        var source = $$"""
+            using System;
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<{{type}}> LoadAsync() => Task.FromResult(default({{type}}));
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("binary values are deferred", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsFlagsEnumsWithoutAClosedStringUnion()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using Nanto;
+
+            [Flags]
+            public enum Permission { Read = 1, Write = 2 }
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Permission> LoadAsync() => Task.FromResult(Permission.Read);
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("flags enums", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsDtoPropertiesWithCollidingWireNames()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed record Project(string URL, int Url);
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> LoadAsync() => Task.FromResult(new Project("url", 1));
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("same camel-case JSON name", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SerializedParameterNamesChangeCommandIdsAndManifestEntries()
+    {
+        const string firstSource = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using Nanto;
+            public sealed record Project(string Name);
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> OpenAsync(string projectName) => Task.FromResult(new Project(projectName));
+            }
+            """;
+        const string renamedSource = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using Nanto;
+            public sealed record Project(string Name);
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> OpenAsync(string name) => Task.FromResult(new Project(name));
+            }
+            """;
+        var first = Nanto.Sdk.Program.DiscoverFrontendMembers(CreateCompilation(firstSource)).Should().ContainSingle().Subject;
+        var renamed = Nanto.Sdk.Program.DiscoverFrontendMembers(CreateCompilation(renamedSource)).Should().ContainSingle().Subject;
+
+        first.CanonicalSignature.Should().NotBe(renamed.CanonicalSignature);
+        first.ManifestEntry.Should().NotBe(renamed.ManifestEntry);
+        first.Id.Should().NotBe(renamed.Id);
+    }
+
+    [Fact]
+    public void DtoNullabilityChangesManifestWithoutChangingCommandId()
+    {
+        const string requiredSource = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using Nanto;
+            public sealed record Project(string Name);
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> OpenAsync() => Task.FromResult(new Project("name"));
+            }
+            """;
+        const string nullableSource = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using Nanto;
+            public sealed record Project(string? Name);
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> OpenAsync() => Task.FromResult(new Project(null));
+            }
+            """;
+        var required = Nanto.Sdk.Program.DiscoverFrontendMembers(CreateCompilation(requiredSource)).Should().ContainSingle().Subject;
+        var nullable = Nanto.Sdk.Program.DiscoverFrontendMembers(CreateCompilation(nullableSource)).Should().ContainSingle().Subject;
+
+        required.CanonicalSignature.Should().Be(nullable.CanonicalSignature);
+        required.Id.Should().Be(nullable.Id);
+        required.ManifestEntry.Should().NotBe(nullable.ManifestEntry);
+    }
+
+    [Fact]
+    public void JsonContextRejectsUndefinedEnumValues()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+            public enum Status { Ready, Complete }
+            public sealed record Project(Status Status);
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<Project> OpenAsync() => Task.FromResult(new Project(Status.Ready));
+            }
+            """;
+
+        var context = Nanto.Sdk.Program.CreateJsonContext(CreateCompilation(source));
+
+        context.Should().Contain("JsonStringEnumConverter<global::Status>");
+        context.Should().Contain("allowIntegerValues: false");
+        context.Should().NotContain("UseStringEnumConverter");
+    }
+
+    [Fact]
+    public void GeneratedCSharpAlwaysUsesLfLineEndings()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task OpenAsync() => Task.CompletedTask;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.GeneratedTrees.Should().ContainSingle().Subject.GetText(TestContext.Current.CancellationToken).ToString().Should().NotContain("\r");
+    }
+
     [Fact]
     public void TypeScriptEmitterQualifiesCollidingDtoNames()
     {

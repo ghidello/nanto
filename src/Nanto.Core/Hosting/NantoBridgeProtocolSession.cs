@@ -18,7 +18,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
     private readonly Dictionary<uint, NantoGeneratedCommand> _commands;
     private readonly Dictionary<uint, NantoGeneratedEvent> _eventDescriptors;
     private readonly HashSet<uint> _capabilities;
-    private readonly Dictionary<uint, CancellationTokenSource> _active = [];
+    private readonly Dictionary<uint, InvocationState> _active = [];
     private readonly Dictionary<uint, StreamState> _streams = [];
     private readonly Dictionary<uint, EventState> _subscriptions = [];
     private readonly NantoCommandContext _context;
@@ -107,7 +107,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        CancellationTokenSource[] active;
+        InvocationState[] active;
         StreamState[] streams;
         EventState[] subscriptions;
         lock (_gate)
@@ -127,11 +127,11 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         }
 
         List<Exception>? failures = null;
-        foreach (var source in active)
+        foreach (var invocation in active)
         {
             try
             {
-                source.Cancel();
+                invocation.Cancellation.Cancel();
             }
             catch (ObjectDisposedException)
             {
@@ -141,6 +141,11 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
             {
                 (failures ??= []).Add(exception);
             }
+        }
+
+        foreach (var invocation in active)
+        {
+            await invocation.Completion.ConfigureAwait(false);
         }
 
         foreach (var subscription in subscriptions)
@@ -208,7 +213,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         }
 
         NantoGeneratedCommand? command;
-        CancellationTokenSource invocationCancellation;
+        InvocationState invocation;
         lock (_gate)
         {
             if (_closed || !_ready || !TryAcceptRequestId(requestId))
@@ -226,25 +231,25 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
                 return Error(requestId, "resourceExhausted");
             }
 
-            invocationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _active.Add(requestId, invocationCancellation);
+            invocation = new InvocationState(CancellationTokenSource.CreateLinkedTokenSource(cancellationToken));
+            _active.Add(requestId, invocation);
         }
 
         var cancellationTransferred = false;
         try
         {
-            var invocation = await command.InvokeAsync(arguments, _context, invocationCancellation.Token).ConfigureAwait(false);
-            invocationCancellation.Token.ThrowIfCancellationRequested();
-            if (invocation is NantoGeneratedUnaryInvocation unary)
+            var commandInvocation = await command.InvokeAsync(arguments, _context, invocation.Cancellation.Token).ConfigureAwait(false);
+            invocation.Cancellation.Token.ThrowIfCancellationRequested();
+            if (commandInvocation is NantoGeneratedUnaryInvocation unary)
             {
                 return Result(requestId, unary.Value);
             }
 
-            var stream = new StreamState(((NantoGeneratedStreamInvocation)invocation).Sequence, invocationCancellation);
+            var stream = new StreamState(((NantoGeneratedStreamInvocation)commandInvocation).Sequence, invocation.Cancellation);
             var discardStream = false;
             lock (_gate)
             {
-                if (_closed || invocationCancellation.IsCancellationRequested)
+                if (_closed || invocation.Cancellation.IsCancellationRequested)
                 {
                     discardStream = true;
                 }
@@ -269,7 +274,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
                 writer.WriteBoolean("stream", true);
             });
         }
-        catch (OperationCanceledException) when (invocationCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (invocation.Cancellation.IsCancellationRequested)
         {
             return Error(requestId, "cancelled");
         }
@@ -284,14 +289,15 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         }
         finally
         {
+            if (!cancellationTransferred)
+            {
+                invocation.Cancellation.Dispose();
+            }
+
+            invocation.Complete();
             lock (_gate)
             {
                 _active.Remove(requestId);
-            }
-
-            if (!cancellationTransferred)
-            {
-                invocationCancellation.Dispose();
             }
         }
     }
@@ -315,7 +321,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
             return Error(TryRequestId(root), "invalidRequest");
         }
 
-        CancellationTokenSource? active;
+        InvocationState? active;
         StreamState? stream;
         lock (_gate)
         {
@@ -325,7 +331,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
 
         try
         {
-            active?.Cancel();
+            active?.Cancellation.Cancel();
         }
         catch (ObjectDisposedException)
         {
@@ -403,8 +409,22 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
                 writer.WriteNumber("id", requestId);
             });
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || stream.IsCancellationRequested)
         {
+            lock (_gate)
+            {
+                _streams.Remove(requestId);
+            }
+
+            try
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                ReportUnexpectedFailure(requestId, "StreamDispose", cleanupException);
+            }
+
             return Error(requestId, "cancelled");
         }
         catch (Exception exception)
@@ -511,9 +531,7 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
 
     private static string ComputeManifestFingerprint(NantoBridgeConfigurationSnapshot bridge)
     {
-        var manifest = string.Join("\n", bridge.Commands.Select(static command => command.ManifestEntry)
-            .Concat(bridge.Events.Select(static eventDescriptor => eventDescriptor.ManifestEntry))
-            .OrderBy(static value => value, StringComparer.Ordinal));
+        var manifest = string.Join("\n", bridge.ManifestEntries);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("v1\n" + manifest))).ToLowerInvariant();
     }
 
@@ -582,6 +600,8 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
 
         internal NantoGeneratedSequence Sequence { get; } = sequence;
 
+        internal bool IsCancellationRequested => cancellation.IsCancellationRequested;
+
         public ValueTask DisposeAsync()
         {
             lock (_gate)
@@ -603,6 +623,17 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
                 cancellation.Dispose();
             }
         }
+    }
+
+    private sealed class InvocationState(CancellationTokenSource cancellation)
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal CancellationTokenSource Cancellation { get; } = cancellation;
+
+        internal Task Completion => _completion.Task;
+
+        internal void Complete() => _completion.TrySetResult();
     }
 
     private sealed class EventState : IAsyncDisposable

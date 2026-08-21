@@ -192,7 +192,7 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
             .OrderBy(static member => member.SymbolicName, StringComparer.Ordinal)
             .ThenBy(static member => member.Kind)
             .ToArray();
-        var source = Emit(orderedMembers);
+        var source = Emit(orderedMembers).Replace("\r\n", "\n");
         context.AddSource("NantoBridge.g.cs", SourceText.From(source, Encoding.UTF8));
     }
 
@@ -349,6 +349,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
             if (type is IArrayTypeSymbol array)
             {
+                if (array.ElementType.SpecialType == SpecialType.System_Byte)
+                {
+                    return "binary values are deferred and byte arrays are not supported in Phase 2";
+                }
+
                 return ValidateSerializationType(array.ElementType, visiting, validated);
             }
 
@@ -377,6 +382,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
             if (named.TypeKind == TypeKind.Enum)
             {
+                if (named.GetAttributes().Any(static attribute => attribute.AttributeClass?.ToDisplayString() == "System.FlagsAttribute"))
+                {
+                    return "flags enums are not supported because combined values do not have a closed string-union representation";
+                }
+
                 validated.Add(type);
                 return null;
             }
@@ -384,6 +394,13 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
             var namespaceName = named.ContainingNamespace.ToDisplayString();
             if (namespaceName.StartsWith("System", StringComparison.Ordinal))
             {
+                if (namespaceName == "System" && named.Name is "Memory" or "ReadOnlyMemory"
+                    && named.TypeArguments.Length == 1
+                    && named.TypeArguments[0].SpecialType == SpecialType.System_Byte)
+                {
+                    return "binary values are deferred and byte memory is not supported in Phase 2";
+                }
+
                 if (namespaceName.StartsWith("System.Runtime.InteropServices", StringComparison.Ordinal)
                     || InheritsFrom(named, "System.Runtime.InteropServices.SafeHandle"))
                 {
@@ -404,7 +421,14 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
                 return "abstract, interface, inherited, and polymorphic DTOs are not supported";
             }
 
-            foreach (var property in GetSerializableProperties(named))
+            var properties = GetSerializableProperties(named).ToArray();
+            if (properties.GroupBy(static property => NantoContractTypes.ToCamelCase(property.Name), StringComparer.Ordinal)
+                .Any(static group => group.Count() > 1))
+            {
+                return $"DTO type '{named.ToDisplayString()}' has properties that map to the same camel-case JSON name";
+            }
+
+            foreach (var property in properties)
             {
                 if (HasJsonSerializationAttribute(property))
                 {
@@ -509,6 +533,16 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
         builder.AppendLine();
         builder.AppendLine("internal static class NantoGeneratedBridgeRegistrationExtensions");
         builder.AppendLine("{");
+        builder.AppendLine("    private static readonly string[] _manifestEntries =");
+        builder.AppendLine("        [");
+        foreach (var manifestEntry in members.Select(static member => member.ManifestEntry).Distinct(StringComparer.Ordinal)
+            .OrderBy(static manifestEntry => manifestEntry, StringComparer.Ordinal))
+        {
+            builder.Append("            ").Append(Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(manifestEntry, true)).AppendLine(",");
+        }
+
+        builder.AppendLine("        ];");
+        builder.AppendLine();
         var byType = members.GroupBy(
                 static member => member.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 StringComparer.Ordinal)
@@ -522,7 +556,7 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
             builder.AppendLine("    {");
             builder.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(bridge);");
             builder.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(api);");
-            builder.Append("        return bridge.AddGenerated(new Registration").Append(index).AppendLine("(api));");
+            builder.Append("        return bridge.AddGenerated(new Registration").Append(index).AppendLine("(api), _manifestEntries);");
             builder.AppendLine("    }");
             builder.AppendLine();
             builder.Append("    private sealed class Registration").Append(index).Append('(').Append(typeName)

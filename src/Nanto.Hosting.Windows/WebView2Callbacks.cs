@@ -367,7 +367,7 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
             var source = ReadString(eventArgs.Value.get_Source, "webview2.message.source");
             if (!Uri.TryCreate(source, UriKind.Absolute, out var sourceUri)
                 || !string.Equals(sourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(sourceUri.Host, "app.nanto.invalid", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(sourceUri.Host, NavigationPolicy.ApplicationHostName, StringComparison.OrdinalIgnoreCase)
                 || !sourceUri.IsDefaultPort
                 || !string.IsNullOrEmpty(sourceUri.UserInfo))
             {

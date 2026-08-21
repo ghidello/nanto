@@ -1,4 +1,4 @@
-export const manifest = "7b9802242b0911cc20c6060eb6650193ea342f9b27ab2803526a5615b6e37363";
+export const manifest = "b927e80e466c42381abaebd28f16a94fefab8a294974f95e5aa3c91916609fa7";
 /**
  * @source Phase2TestApi.cs:87
  */
@@ -26,11 +26,11 @@ export function createApp(client) {
             /**
              * @source Phase2TestApi.cs:66
              */
-            build: (projectId, $options) => client.stream(1725757109, { projectId }, $options?.signal),
+            build: (projectId, $options) => client.stream(238439517, { projectId }, $options?.signal),
             /**
              * @source Phase2TestApi.cs:31
              */
-            change: (projectId, $options) => client.invoke(3648429410, { projectId }, $options?.signal),
+            change: (projectId, $options) => client.invoke(3694782280, { projectId }, $options?.signal),
             /**
              * @source Phase2TestApi.cs:13
              */
@@ -48,11 +48,11 @@ export function createApp(client) {
             /**
              * @source Phase2TestApi.cs:20
              */
-            open: (projectId, $options) => client.invoke(1407742092, { projectId }, $options?.signal),
+            open: (projectId, $options) => client.invoke(3836943207, { projectId }, $options?.signal),
             /**
              * @source Phase2TestApi.cs:41
              */
-            wait: ($options) => client.invoke(1278557076, {}, $options?.signal),
+            wait: ($options) => client.invoke(3813230800, {}, $options?.signal),
         },
     };
 }

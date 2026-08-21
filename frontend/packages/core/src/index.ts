@@ -21,6 +21,7 @@ export class NantoCommandError extends Error {
 
 type Message = { type: string; id?: number; session?: string; code?: string; value?: unknown; stream?: boolean };
 type Waiter = { resolve(message: Message): void; reject(reason: unknown): void };
+const eventBufferCapacity = 64;
 
 export class NantoClient implements AsyncDisposable {
   readonly #transport: BridgeTransport;
@@ -28,6 +29,8 @@ export class NantoClient implements AsyncDisposable {
   readonly #cleanupMessages = new Map<number, "cancel" | "unsubscribe">();
   readonly #queues = new Map<number, Waiter[]>();
   readonly #buffered = new Map<number, Message[]>();
+  readonly #eventSubscriptions = new Set<number>();
+  readonly #terminatedSubscriptions = new Set<number>();
   readonly #unsubscribe: () => void;
   #session: string | undefined;
   #nextId = 1;
@@ -94,6 +97,7 @@ export class NantoClient implements AsyncDisposable {
   public async *subscribe<T>(event: number, signal?: AbortSignal): AsyncGenerator<T> {
     signal?.throwIfAborted();
     const id = this.#allocateId();
+    this.#eventSubscriptions.add(id);
     let abort: () => void = () => undefined;
     try {
       this.#transport.post(JSON.stringify({ v: 1, type: "subscribe", session: this.#requireSession(), id, event }));
@@ -107,7 +111,9 @@ export class NantoClient implements AsyncDisposable {
       }
     } finally {
       abort();
-      this.#transport.post(JSON.stringify({ v: 1, type: "unsubscribe", session: this.#requireSession(), id }));
+      if (this.#cleanupMessages.has(id)) {
+        this.#transport.post(JSON.stringify({ v: 1, type: "unsubscribe", session: this.#requireSession(), id }));
+      }
       this.#clear(id);
     }
   }
@@ -138,6 +144,8 @@ export class NantoClient implements AsyncDisposable {
     this.#cleanupMessages.clear();
     this.#queues.clear();
     this.#buffered.clear();
+    this.#eventSubscriptions.clear();
+    this.#terminatedSubscriptions.clear();
     if (cleanupFailures.length) throw new AggregateError(cleanupFailures, "Nanto client cleanup failed.");
   }
 
@@ -155,14 +163,29 @@ export class NantoClient implements AsyncDisposable {
     }
 
     const id = message.id ?? 0;
-    if (!this.#activeIds.has(id)) return;
+    if (!this.#activeIds.has(id) || this.#terminatedSubscriptions.has(id)) return;
     const queue = this.#queues.get(id);
     const waiter = queue?.shift();
     if (waiter) waiter.resolve(message);
-    else this.#buffered.set(id, [...(this.#buffered.get(id) ?? []), message]);
+    else {
+      const buffered = this.#buffered.get(id) ?? [];
+      if (message.type === "item" && this.#eventSubscriptions.has(id) && buffered.length >= eventBufferCapacity) {
+        this.#terminatedSubscriptions.add(id);
+        this.#buffered.set(id, [...buffered, { type: "error", id, code: NantoCommandErrorCode.ResourceExhausted }]);
+        this.#cleanupMessages.delete(id);
+        try {
+          this.#transport.post(JSON.stringify({ v: 1, type: "unsubscribe", session: this.#requireSession(), id }));
+        } catch {
+          // The local terminal state must survive a transport teardown race.
+        }
+      } else {
+        this.#buffered.set(id, [...buffered, message]);
+      }
+    }
   }
 
   #next(id: number, signal?: AbortSignal): Promise<Message> {
+    if (this.#disposed) throw new NantoCommandError(NantoCommandErrorCode.Internal);
     signal?.throwIfAborted();
     const buffered = this.#buffered.get(id)?.shift();
     if (buffered) return Promise.resolve(buffered);
@@ -190,6 +213,8 @@ export class NantoClient implements AsyncDisposable {
     this.#cleanupMessages.delete(id);
     this.#queues.delete(id);
     this.#buffered.delete(id);
+    this.#eventSubscriptions.delete(id);
+    this.#terminatedSubscriptions.delete(id);
   }
 
   #value<T>(message: Message): T {
@@ -203,9 +228,13 @@ export class NantoClient implements AsyncDisposable {
   }
 
   #bindAbort(id: number, signal?: AbortSignal, messageType: "cancel" | "unsubscribe" = "cancel"): () => void {
+    if (this.#terminatedSubscriptions.has(id)) return () => undefined;
     this.#cleanupMessages.set(id, messageType);
     if (!signal) return () => undefined;
-    const abort = () => this.#transport.post(JSON.stringify({ v: 1, type: messageType, session: this.#requireSession(), id }));
+    const abort = () => {
+      if (!this.#cleanupMessages.has(id)) return;
+      this.#transport.post(JSON.stringify({ v: 1, type: messageType, session: this.#requireSession(), id }));
+    };
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     return () => signal.removeEventListener("abort", abort);

@@ -1,5 +1,5 @@
 import { NantoClient } from "@nanto/core";
-export declare const manifest: "7b9802242b0911cc20c6060eb6650193ea342f9b27ab2803526a5615b6e37363";
+export declare const manifest: "b927e80e466c42381abaebd28f16a94fefab8a294974f95e5aa3c91916609fa7";
 export type NantoResult<T, TError> = {
     ok: true;
     value: T;

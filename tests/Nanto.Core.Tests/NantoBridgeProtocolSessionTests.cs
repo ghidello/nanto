@@ -104,6 +104,21 @@ public sealed class NantoBridgeProtocolSessionTests
     }
 
     [Fact]
+    public void CompilationManifestIsIndependentOfRegisteredHandlerSubset()
+    {
+        const string registeredEntry = "command:projects.open()->int|schemas:int=scalar";
+        const string unavailableEntry = "command:projects.close()->int|schemas:int=scalar";
+        var command = new TestCommand(42, static (_, _, _) => throw new InvalidOperationException(), registeredEntry);
+        var bridge = new NantoBridgeConfiguration();
+        bridge.AddGenerated(new TestRegistration([command], []), [registeredEntry, unavailableEntry]);
+
+        var snapshot = bridge.CaptureSnapshot();
+
+        Assert.Equal([unavailableEntry, registeredEntry], snapshot.ManifestEntries);
+        Assert.Single(snapshot.Commands);
+    }
+
+    [Fact]
     public async Task PublishesHotEventsOnlyAfterSubscription()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -371,6 +386,35 @@ public sealed class NantoBridgeProtocolSessionTests
     }
 
     [Fact]
+    public async Task SessionDisposalWaitsForCancelledInvocationCompletion()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var command = new TestCommand(42, async (_, _, invocationCancellation) =>
+        {
+            started.TrySetResult();
+            using var registration = invocationCancellation.Register(() => cancellationObserved.TrySetResult());
+            await release.Task.ConfigureAwait(false);
+            invocationCancellation.ThrowIfCancellationRequested();
+            return new NantoGeneratedUnaryInvocation(NantoGeneratedJson.Null);
+        });
+        var session = CreateSession(command, grant: true);
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        var invocation = session.HandleAsync(Invoke(sessionId, 1, 42), cancellationToken).AsTask();
+        await started.Task.WaitAsync(cancellationToken);
+
+        var disposal = session.DisposeAsync().AsTask();
+        await cancellationObserved.Task.WaitAsync(cancellationToken);
+
+        Assert.False(disposal.IsCompleted);
+        release.TrySetResult();
+        await disposal.WaitAsync(cancellationToken);
+        Assert.Equal("cancelled", ReadCode(await invocation.WaitAsync(cancellationToken)));
+    }
+
+    [Fact]
     public async Task StreamFailureRemainsSanitizedWhenDisposalAlsoFails()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -398,6 +442,28 @@ public sealed class NantoBridgeProtocolSessionTests
 
         Assert.Equal("internal", ReadCode(response));
         Assert.Equal([(1U, "StreamNext"), (1U, "StreamDispose")], failures);
+    }
+
+    [Fact]
+    public async Task UnexpectedIteratorCancellationIsInternalAndDisposesTheStream()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var sequence = new UnexpectedCancellationSequence();
+        var command = new TestCommand(
+            42,
+            (_, _, _) => ValueTask.FromResult<NantoGeneratedCommandInvocation>(new NantoGeneratedStreamInvocation(sequence)),
+            kind: NantoGeneratedCommandKind.Stream);
+        var session = CreateSession(command, grant: true);
+        var sessionId = await HandshakeAsync(session, cancellationToken);
+        _ = await session.HandleAsync(Invoke(sessionId, 1, 42), cancellationToken);
+
+        var response = await session.HandleAsync(
+            Utf8(JsonSerializer.Serialize(new { v = 1, type = "streamNext", session = sessionId, id = 1 })),
+            cancellationToken);
+
+        Assert.Equal("internal", ReadCode(response));
+        Assert.True(sequence.IsDisposed);
+        await session.DisposeAsync();
     }
 
     private static async IAsyncEnumerable<int> BlockForever([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -484,6 +550,20 @@ public sealed class NantoBridgeProtocolSessionTests
         public override ValueTask<NantoGeneratedStreamItem> MoveNextAsync(CancellationToken cancellationToken) => ValueTask.FromResult(default(NantoGeneratedStreamItem));
 
         public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class UnexpectedCancellationSequence : NantoGeneratedSequence
+    {
+        public bool IsDisposed { get; private set; }
+
+        public override ValueTask<NantoGeneratedStreamItem> MoveNextAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromException<NantoGeneratedStreamItem>(new OperationCanceledException("iterator cancelled itself"));
+
+        public override ValueTask DisposeAsync()
+        {
+            IsDisposed = true;
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class InlineDispatcher : IUiDispatcher

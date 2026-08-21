@@ -755,7 +755,7 @@ Initial mappings:
 | `Guid` | string, validated at the native boundary |
 | `DateOnly` | ISO date string |
 | `DateTimeOffset` | ISO timestamp string |
-| `byte[]` / `ReadOnlyMemory<byte>` | `Uint8Array`, with optimized binary transport when available |
+| `byte[]` / `ReadOnlyMemory<byte>` | Rejected during JSON-only Phase 2; a future explicit binary mapping will project these as `Uint8Array` |
 | `void` / non-generic task | `Promise<void>` |
 
 The contract must distinguish missing, `undefined`, and `null`. Naming and enum serialization rules must be deterministic and configurable only at a well-defined boundary.
@@ -769,6 +769,7 @@ The generator should initially reject:
 - arbitrary object graphs without generated serialization metadata;
 - delegates and expression trees;
 - raw pointers and platform handles in portable commands;
+- binary buffers until the protocol defines their non-JSON wire mapping;
 - synchronous streaming abstractions;
 - methods whose public contract depends on runtime type discovery.
 
@@ -1266,6 +1267,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-060 | Model expected failures as `NantoResult<T, TError>` and sanitize all exceptional failures into bounded transport codes. | Preserves exhaustive application-domain errors without leaking exception implementation details across the trust boundary. |
 | D-061 | Derive private 32-bit member IDs from SHA-256 canonical signatures and bind protocol v1 sessions to a full SHA-256 manifest fingerprint. | Provides compact dispatch with deterministic collision detection and prevents mismatched clients from invoking the wrong contract. |
 | D-062 | Generate TypeScript as the frontend source of truth and compile JavaScript, declarations, and source maps mechanically with a pinned compiler. | Avoids two emitters drifting while supporting both TypeScript and JavaScript consumers. |
+| D-063 | Reject binary command and event types during JSON-only Phase 2. | Prevents `System.Text.Json` base64 strings from being exposed through a misleading `Uint8Array` frontend contract; binary projection waits for an explicit wire mapping. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 

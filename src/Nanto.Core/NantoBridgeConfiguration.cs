@@ -7,15 +7,26 @@ namespace Nanto;
 public sealed class NantoBridgeConfiguration
 {
     private readonly object _gate = new();
+    private readonly HashSet<string> _manifestEntries = new(StringComparer.Ordinal);
     private readonly List<NantoGeneratedApiRegistration> _registrations = [];
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public NantoBridgeConfiguration AddGenerated(NantoGeneratedApiRegistration registration)
+    public NantoBridgeConfiguration AddGenerated(
+        NantoGeneratedApiRegistration registration,
+        IReadOnlyList<string>? compilationManifestEntries = null)
     {
         ArgumentNullException.ThrowIfNull(registration);
         lock (_gate)
         {
             _registrations.Add(registration);
+            if (compilationManifestEntries is not null)
+            {
+                foreach (var manifestEntry in compilationManifestEntries)
+                {
+                    ArgumentException.ThrowIfNullOrWhiteSpace(manifestEntry);
+                    _manifestEntries.Add(manifestEntry);
+                }
+            }
         }
 
         return this;
@@ -25,9 +36,16 @@ public sealed class NantoBridgeConfiguration
     {
         lock (_gate)
         {
+            var commands = _registrations.SelectMany(static registration => registration.Commands).ToArray();
+            var events = _registrations.SelectMany(static registration => registration.Events).ToArray();
             return new NantoBridgeConfigurationSnapshot(
-                [.. _registrations.SelectMany(static registration => registration.Commands)],
-                [.. _registrations.SelectMany(static registration => registration.Events)]);
+                commands,
+                events,
+                [.. _manifestEntries
+                    .Concat(commands.Select(static command => command.ManifestEntry))
+                    .Concat(events.Select(static eventDescriptor => eventDescriptor.ManifestEntry))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(static manifestEntry => manifestEntry, StringComparer.Ordinal)]);
         }
     }
 }
@@ -235,9 +253,12 @@ public static class NantoGeneratedJson
 
 internal sealed class NantoBridgeConfigurationSnapshot(
     IReadOnlyList<NantoGeneratedCommand> commands,
-    IReadOnlyList<NantoGeneratedEvent> events)
+    IReadOnlyList<NantoGeneratedEvent> events,
+    IReadOnlyList<string> manifestEntries)
 {
     public IReadOnlyList<NantoGeneratedCommand> Commands { get; } = commands;
 
     public IReadOnlyList<NantoGeneratedEvent> Events { get; } = events;
+
+    public IReadOnlyList<string> ManifestEntries { get; } = manifestEntries;
 }
