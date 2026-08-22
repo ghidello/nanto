@@ -1552,8 +1552,8 @@ CI should cover:
 
 Begin Phase 3 from the closed generated-contract and protocol foundation while preserving the Phase 1 host and Phase 2 security guarantees:
 
-1. Write the Phase 3 implementation plan and record measurable developer-loop baselines before adding orchestration machinery.
-2. Define the smallest framework-neutral CLI/build contract, including inspectable dry-run behavior and explicit frontend commands and URLs.
+1. Execute [`phase3-plan.md`](phase3-plan.md), beginning with reproducible developer-loop baselines before adding orchestration machinery.
+2. Lock configuration v1 and the smallest framework-neutral CLI/build plan contract before templates stabilize.
 3. Keep ordinary development independent from Aspire and telemetry collection while reserving standard OpenTelemetry and optional Aspire integration points.
 4. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
 
