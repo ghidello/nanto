@@ -16,6 +16,8 @@ export class NantoCommandError extends Error {
 const eventBufferCapacity = 64;
 export class NantoClient {
     #transport;
+    #traceContextProvider;
+    #traceObserver;
     #activeIds = new Set();
     #cleanupMessages = new Map();
     #queues = new Map();
@@ -26,8 +28,10 @@ export class NantoClient {
     #session;
     #nextId = 1;
     #disposed = false;
-    constructor(transport) {
+    constructor(transport, options = {}) {
         this.#transport = transport;
+        this.#traceContextProvider = options.traceContextProvider;
+        this.#traceObserver = options.traceObserver;
         this.#unsubscribe = transport.subscribe(message => this.#receive(JSON.parse(message)));
     }
     async connect(manifest) {
@@ -50,23 +54,36 @@ export class NantoClient {
     async invoke(command, args, signal) {
         signal?.throwIfAborted();
         const id = this.#allocateId();
+        const context = this.#traceContext();
+        let outcome = "error";
         let abort = () => undefined;
+        this.#observeStart(id, command, context);
         try {
-            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args, ...context }));
             abort = this.#bindAbort(id, signal);
-            return this.#value(await this.#next(id, signal));
+            const value = this.#value(await this.#next(id, signal));
+            outcome = "ok";
+            return value;
+        }
+        catch (error) {
+            outcome = error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "error";
+            throw error;
         }
         finally {
             abort();
             this.#clear(id);
+            this.#observeEnd(id, command, outcome);
         }
     }
     async *stream(command, args, signal) {
         signal?.throwIfAborted();
         const id = this.#allocateId();
+        const context = this.#traceContext();
+        let outcome = "error";
         let abort = () => undefined;
+        this.#observeStart(id, command, context);
         try {
-            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+            this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args, ...context }));
             abort = this.#bindAbort(id, signal);
             const opened = await this.#next(id, signal);
             if (opened.type === "error")
@@ -75,15 +92,22 @@ export class NantoClient {
                 signal?.throwIfAborted();
                 this.#transport.post(JSON.stringify({ v: 1, type: "streamNext", session: this.#requireSession(), id }));
                 const message = await this.#next(id, signal);
-                if (message.type === "completion")
+                if (message.type === "completion") {
+                    outcome = "ok";
                     return;
+                }
                 yield this.#value(message);
             }
+        }
+        catch (error) {
+            outcome = error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "error";
+            throw error;
         }
         finally {
             abort();
             this.#transport.post(JSON.stringify({ v: 1, type: "cancel", session: this.#requireSession(), id }));
             this.#clear(id);
+            this.#observeEnd(id, command, outcome);
         }
     }
     async *subscribe(event, signal) {
@@ -260,6 +284,35 @@ export class NantoClient {
         if (!this.#session)
             throw new NantoCommandError(NantoCommandErrorCode.ProtocolMismatch);
         return this.#session;
+    }
+    #traceContext() {
+        try {
+            const context = this.#traceContextProvider?.getTraceContext();
+            if (!context || typeof context.traceparent !== "string" || context.traceparent.length === 0 || context.traceparent.length > 128)
+                return undefined;
+            if (context.tracestate !== undefined && (typeof context.tracestate !== "string" || context.tracestate.length === 0 || context.tracestate.length > 512))
+                return undefined;
+            return context.tracestate === undefined ? { traceparent: context.traceparent } : { traceparent: context.traceparent, tracestate: context.tracestate };
+        }
+        catch {
+            return undefined;
+        }
+    }
+    #observeStart(id, command, context) {
+        try {
+            this.#traceObserver?.onCommandStart(context === undefined ? { id, command } : { id, command, context });
+        }
+        catch {
+            // Diagnostics hooks must not change command behavior.
+        }
+    }
+    #observeEnd(id, command, outcome) {
+        try {
+            this.#traceObserver?.onCommandEnd({ id, command, outcome });
+        }
+        catch {
+            // Diagnostics hooks must not change command behavior.
+        }
     }
     #normalizeErrorCode(code, fallback) {
         switch (code) {

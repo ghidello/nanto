@@ -379,7 +379,7 @@ public sealed class VersionedWebAssetProviderTests : IDisposable
         var options = new NantoApplicationOptions
         {
             ApplicationId = "com.example.versioned-assets",
-            Assets = new UnusedAssetProvider(),
+            Content = new NantoProductionContent { Assets = new UnusedAssetProvider() },
             LoggerFactory = loggerFactory,
             PrimaryWindow = new WindowOptions { Title = "Assets" },
         };

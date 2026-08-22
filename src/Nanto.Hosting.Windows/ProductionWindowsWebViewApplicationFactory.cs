@@ -32,27 +32,41 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         var applicationCleanup = new AsyncCleanupRegistry();
         var environmentCleanup = new AsyncCleanupRegistry();
         IDisposable? assetResourceLease = null;
+        IWebAssetLease? assetLease = null;
         try
         {
             var logger = options.LoggerFactory.CreateLogger<ProductionWindowsWebViewApplicationFactory>();
             var storage = await Task.Run(() => WindowsApplicationStorage.Prepare(options.Identity), cancellationToken);
-            var assetLease = await options.Assets.PrepareAsync(
-                options.CreateWebAssetPreparationContext(storage.ApplicationRoot),
-                cancellationToken);
-            applicationCleanup.Push("web-assets.dispose", () =>
+            PreparedWindowsContent content;
+            if (options.Content is ValidatedProductionContent production)
             {
-                DisposeAssetLease(assetLease, assetResourceLease);
-                return ValueTask.CompletedTask;
-            });
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!NavigationPolicy.IsInitialRouteAllowed(options.PrimaryWindow.InitialRoute, assetLease.AssetPaths))
+                assetLease = await production.Assets.PrepareAsync(
+                    options.CreateWebAssetPreparationContext(storage.ApplicationRoot),
+                    cancellationToken);
+                applicationCleanup.Push("web-assets.dispose", () =>
+                {
+                    DisposeAssetLease(assetLease, assetResourceLease);
+                    return ValueTask.CompletedTask;
+                });
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!NavigationPolicy.IsInitialRouteAllowed(production.InitialRoute, assetLease.AssetPaths))
+                {
+                    throw new InvalidDataException("The initial production route does not resolve to a declared application asset.");
+                }
+
+                assetResourceLease = resourceLedger.Acquire(WindowsResourceKind.AssetLease, "WebAssetLease");
+                failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.AssetLeasePrepared);
+                content = PreparedWindowsContent.Production(assetLease, production.InitialRoute);
+            }
+            else if (options.Content is ValidatedDevelopmentContent development)
             {
-                throw new InvalidDataException(
-                    $"The initial route '{options.PrimaryWindow.InitialRoute}' does not resolve to a declared application asset.");
+                content = PreparedWindowsContent.Development(development);
+            }
+            else
+            {
+                throw new InvalidOperationException("The validated content source is not supported by the Windows host.");
             }
 
-            assetResourceLease = resourceLedger.Acquire(WindowsResourceKind.AssetLease, "WebAssetLease");
-            failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.AssetLeasePrepared);
             cancellationToken.ThrowIfCancellationRequested();
             var environmentStartedAt = timeProvider.GetTimestamp();
             WindowsDiagnostics.WebViewAcquisitionStarted(logger, "Environment");
@@ -81,6 +95,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             return new ProductionWindowsWebViewApplication(
                 environment,
                 appearance,
+                content,
                 assetLease,
                 assetResourceLease,
                 resourceLedger,
@@ -163,6 +178,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         private readonly NantoBridgeConfigurationSnapshot _bridge;
         private readonly IUiDispatcher _dispatcher;
         private readonly TimeProvider _timeProvider;
+        private readonly PreparedWindowsContent _content;
         private IWebAssetLease? _assetLease;
         private IDisposable? _assetResourceLease;
         private ProductionWindowsWebViewWindow? _window;
@@ -170,8 +186,9 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         public ProductionWindowsWebViewApplication(
             WebView2EnvironmentOwner environment,
             WindowsAppearanceManager appearance,
-            IWebAssetLease assetLease,
-            IDisposable assetResourceLease,
+            PreparedWindowsContent content,
+            IWebAssetLease? assetLease,
+            IDisposable? assetResourceLease,
             ResourceLedger resourceLedger,
             IPhase1FailureInjector failureInjector,
             NantoBridgeConfigurationSnapshot bridge,
@@ -181,6 +198,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
         {
             _environment = environment;
             _appearance = appearance;
+            _content = content;
             _assetLease = assetLease;
             _assetResourceLease = assetResourceLease;
             _resourceLedger = resourceLedger;
@@ -201,7 +219,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
             Func<bool> canRecoverRenderer,
             CancellationToken cancellationToken)
         {
-            if (_window is not null || _assetLease is null || _assetResourceLease is null)
+            if (_window is not null)
             {
                 throw new InvalidOperationException("The Phase 1 WebView2 application can create only one window.");
             }
@@ -215,7 +233,7 @@ internal sealed class ProductionWindowsWebViewApplicationFactory : IWindowsWebVi
                     windowId,
                     options,
                     preferredColorScheme,
-                    _assetLease,
+                    _content,
                     _resourceLedger,
                     _failureInjector,
                     _bridge,

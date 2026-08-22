@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Cli/Nanto.Cli.csproj" />
+    <ProjectReference Include="../Nanto.Cli.ProcessFixture/Nanto.Cli.ProcessFixture.csproj" />
+  </ItemGroup>
+</Project>

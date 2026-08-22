@@ -1,6 +1,10 @@
 <Project>
   <PropertyGroup>
     <NantoSdkAssembly Condition="'$(NantoSdkAssembly)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Nanto.Sdk.dll</NantoSdkAssembly>
+    <NantoAssetResourcePrefix Condition="'$(NantoAssetResourcePrefix)' == ''">Nanto.AppAssets/</NantoAssetResourcePrefix>
+    <NantoAssetManifestResourceName Condition="'$(NantoAssetManifestResourceName)' == ''">Nanto.AppAssets.Manifest</NantoAssetManifestResourceName>
+    <NantoSdkToolBuildTarget Condition="'$(NantoSdkToolBuildTarget)' == ''"></NantoSdkToolBuildTarget>
+    <NantoBrowserCoreSource Condition="'$(NantoBrowserCoreSource)' == ''">$(MSBuildThisFileDirectory)..\browser\core\index.ts</NantoBrowserCoreSource>
   </PropertyGroup>
 
   <Target Name="GenerateNantoContracts" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences">
@@ -10,6 +14,7 @@
       <_NantoSdkResponseFile>$(NantoFrontendIntermediateDirectory)\compiler-inputs.rsp</_NantoSdkResponseFile>
       <_NantoJsonContextFile>$(NantoFrontendIntermediateDirectory)\NantoGeneratedJsonContext.g.cs</_NantoJsonContextFile>
       <_NantoTypeScriptFile>$(NantoFrontendOutputPath)\index.ts</_NantoTypeScriptFile>
+      <NantoBrowserCoreOutputPath Condition="'$(NantoBrowserCoreOutputPath)' == ''">$(NantoFrontendOutputPath)\..\core\index.ts</NantoBrowserCoreOutputPath>
     </PropertyGroup>
     <ItemGroup>
       <_NantoSdkInput Include="define=$(DefineConstants)" />
@@ -22,9 +27,51 @@
     <MakeDir Directories="$(NantoFrontendIntermediateDirectory)" />
     <WriteLinesToFile File="$(_NantoSdkResponseFile)" Lines="@(_NantoSdkInput)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
     <Exec Command="dotnet &quot;$(NantoSdkAssembly)&quot; &quot;$(_NantoSdkResponseFile)&quot; &quot;$(_NantoJsonContextFile)&quot; &quot;$(_NantoTypeScriptFile)&quot;" />
+    <Exec Command="dotnet &quot;$(NantoSdkAssembly)&quot; copy &quot;$(NantoBrowserCoreSource)&quot; &quot;$(NantoBrowserCoreOutputPath)&quot;"
+          Condition="Exists('$(NantoBrowserCoreSource)')" />
     <ItemGroup>
       <Compile Include="$(_NantoJsonContextFile)" />
-      <FileWrites Include="$(_NantoSdkResponseFile);$(_NantoJsonContextFile);$(_NantoTypeScriptFile)" />
+      <FileWrites Include="$(_NantoSdkResponseFile);$(_NantoJsonContextFile);$(_NantoTypeScriptFile);$(NantoBrowserCoreOutputPath)" />
     </ItemGroup>
+  </Target>
+
+  <Target Name="GenerateNantoAssetManifest"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="$(NantoSdkToolBuildTarget)"
+          Condition="'$(NantoFrontendDist)' != '' and ('$(NantoIncludeProductionAssets)' == 'true' or '$(IsPublishing)' == 'true')">
+    <PropertyGroup>
+      <_NantoFrontendDist>$([System.IO.Path]::GetFullPath('$(NantoFrontendDist)', '$(MSBuildProjectDirectory)'))</_NantoFrontendDist>
+      <_NantoAssetManifestFile>$(IntermediateOutputPath)Nanto\Assets\nanto-assets.json</_NantoAssetManifestFile>
+    </PropertyGroup>
+    <Exec Command="dotnet &quot;$(NantoSdkAssembly)&quot; assets &quot;$(_NantoFrontendDist)&quot; &quot;$(_NantoAssetManifestFile)&quot; &quot;$(NantoAssetResourcePrefix)&quot;" />
+    <ItemGroup>
+      <_NantoAsset Include="$(_NantoFrontendDist)\**\*" />
+      <_NantoAsset>
+        <NantoRelativePath>$([System.String]::Copy('%(_NantoAsset.RecursiveDir)').Replace('\', '/'))%(_NantoAsset.Filename)%(_NantoAsset.Extension)</NantoRelativePath>
+      </_NantoAsset>
+    </ItemGroup>
+    <GetFileHash Files="@(_NantoAsset)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_NantoHashedAsset" />
+    </GetFileHash>
+    <ItemGroup>
+      <_NantoHashedAsset>
+        <LogicalName>$(NantoAssetResourcePrefix)%(_NantoHashedAsset.FileHash)/%(_NantoHashedAsset.NantoRelativePath)</LogicalName>
+      </_NantoHashedAsset>
+      <EmbeddedResource Include="@(_NantoHashedAsset)" />
+      <EmbeddedResource Include="$(_NantoAssetManifestFile)" LogicalName="$(NantoAssetManifestResourceName)" />
+      <FileWrites Include="$(_NantoAssetManifestFile)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RequireNantoProductionAssets"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(NantoRequireProductionAssets)' == 'true' and '$(NantoFrontendDist)' == ''">
+    <Error Text="Nanto production assets require NantoFrontendDist. Set it in the project or publish through 'dotnet nanto build'." />
+  </Target>
+
+  <Target Name="ValidateNantoBuildMode"
+          BeforeTargets="PrepareForBuild;Publish"
+          Condition="'$(NantoBuildMode)' != '' and '$(NantoBuildMode)' != 'CoreClrFrameworkDependent' and '$(NantoBuildMode)' != 'CoreClrSelfContained' and '$(NantoBuildMode)' != 'NativeAot'">
+    <Error Text="Unknown NantoBuildMode '$(NantoBuildMode)'. Expected CoreClrFrameworkDependent, CoreClrSelfContained, or NativeAot." />
   </Target>
 </Project>

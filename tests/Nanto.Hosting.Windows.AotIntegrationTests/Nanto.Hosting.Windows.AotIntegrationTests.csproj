@@ -10,6 +10,7 @@
     <_NantoMapPath>$(_NantoRepositoryRoot)\artifacts\phase1\evidence\deployment\native-aot.map.xml</_NantoMapPath>
     <_NantoTestAppOutputDirectory>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\bin\NativeAot\Release\net10.0-windows10.0.19041.0\win-x64</_NantoTestAppOutputDirectory>
     <_NantoTestAppIntermediateDirectory>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\obj\NativeAot\Release\net10.0-windows10.0.19041.0\win-x64\native</_NantoTestAppIntermediateDirectory>
+    <_NantoAssetManifestPath>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\obj\NativeAot\Release\net10.0-windows10.0.19041.0\win-x64\Nanto\Assets\nanto-assets.json</_NantoAssetManifestPath>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj" />
@@ -40,6 +41,10 @@
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>NantoMapPath</_Parameter1>
       <_Parameter2>$(_NantoMapPath)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoAssetManifestPath</_Parameter1>
+      <_Parameter2>$(_NantoAssetManifestPath)</_Parameter2>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>NantoSdkVersion</_Parameter1>

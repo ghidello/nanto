@@ -15,7 +15,9 @@
     <InternalsVisibleTo Include="Nanto.Generators.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="buildTransitive/Nanto.Sdk.props" Pack="true" PackagePath="buildTransitive/Nanto.Sdk.props" />
     <None Update="buildTransitive/Nanto.Sdk.targets" Pack="true" PackagePath="buildTransitive/Nanto.Sdk.targets" />
+    <None Include="../../frontend/packages/core/src/index.ts" Pack="true" PackagePath="browser/core/index.ts" />
   </ItemGroup>
   <Target Name="AddNantoSdkToolsToPackage">
     <ItemGroup>

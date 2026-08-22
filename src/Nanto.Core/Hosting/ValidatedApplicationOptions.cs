@@ -14,7 +14,7 @@ public sealed record ValidatedApplicationOptions
 
     public WindowOptions PrimaryWindow { get; }
 
-    public IWebAssetProvider Assets { get; }
+    public ValidatedContentSource Content { get; }
 
     internal NantoBridgeConfigurationSnapshot Bridge { get; }
 
@@ -29,7 +29,7 @@ public sealed record ValidatedApplicationOptions
     private ValidatedApplicationOptions(
         ApplicationIdentity identity,
         WindowOptions primaryWindow,
-        IWebAssetProvider assets,
+        ValidatedContentSource content,
         NantoBridgeConfigurationSnapshot bridge,
         ColorSchemePreference preferredColorScheme,
         ShutdownMode shutdownMode,
@@ -38,7 +38,7 @@ public sealed record ValidatedApplicationOptions
     {
         Identity = identity;
         PrimaryWindow = primaryWindow;
-        Assets = assets;
+        Content = content;
         Bridge = bridge;
         PreferredColorScheme = preferredColorScheme;
         ShutdownMode = shutdownMode;
@@ -53,11 +53,12 @@ public sealed record ValidatedApplicationOptions
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.PrimaryWindow);
-        ArgumentNullException.ThrowIfNull(options.Assets);
+        ArgumentNullException.ThrowIfNull(options.Content);
         ArgumentNullException.ThrowIfNull(options.Bridge);
 
         var identity = ApplicationIdentity.Parse(options.ApplicationId);
         ValidateWindowOptions(options.PrimaryWindow);
+        ValidatedContentSource content = ValidateContent(options.Content);
 
         if (!Enum.IsDefined(options.PreferredColorScheme))
         {
@@ -75,7 +76,7 @@ public sealed record ValidatedApplicationOptions
         return new ValidatedApplicationOptions(
             identity,
             options.PrimaryWindow with { Capabilities = [.. options.PrimaryWindow.Capabilities] },
-            options.Assets,
+            content,
             options.Bridge.CaptureSnapshot(),
             options.PreferredColorScheme,
             options.ShutdownMode,
@@ -107,7 +108,38 @@ public sealed record ValidatedApplicationOptions
         ArgumentNullException.ThrowIfNull(options.Capabilities);
 
         ArgumentOutOfRangeException.ThrowIfEqual(options.InitialSize, default, nameof(options.InitialSize));
+    }
 
-        RouteValidation.ThrowIfInvalid(options.InitialRoute, nameof(options.InitialRoute));
+    private static ValidatedContentSource ValidateContent(NantoContentSource content)
+    {
+        return content switch
+        {
+            NantoProductionContent production => ValidateProductionContent(production),
+            NantoDevelopmentContent development => ValidateDevelopmentContent(development),
+            _ => throw new ArgumentException("The content source type is not supported.", nameof(content)),
+        };
+    }
+
+    private static ValidatedProductionContent ValidateProductionContent(NantoProductionContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content.Assets);
+        RouteValidation.ThrowIfInvalid(content.InitialRoute, nameof(content.InitialRoute));
+        return new(content.Assets, content.InitialRoute);
+    }
+
+    private static ValidatedDevelopmentContent ValidateDevelopmentContent(NantoDevelopmentContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content.StartUri);
+        Uri startUri = content.StartUri;
+        if (!startUri.IsAbsoluteUri
+            || startUri.Scheme is not ("http" or "https")
+            || string.IsNullOrWhiteSpace(startUri.Host)
+            || !string.IsNullOrEmpty(startUri.UserInfo))
+        {
+            throw new ArgumentException("Development content requires an absolute HTTP or HTTPS URI with a concrete host and no user information.", nameof(content));
+        }
+
+        var origin = new UriBuilder(startUri.Scheme, startUri.Host, startUri.Port).Uri;
+        return new(startUri, origin);
     }
 }

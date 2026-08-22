@@ -10,7 +10,7 @@ internal static class TestingFixture
     {
         ApplicationId = "com.example.nanto-tests",
         PrimaryWindow = new WindowOptions { Title = "Test window" },
-        Assets = new UnusedAssetProvider(),
+        Content = new NantoProductionContent { Assets = new UnusedAssetProvider() },
         ShutdownMode = shutdownMode,
     };
 

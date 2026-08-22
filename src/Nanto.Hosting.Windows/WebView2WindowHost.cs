@@ -59,7 +59,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     public Task Readiness => _webMessageReceivedHandler.Readiness;
 
     private WebView2WindowHost(
-        IReadOnlySet<string> assetPaths,
+        PreparedWindowsContent content,
         Action<RendererFailureKind, string, bool> reportRendererFailure,
         Action requestClose,
         Func<bool> canRecoverRenderer,
@@ -76,7 +76,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         _bridge = bridge;
         _options = options;
         _windowId = windowId;
-        _navigationStartingHandler = new NavigationStartingHandler(assetPaths, RotateBridgeSession);
+        _navigationStartingHandler = new NavigationStartingHandler(content, RotateBridgeSession);
         _rendererRecovery = new RendererRecoveryCoordinator(
             reportRendererFailure,
             Reload,
@@ -88,7 +88,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         _navigationCompletedHandler = new NavigationCompletedHandler { NavigationCompleted = HandleNavigationCompleted };
         _processFailedHandler = new ProcessFailedHandler(HandleProcessFailed);
         _bridgeSession = CreateBridgeSession();
-        _webMessageReceivedHandler = new WebMessageReceivedHandler(HandleBridgeMessage);
+        _webMessageReceivedHandler = new WebMessageReceivedHandler(HandleBridgeMessage, content.TrustedOrigin);
         _bridgeProcessing = Task.Run(ProcessBridgeMessagesAsync);
     }
 
@@ -98,7 +98,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         WindowId windowId,
         WindowOptions options,
         ColorSchemePreference preferredColorScheme,
-        IWebAssetLease assetLease,
+        PreparedWindowsContent content,
         ResourceLedger resourceLedger,
         IPhase1FailureInjector failureInjector,
         NantoBridgeConfigurationSnapshot bridge,
@@ -112,7 +112,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(assetLease);
+        ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(resourceLedger);
         ArgumentNullException.ThrowIfNull(failureInjector);
         ArgumentNullException.ThrowIfNull(bridge);
@@ -125,7 +125,7 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
         cancellationToken.ThrowIfCancellationRequested();
 
         var host = new WebView2WindowHost(
-            assetLease.AssetPaths,
+            content,
             reportRendererFailure,
             requestClose,
             canRecoverRenderer,
@@ -202,19 +202,22 @@ internal sealed class WebView2WindowHost : IWindowsWebViewWindow
                 timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
             failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.ProcessFailedSubscriptionAdded);
             cancellationToken.ThrowIfCancellationRequested();
-            operationStartedAt = timeProvider.GetTimestamp();
-            WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Mapping");
-            host.AddVirtualHostMapping(resourceLedger, assetLease.RootDirectory);
-            WindowsDiagnostics.WebViewAcquisitionCompleted(
-                host._logger,
-                "Mapping",
-                timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
-            failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.VirtualHostMappingAdded);
-            cancellationToken.ThrowIfCancellationRequested();
+            if (content.AssetRootDirectory is { } assetRootDirectory)
+            {
+                operationStartedAt = timeProvider.GetTimestamp();
+                WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "Mapping");
+                host.AddVirtualHostMapping(resourceLedger, assetRootDirectory);
+                WindowsDiagnostics.WebViewAcquisitionCompleted(
+                    host._logger,
+                    "Mapping",
+                    timeProvider.GetElapsedTime(operationStartedAt).TotalMilliseconds);
+                failureInjector.OnAcquired(Phase1AcquisitionCheckpoint.VirtualHostMappingAdded);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
 
             operationStartedAt = timeProvider.GetTimestamp();
             WindowsDiagnostics.WebViewAcquisitionStarted(host._logger, "InitialNavigation");
-            using var initialUri = new Utf16String($"https://{NavigationPolicy.ApplicationHostName}{options.InitialRoute}");
+            using var initialUri = new Utf16String(content.StartUri.AbsoluteUri);
             HResult.ThrowIfFailed(host._webView.Value.Navigate(initialUri.Pointer), "webview2.navigation.begin", NantoFailureStage.Startup);
             await host._navigationCompletedHandler.Completion.WaitAsync(cancellationToken);
             WindowsDiagnostics.WebViewAcquisitionCompleted(

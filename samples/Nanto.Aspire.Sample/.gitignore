@@ -1,0 +1,5 @@
+.agents/
+Frontend/node_modules/
+Frontend/dist/
+Frontend/src/generated/
+Frontend/*.tsbuildinfo

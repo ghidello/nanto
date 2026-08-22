@@ -1,0 +1,24 @@
+{
+  "$schema": "https://nanto.dev/schemas/config/v1.json",
+  "schemaVersion": 1,
+  "application": {
+    "hostProject": "NantoTemplateApp.csproj"
+  },
+  "frontend": {
+    "directory": "Frontend",
+    "generatedClient": "src/generated/nanto/app",
+    "dev": {
+      "url": "http://127.0.0.1:5173",
+      "readyTimeoutSeconds": 60
+    },
+    "build": {
+      "file": "replace-with-package-manager",
+      "arguments": ["replace-with-build-command"],
+      "dist": "dist",
+      "entryAsset": "index.html"
+    }
+  },
+  "build": {
+    "runtime": "auto"
+  }
+}

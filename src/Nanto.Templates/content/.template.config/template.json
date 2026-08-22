@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Nanto",
+  "classifications": ["Desktop", "Web", "Windows"],
+  "identity": "Nanto.App",
+  "name": "Nanto application",
+  "shortName": "nanto",
+  "sourceName": "NantoTemplateApp",
+  "guids": ["4D5DF86C-76C8-4E4D-9572-4680D1A25F58"],
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "symbols": {
+    "frontend": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "react",
+      "description": "Frontend integration to create.",
+      "choices": [
+        { "choice": "react", "description": "React, TypeScript, and Vite reference frontend." },
+        { "choice": "custom", "description": "Framework-neutral attachment files for an existing SPA." }
+      ]
+    }
+  },
+  "sources": [
+    { "source": "Common", "target": "." },
+    { "condition": "(frontend == \"react\")", "source": "React", "target": "." },
+    { "condition": "(frontend == \"custom\")", "source": "Custom", "target": "." }
+  ],
+  "primaryOutputs": [
+    { "path": "NantoTemplateApp.csproj" }
+  ],
+  "postActions": [
+    {
+      "description": "Restore the Nanto local tool manifest.",
+      "manualInstructions": [
+        { "text": "Run 'dotnet tool restore' before 'dotnet nanto dev'." }
+      ],
+      "actionId": "3A7C4B45-1F5D-4A30-959A-51B88E82B5D2",
+      "continueOnError": true,
+      "args": {
+        "executable": "dotnet",
+        "args": "tool restore"
+      }
+    }
+  ]
+}

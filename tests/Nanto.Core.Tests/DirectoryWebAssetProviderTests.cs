@@ -98,7 +98,7 @@ public sealed class DirectoryWebAssetProviderTests : IDisposable
         var options = new NantoApplicationOptions
         {
             ApplicationId = "com.example.assets",
-            Assets = new UnusedAssetProvider(),
+            Content = new NantoProductionContent { Assets = new UnusedAssetProvider() },
             LoggerFactory = loggerFactory,
             PrimaryWindow = new WindowOptions { Title = "Assets" },
         };

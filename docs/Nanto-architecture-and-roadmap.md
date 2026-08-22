@@ -1269,6 +1269,14 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-062 | Generate TypeScript as the frontend source of truth and compile JavaScript, declarations, and source maps mechanically with a pinned compiler. | Avoids two emitters drifting while supporting both TypeScript and JavaScript consumers. |
 | D-063 | Reject binary command and event types during JSON-only Phase 2. | Prevents `System.Text.Json` base64 strings from being exposed through a misleading `Uint8Array` frontend contract; binary projection waits for an explicit wire mapping. |
 | D-064 | Close Phase 2 implementation after the generated contract, protocol, frontend, real-WebView security, CoreCLR, and Native AOT gates pass. | The complete diagnostic matrix, deterministic golden and incremental fixtures, 15 frontend tests, 69 hidden WebView2 tests, and 454-test unattended Release gate satisfy the Phase 2 exit criteria without weakening the two open Phase 1 follow-ups. |
+| D-065 | Resolve O-007 for Phase 3 with strict `nanto.json` schema v1 owned by `Nanto.Cli`, containing only host-project and frontend/build orchestration configuration. | Runtime application identity and capability grants remain authored in C# so the CLI cannot create a second authority source. The source-controlled schema is packaged with the CLI under `schemas/nanto-config-v1.schema.json`; its stable `https://nanto.dev/schemas/config/v1.json` identity is the eventual publication path. Capability documents remain deferred to Phase 4 rather than appearing as inert v1 fields. |
+| D-066 | Implement the Phase 3 command surface with a small dependency-free parser and strict source-generated JSON configuration model. | The three-command grammar is intentionally narrow; avoiding a parser dependency reduces tool size and AOT/trimming surface while duplicate, missing, unknown, and command-specific options remain covered explicitly. |
+| D-067 | Bootstrap applications with a local .NET tool manifest and an explicit template post action. | The generated project pins the CLI version and keeps installation visible and repeatable. Declining template scripts leaves clear manual instructions instead of silently mutating the machine. |
+| D-068 | Use `dotnet watch` as the managed development owner and pass generated-client/content configuration through explicit MSBuild properties and environment. | This preserves the standard .NET edit engine and keeps MSBuild as the only contract writer. Unsupported edits restart through `dotnet watch`; Nanto does not parse unstable console prose into a compatibility protocol. |
+| D-069 | Use vanilla TypeScript/Vite as the second maintained frontend toolchain while keeping React/Vite as the reference template. | Vanilla TypeScript proves that the generated ESM client, frontend command contract, and Aspire composition do not depend on React. Additional package managers remain a gate item rather than a core dependency. |
+| D-070 | Expose dependency-free trace-provider and observer hooks from `@nanto/core`, and validate optional W3C context natively. | Browser applications may integrate their chosen telemetry SDK without forcing one into every client. Invalid or over-limit trace metadata is ignored safely, while native activities and bounded metrics remain standard `ActivitySource`/`Meter` surfaces. |
+| D-071 | Resolve O-013 with a minimal optional `AddNantoApp<TFrontend>(...)` Aspire resource extension and no default `--aspire` template switch. | The adapter models the frontend dependency, generated-client path, endpoint, and managed watch process without coupling the CLI or runtime to Aspire. The standalone sample keeps orchestration discoverable without expanding the default project graph. |
+| D-072 | Resolve O-014 by deferring a Nanto-owned browser exporter, instrumentation bundle, sampling policy, and relay wire format. | Phase 3 supplies W3C propagation hooks and standard native OpenTelemetry integration. A packaged browser relay needs production origin, batching, limits, flushing, and interoperability evidence and remains under R-009. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1286,13 +1294,10 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | --- | --- | --- |
 | O-004 | macOS AppKit versus Mac Catalyst host | Before Apple host implementation |
 | O-005 | GTK major version and supported Linux distributions | Before Linux host implementation |
-| O-007 | Exact configuration and capability schema | Before CLI/template stabilization |
 | O-008 | Stable command/event naming and TypeScript mapping rules | Generator prototype review |
 | O-009 | Binary IPC transport | After JSON IPC MVP benchmark |
 | O-010 | Packaging, signing, updater, and Store scope | After Windows MVP |
 | O-011 | Numeric command-ID derivation and protocol compatibility strategy | Generator/IPC prototype benchmark |
-| O-013 | Exact `Nanto.Hosting.Aspire` resource API and whether templates offer an `--aspire` option | Phase 3 developer-experience prototype |
-| O-014 | Exact browser telemetry package, default instrumentations, sampling, and relay wire format | Phase 3 telemetry prototype; account for experimental browser instrumentation status |
 
 ### 13.4 Work explicitly deferred from Phase 1
 

@@ -21,5 +21,4 @@ public sealed record WindowOptions
     /// Gets the root-relative URI of the declared asset used for initial navigation.
     /// </summary>
     /// <remarks>Query strings and fragments are permitted but do not participate in asset lookup.</remarks>
-    public string InitialRoute { get; init; } = "/index.html";
 }

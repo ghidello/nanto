@@ -601,8 +601,12 @@ internal static partial class ScenarioRunner
         return new NantoApplicationOptions
         {
             ApplicationId = request.ApplicationId,
-            Assets = VersionedWebAssetProvider.FromAssembly<TestAppAssetMarker>(
-                "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json"),
+            Content = new NantoProductionContent
+            {
+                Assets = VersionedWebAssetProvider.FromAssembly<TestAppAssetMarker>(
+                    "Nanto.Hosting.Windows.TestApp.WebAssets.nanto-assets.json"),
+                InitialRoute = "/index.html",
+            },
             Bridge = bridge,
             PrimaryWindow = new WindowOptions
             {
@@ -626,7 +630,6 @@ internal static partial class ScenarioRunner
                         AppCapabilities.Projects.GetCancellationCount,
                         AppCapabilities.Projects.Wait,
                     ],
-                InitialRoute = "/index.html",
                 Title = "Nanto Phase 1 integration host",
                 StartVisible = request.PresentationMode == Phase1TestPresentationMode.Visible,
             },
@@ -750,7 +753,7 @@ internal static partial class ScenarioRunner
         var peakResources = initialResources;
         var options = CreateOptions(request, projectsApi, grantOpen);
         var run = host.RunAsync(
-            options with { PrimaryWindow = options.PrimaryWindow with { InitialRoute = initialRoute } },
+            options with { Content = ((NantoProductionContent)options.Content) with { InitialRoute = initialRoute } },
             runCancellation.Token);
         try
         {

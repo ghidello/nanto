@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Hosting.Aspire/Nanto.Hosting.Aspire.csproj" />
+  </ItemGroup>
+</Project>

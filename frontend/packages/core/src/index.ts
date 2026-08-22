@@ -3,6 +3,27 @@ export interface BridgeTransport {
   subscribe(listener: (message: string) => void): () => void;
 }
 
+export interface NantoTraceContext {
+  traceparent: string;
+  tracestate?: string;
+}
+
+export interface NantoTraceContextProvider {
+  getTraceContext(): NantoTraceContext | undefined;
+}
+
+export type NantoTraceOutcome = "ok" | "cancelled" | "error";
+
+export interface NantoTraceObserver {
+  onCommandStart(event: { id: number; command: number; context?: NantoTraceContext }): void;
+  onCommandEnd(event: { id: number; command: number; outcome: NantoTraceOutcome }): void;
+}
+
+export interface NantoClientOptions {
+  traceContextProvider?: NantoTraceContextProvider;
+  traceObserver?: NantoTraceObserver;
+}
+
 export const NantoCommandErrorCode = {
   CommandUnavailable: "commandUnavailable",
   InvalidRequest: "invalidRequest",
@@ -25,6 +46,8 @@ const eventBufferCapacity = 64;
 
 export class NantoClient implements AsyncDisposable {
   readonly #transport: BridgeTransport;
+  readonly #traceContextProvider: NantoTraceContextProvider | undefined;
+  readonly #traceObserver: NantoTraceObserver | undefined;
   readonly #activeIds = new Set<number>();
   readonly #cleanupMessages = new Map<number, "cancel" | "unsubscribe">();
   readonly #queues = new Map<number, Waiter[]>();
@@ -36,8 +59,10 @@ export class NantoClient implements AsyncDisposable {
   #nextId = 1;
   #disposed = false;
 
-  public constructor(transport: BridgeTransport) {
+  public constructor(transport: BridgeTransport, options: NantoClientOptions = {}) {
     this.#transport = transport;
+    this.#traceContextProvider = options.traceContextProvider;
+    this.#traceObserver = options.traceObserver;
     this.#unsubscribe = transport.subscribe(message => this.#receive(JSON.parse(message) as Message));
   }
 
@@ -60,23 +85,35 @@ export class NantoClient implements AsyncDisposable {
   public async invoke<T>(command: number, args: object, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted();
     const id = this.#allocateId();
+    const context = this.#traceContext();
+    let outcome: NantoTraceOutcome = "error";
     let abort: () => void = () => undefined;
+    this.#observeStart(id, command, context);
     try {
-      this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+      this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args, ...context }));
       abort = this.#bindAbort(id, signal);
-      return this.#value<T>(await this.#next(id, signal));
+      const value = this.#value<T>(await this.#next(id, signal));
+      outcome = "ok";
+      return value;
+    } catch (error) {
+      outcome = error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "error";
+      throw error;
     } finally {
       abort();
       this.#clear(id);
+      this.#observeEnd(id, command, outcome);
     }
   }
 
   public async *stream<T>(command: number, args: object, signal?: AbortSignal): AsyncGenerator<T> {
     signal?.throwIfAborted();
     const id = this.#allocateId();
+    const context = this.#traceContext();
+    let outcome: NantoTraceOutcome = "error";
     let abort: () => void = () => undefined;
+    this.#observeStart(id, command, context);
     try {
-      this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args }));
+      this.#transport.post(JSON.stringify({ v: 1, type: "invoke", session: this.#requireSession(), id, command, args, ...context }));
       abort = this.#bindAbort(id, signal);
       const opened = await this.#next(id, signal);
       if (opened.type === "error") this.#throw(opened);
@@ -84,13 +121,20 @@ export class NantoClient implements AsyncDisposable {
         signal?.throwIfAborted();
         this.#transport.post(JSON.stringify({ v: 1, type: "streamNext", session: this.#requireSession(), id }));
         const message = await this.#next(id, signal);
-        if (message.type === "completion") return;
+        if (message.type === "completion") {
+          outcome = "ok";
+          return;
+        }
         yield this.#value<T>(message);
       }
+    } catch (error) {
+      outcome = error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "error";
+      throw error;
     } finally {
       abort();
       this.#transport.post(JSON.stringify({ v: 1, type: "cancel", session: this.#requireSession(), id }));
       this.#clear(id);
+      this.#observeEnd(id, command, outcome);
     }
   }
 
@@ -251,6 +295,33 @@ export class NantoClient implements AsyncDisposable {
     if (this.#disposed) throw new NantoCommandError(NantoCommandErrorCode.Internal);
     if (!this.#session) throw new NantoCommandError(NantoCommandErrorCode.ProtocolMismatch);
     return this.#session;
+  }
+
+  #traceContext(): NantoTraceContext | undefined {
+    try {
+      const context = this.#traceContextProvider?.getTraceContext();
+      if (!context || typeof context.traceparent !== "string" || context.traceparent.length === 0 || context.traceparent.length > 128) return undefined;
+      if (context.tracestate !== undefined && (typeof context.tracestate !== "string" || context.tracestate.length === 0 || context.tracestate.length > 512)) return undefined;
+      return context.tracestate === undefined ? { traceparent: context.traceparent } : { traceparent: context.traceparent, tracestate: context.tracestate };
+    } catch {
+      return undefined;
+    }
+  }
+
+  #observeStart(id: number, command: number, context: NantoTraceContext | undefined): void {
+    try {
+      this.#traceObserver?.onCommandStart(context === undefined ? { id, command } : { id, command, context });
+    } catch {
+      // Diagnostics hooks must not change command behavior.
+    }
+  }
+
+  #observeEnd(id: number, command: number, outcome: NantoTraceOutcome): void {
+    try {
+      this.#traceObserver?.onCommandEnd({ id, command, outcome });
+    } catch {
+      // Diagnostics hooks must not change command behavior.
+    }
   }
 
   #normalizeErrorCode(code: string | undefined, fallback: NantoCommandErrorCode): NantoCommandErrorCode {

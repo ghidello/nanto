@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@nanto/app": ["src/generated/nanto/app/index.ts"],
+      "@nanto/core": ["src/generated/nanto/core/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

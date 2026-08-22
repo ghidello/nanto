@@ -11,16 +11,29 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Nanto.Core/Nanto.Core.csproj" />
+    <Project Path="src/Nanto.Cli/Nanto.Cli.csproj" />
     <Project Path="src/Nanto.Generators/Nanto.Generators.csproj" />
     <Project Path="src/Nanto.Sdk/Nanto.Sdk.csproj" />
+    <Project Path="src/Nanto.Templates/Nanto.Templates.csproj" />
     <Project Path="src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
+    <Project Path="src/Nanto.Hosting.Aspire/Nanto.Hosting.Aspire.csproj" />
   </Folder>
   <Folder Name="/eng/">
     <Project Path="eng/Nanto.WebView2InteropGen/Nanto.WebView2InteropGen.csproj" />
     <Project Path="eng/Nanto.WinRtAppearanceInteropGen/Nanto.WinRtAppearanceInteropGen.csproj" />
   </Folder>
+  <Folder Name="/samples/Nanto.Aspire.Sample/">
+    <Project Path="samples/Nanto.Aspire.Sample/Nanto.Aspire.Sample.AppHost.csproj" />
+    <Project Path="samples/Nanto.Aspire.Sample/App/Nanto.Aspire.Sample.App.csproj" />
+    <Project Path="samples/Nanto.Aspire.Sample/DependencyService/Nanto.Aspire.Sample.DependencyService.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nanto.Core.Tests/Nanto.Core.Tests.csproj" />
+    <Project Path="tests/Nanto.Cli.Tests/Nanto.Cli.Tests.csproj" />
+    <Project Path="tests/Nanto.Cli.TestProtocol/Nanto.Cli.TestProtocol.csproj" />
+    <Project Path="tests/Nanto.Cli.ProcessFixture/Nanto.Cli.ProcessFixture.csproj" />
+    <Project Path="tests/Nanto.Sdk.AssetFixture/Nanto.Sdk.AssetFixture.csproj" />
+    <Project Path="tests/Nanto.DevLoop.IntegrationTests/Nanto.DevLoop.IntegrationTests.csproj" />
     <Project Path="tests/Nanto.Generators.Tests/Nanto.Generators.Tests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.AotIntegrationTests/Nanto.Hosting.Windows.AotIntegrationTests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests/Nanto.Hosting.Windows.CoreClrSelfContainedIntegrationTests.csproj" />
@@ -32,6 +45,7 @@
     <Project Path="tests/Nanto.Hosting.Windows.TestApp.Interop/Nanto.Hosting.Windows.TestApp.Interop.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.TestProtocol/Nanto.Hosting.Windows.TestProtocol.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.Tests/Nanto.Hosting.Windows.Tests.csproj" />
+    <Project Path="tests/Nanto.Hosting.Aspire.Tests/Nanto.Hosting.Aspire.Tests.csproj" />
     <Project Path="tests/Nanto.Hosting.Windows.VisibleIntegrationTests/Nanto.Hosting.Windows.VisibleIntegrationTests.csproj" />
     <Project Path="tests/Nanto.Testing.Tests/Nanto.Testing.Tests.csproj" />
     <Project Path="tests/Nanto.Testing/Nanto.Testing.csproj" />

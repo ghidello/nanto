@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <NantoSdkAssembly>$(MSBuildThisFileDirectory)..\..\src\Nanto.Sdk\bin\$(Configuration)\net10.0\Nanto.Sdk.dll</NantoSdkAssembly>
+    <NantoSdkToolBuildTarget>BuildNantoSdkTool</NantoSdkToolBuildTarget>
+    <NantoFrontendDist>FrontendDist</NantoFrontendDist>
+    <NantoIncludeProductionAssets>true</NantoIncludeProductionAssets>
+    <NantoAssetManifestResourceName>Nanto.Sdk.AssetFixture.Manifest</NantoAssetManifestResourceName>
+  </PropertyGroup>
+  <Target Name="BuildNantoSdkTool" BeforeTargets="GenerateNantoContracts">
+    <MSBuild Projects="../../src/Nanto.Sdk/Nanto.Sdk.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishAot;PublishSingleFile;NantoBuildMode" />
+  </Target>
+  <Import Project="../../src/Nanto.Sdk/buildTransitive/Nanto.Sdk.targets" />
+</Project>

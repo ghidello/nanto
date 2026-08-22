@@ -156,6 +156,7 @@ internal sealed partial class ControllerCreatedHandler : ICoreWebView2CreateCore
 internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2NavigationStartingEventHandler
 {
     private readonly IReadOnlySet<string> _assetPaths;
+    private readonly PreparedWindowsContent? _content;
     private readonly Action<string>? _navigationStarting;
 
     public NavigationStartingHandler(IReadOnlySet<string> assetPaths, Action<string>? navigationStarting = null)
@@ -164,12 +165,23 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
         _navigationStarting = navigationStarting;
     }
 
+    public NavigationStartingHandler(PreparedWindowsContent content, Action<string>? navigationStarting = null)
+    {
+        _content = content ?? throw new ArgumentNullException(nameof(content));
+        _assetPaths = content.AssetPaths;
+        _navigationStarting = navigationStarting;
+    }
+
     public int Invoke(nint sender, nint args)
     {
         try
         {
             using var eventArgs = UniqueComReference<ICoreWebView2NavigationStartingEventArgs>.FromPointer(args);
-            return Evaluate(_assetPaths, () => ReadUri(eventArgs.Value), eventArgs.Value.put_Cancel, _navigationStarting);
+            return Evaluate(
+                uri => _content is null ? NavigationPolicy.IsAllowed(uri, _assetPaths) : NavigationPolicy.IsAllowed(uri, _content),
+                () => ReadUri(eventArgs.Value),
+                eventArgs.Value.put_Cancel,
+                _navigationStarting);
         }
         catch (Exception exception)
         {
@@ -181,7 +193,14 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
         IReadOnlySet<string> assetPaths,
         Func<(int Result, string Uri)> readUri,
         Func<int, int> setCancel,
-        Action<string>? navigationStarting = null)
+        Action<string>? navigationStarting = null) =>
+        Evaluate(uri => NavigationPolicy.IsAllowed(uri, assetPaths), readUri, setCancel, navigationStarting);
+
+    private static int Evaluate(
+        Func<string, bool> isAllowed,
+        Func<(int Result, string Uri)> readUri,
+        Func<int, int> setCancel,
+        Action<string>? navigationStarting)
     {
         var cancelResult = setCancel(1);
         if (cancelResult < 0)
@@ -195,7 +214,7 @@ internal sealed unsafe partial class NavigationStartingHandler : ICoreWebView2Na
             return uriResult;
         }
 
-        if (!NavigationPolicy.IsAllowed(uri, assetPaths))
+        if (!isAllowed(uri))
         {
             return 0;
         }
@@ -343,6 +362,7 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
 
     private readonly TaskCompletionSource _readiness = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Action<string> _bridgeMessage;
+    private readonly Uri _trustedOrigin;
     private readonly Channel<string> _messages = Channel.CreateBounded<string>(new BoundedChannelOptions(DiagnosticMessageCapacity)
     {
         FullMode = BoundedChannelFullMode.DropOldest,
@@ -352,9 +372,10 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
 
     public Task Readiness => _readiness.Task;
 
-    public WebMessageReceivedHandler(Action<string> bridgeMessage)
+    public WebMessageReceivedHandler(Action<string> bridgeMessage, Uri? trustedOrigin = null)
     {
         _bridgeMessage = bridgeMessage ?? throw new ArgumentNullException(nameof(bridgeMessage));
+        _trustedOrigin = trustedOrigin ?? NavigationPolicy.ProductionOrigin;
     }
 
     public ValueTask<string> WaitForMessageAsync(CancellationToken cancellationToken) => _messages.Reader.ReadAsync(cancellationToken);
@@ -365,11 +386,7 @@ internal sealed unsafe partial class WebMessageReceivedHandler : ICoreWebView2We
         {
             using var eventArgs = UniqueComReference<ICoreWebView2WebMessageReceivedEventArgs>.FromPointer(args);
             var source = ReadString(eventArgs.Value.get_Source, "webview2.message.source");
-            if (!Uri.TryCreate(source, UriKind.Absolute, out var sourceUri)
-                || !string.Equals(sourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(sourceUri.Host, NavigationPolicy.ApplicationHostName, StringComparison.OrdinalIgnoreCase)
-                || !sourceUri.IsDefaultPort
-                || !string.IsNullOrEmpty(sourceUri.UserInfo))
+            if (!NavigationPolicy.IsTrustedOrigin(source, _trustedOrigin))
             {
                 return 0;
             }

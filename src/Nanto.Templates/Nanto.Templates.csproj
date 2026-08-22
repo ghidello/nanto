@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>Nanto.Templates</PackageId>
+    <Title>Nanto application templates</Title>
+    <Description>React/Vite and custom-frontend project templates for Nanto.</Description>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="content/**/*" Pack="true" PackagePath="content" />
+    <Compile Remove="content/**/*.cs" />
+    <None Remove="content/**/*" />
+  </ItemGroup>
+</Project>

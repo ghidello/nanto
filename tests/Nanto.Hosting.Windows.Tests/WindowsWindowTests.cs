@@ -294,7 +294,7 @@ public sealed class WindowsWindowTests
         var validatedOptions = Nanto.Hosting.ValidatedApplicationOptions.Create(new NantoApplicationOptions
         {
             ApplicationId = "com.example.nanto-window-tests",
-            Assets = new UnusedAssetProvider(),
+            Content = new NantoProductionContent { Assets = new UnusedAssetProvider() },
             PrimaryWindow = options,
         });
         var webViewApplication = await NoOpWindowsWebViewApplicationFactory.Instance.CreateAsync(

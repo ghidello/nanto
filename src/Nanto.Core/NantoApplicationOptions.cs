@@ -8,7 +8,7 @@ public sealed record NantoApplicationOptions
 
     public required WindowOptions PrimaryWindow { get; init; }
 
-    public required IWebAssetProvider Assets { get; init; }
+    public required NantoContentSource Content { get; init; }
 
     /// <summary>Gets the explicitly registered, generated frontend bridge configuration.</summary>
     public NantoBridgeConfiguration Bridge { get; init; } = new();

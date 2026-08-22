@@ -6,7 +6,7 @@ Nanto is an early-stage .NET framework for building small native applications wi
 
 ## Status
 
-Phase 1's Windows host and lifecycle-kernel implementation and Phase 2's generated contract and IPC implementation are complete. The versioned bridge provides reflection-free C# registration and dispatch, generated JSON metadata and TypeScript bindings, default-deny capabilities, origin and session checks, cancellation, structured errors, streams, and events across CoreCLR and Native AOT. Phase 3 CLI, framework-neutral SPA integration, and development-loop work is now the implementation priority.
+Phase 1's Windows host and lifecycle-kernel implementation and Phase 2's generated contract and IPC implementation are complete. The versioned bridge provides reflection-free C# registration and dispatch, generated JSON metadata and TypeScript bindings, default-deny capabilities, origin and session checks, cancellation, structured errors, streams, and events across CoreCLR and Native AOT. The Phase 3 implementation candidate adds the CLI, templates, framework-neutral development content, process supervision, telemetry hooks, and optional Aspire composition; its live developer-loop and orchestration evidence remains open in the gate record.
 
 Two Phase 1 acceptance follow-ups remain open without blocking Phase 3: complete the 550-process lifecycle/recovery soak, and pass the visible cross-monitor scenario on two active monitors with different effective DPI. The one-monitor `VisibleDesktop` scenario has passed, and a 45-minute soak attempt completed 397 clean processes before its former safety deadline. See the [Phase 1 gate record](docs/phase1-gate.md) for the exact status and retained evidence.
 
@@ -28,6 +28,8 @@ Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](htt
 - [Phase 2 implementation plan](docs/phase2-plan.md)
 - [Phase 2 gate record](docs/phase2-gate.md)
 - [Phase 3 implementation plan](docs/phase3-plan.md)
+- [Phase 3 developer-loop baselines](docs/phase3-baselines.md)
+- [Phase 3 gate record](docs/phase3-gate.md)
 - [Contributor and coding-agent guidance](AGENTS.md)
 
 ## Requirements

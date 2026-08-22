@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 
 using Microsoft.CodeAnalysis;
@@ -18,6 +20,17 @@ internal static class Program
 
     public static int Main(string[] args)
     {
+        if (args is ["assets", var distributionRoot, var manifestOutputPath, var resourcePrefix])
+        {
+            return GenerateAssetManifest(distributionRoot, manifestOutputPath, resourcePrefix);
+        }
+
+        if (args is ["copy", var sourcePath, var outputPath])
+        {
+            WriteFileAtomically(outputPath, File.ReadAllText(sourcePath));
+            return 0;
+        }
+
         if (args is not [var responsePath, var contextOutputPath, var typeScriptOutputPath])
         {
             Console.Error.WriteLine("Usage: Nanto.Sdk <response-file> <context-output-file> <typescript-output-file>");
@@ -71,9 +84,136 @@ internal static class Program
             syntaxTrees,
             metadataReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: nullableContext));
+        using var outputLock = AcquireOutputLock(Path.Combine(Path.GetDirectoryName(responsePath)!, ".nanto-contracts.lock"));
         WriteContext(contextOutputPath, CreateJsonContext(compilation));
         WriteTypeScript(typeScriptOutputPath, DiscoverFrontendMembers(compilation), projectDirectory);
         return 0;
+    }
+
+    private static int GenerateAssetManifest(string distributionRoot, string manifestOutputPath, string resourcePrefix)
+    {
+        try
+        {
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(distributionRoot));
+            if (!Directory.Exists(root))
+            {
+                throw new InvalidDataException("The frontend distribution directory does not exist.");
+            }
+
+            ThrowIfReparsePoint(new DirectoryInfo(root));
+            var paths = new HashSet<string>(StringComparer.Ordinal);
+            var caseInsensitivePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var resources = new HashSet<string>(StringComparer.Ordinal);
+            var assets = new List<SdkAssetManifestEntry>();
+            foreach (string filePath in EnumerateAssetFiles(root))
+            {
+                var file = new FileInfo(filePath);
+                ThrowIfReparsePointTree(root, file);
+                string relative = Path.GetRelativePath(root, file.FullName).Replace('\\', '/');
+                string normalized = relative.Normalize(NormalizationForm.FormC);
+                if (!string.Equals(relative, normalized, StringComparison.Ordinal)
+                    || normalized.Split('/').Any(static segment => string.IsNullOrEmpty(segment) || segment is "." or "..")
+                    || string.Equals(normalized, "nanto-assets.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("The frontend distribution contains an invalid or reserved asset path.");
+                }
+
+                string assetPath = "/" + normalized;
+                if (!paths.Add(assetPath) || !caseInsensitivePaths.Add(assetPath))
+                {
+                    throw new InvalidDataException("The frontend distribution contains a duplicate or case-colliding asset path.");
+                }
+
+                long initialLength = file.Length;
+                DateTime initialWrite = file.LastWriteTimeUtc;
+                string hash;
+                using (FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    hash = Convert.ToHexString(SHA256.HashData(stream));
+                }
+
+                file.Refresh();
+                if (file.Length != initialLength || file.LastWriteTimeUtc != initialWrite)
+                {
+                    throw new InvalidDataException("A frontend asset changed while its manifest was generated.");
+                }
+
+                string resourceName = resourcePrefix + hash + "/" + normalized;
+                if (!resources.Add(resourceName))
+                {
+                    throw new InvalidDataException("The frontend distribution produced a duplicate resource identity.");
+                }
+
+                assets.Add(new SdkAssetManifestEntry
+                {
+                    Path = assetPath,
+                    ResourceName = resourceName,
+                    Length = initialLength,
+                    Sha256 = hash,
+                });
+            }
+
+            assets.Sort(static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+            if (assets.All(static asset => asset.Path != "/index.html"))
+            {
+                throw new InvalidDataException("The frontend distribution must contain index.html.");
+            }
+
+            string json = JsonSerializer.Serialize(
+                new SdkAssetManifestDocument { SchemaVersion = 1, Assets = [.. assets] },
+                SdkAssetManifestJsonContext.Default.SdkAssetManifestDocument);
+            WriteFileAtomically(manifestOutputPath, json);
+            return 0;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            Console.Error.WriteLine($"NANTO_ASSETS: {exception.Message}");
+            return 7;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateAssetFiles(string root)
+    {
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(root));
+        while (pending.TryPop(out DirectoryInfo? directory))
+        {
+            ThrowIfReparsePoint(directory);
+            foreach (FileSystemInfo entry in directory.EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
+            {
+                ThrowIfReparsePoint(entry);
+                if (entry is DirectoryInfo childDirectory)
+                {
+                    pending.Push(childDirectory);
+                }
+                else if (entry is FileInfo file)
+                {
+                    yield return file.FullName;
+                }
+            }
+        }
+    }
+
+    private static void ThrowIfReparsePointTree(string root, FileInfo file)
+    {
+        ThrowIfReparsePoint(file);
+        for (DirectoryInfo? directory = file.Directory; directory is not null && directory.FullName.Length >= root.Length; directory = directory.Parent)
+        {
+            ThrowIfReparsePoint(directory);
+            if (string.Equals(directory.FullName, root, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+        }
+    }
+
+    private static void ThrowIfReparsePoint(FileSystemInfo entry)
+    {
+        entry.Refresh();
+        if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidDataException("The frontend distribution must not contain reparse points or symbolic links.");
+        }
     }
 
     private static NullableContextOptions ParseNullableContext(string value) => value.ToLowerInvariant() switch
@@ -279,15 +419,60 @@ internal static class Program
 
     private static void WriteContext(string outputPath, string source)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        File.WriteAllText(outputPath, source, new UTF8Encoding(false));
+        WriteFileAtomically(outputPath, source);
     }
 
     private static void WriteTypeScript(string outputPath, IReadOnlyList<NantoContractMember> members, string projectDirectory)
     {
         var source = CreateTypeScript(members, projectDirectory);
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        File.WriteAllText(outputPath, source, new UTF8Encoding(false));
+        WriteFileAtomically(outputPath, source);
+    }
+
+    internal static void WriteFileAtomically(string outputPath, string source)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentNullException.ThrowIfNull(source);
+        string directory = Path.GetDirectoryName(outputPath)!;
+        Directory.CreateDirectory(directory);
+        string temporaryPath = outputPath + ".nanto.tmp";
+        File.Delete(temporaryPath);
+        byte[] contents = new UTF8Encoding(false).GetBytes(source);
+        if (File.Exists(outputPath) && File.ReadAllBytes(outputPath).AsSpan().SequenceEqual(contents))
+        {
+            return;
+        }
+
+        try
+        {
+            using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                stream.Write(contents);
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, outputPath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
+    }
+
+    private static FileStream AcquireOutputLock(string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(25);
+            }
+        }
     }
 
     internal static string CreateTypeScript(IReadOnlyList<NantoContractMember> members, string projectDirectory)

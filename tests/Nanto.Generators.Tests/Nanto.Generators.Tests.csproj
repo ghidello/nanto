@@ -6,5 +6,6 @@
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
     <ProjectReference Include="../../src/Nanto.Generators/Nanto.Generators.csproj" />
     <ProjectReference Include="../../src/Nanto.Sdk/Nanto.Sdk.csproj" />
+    <ProjectReference Include="../Nanto.Sdk.AssetFixture/Nanto.Sdk.AssetFixture.csproj" />
   </ItemGroup>
 </Project>

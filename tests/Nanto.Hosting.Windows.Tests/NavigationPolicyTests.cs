@@ -52,4 +52,33 @@ public sealed class NavigationPolicyTests
     {
         NavigationPolicy.IsInitialRouteAllowed(route, _assets).Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData("http://localhost:5173/")]
+    [InlineData("http://LOCALHOST:5173/deep/route?query=1")]
+    [InlineData("http://localhost:5173/assets/app.js")]
+    public void DevelopmentContentAllowsAnyPathOnConfiguredOrigin(string candidate)
+    {
+        var content = new PreparedWindowsContent
+        {
+            StartUri = new Uri("http://localhost:5173/"),
+            TrustedOrigin = new Uri("http://localhost:5173/"),
+            AssetPaths = new HashSet<string>(StringComparer.Ordinal),
+        };
+
+        NavigationPolicy.IsAllowed(candidate, content).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("http://localhost:5173/path", true)]
+    [InlineData("http://LOCALHOST:5173/path", true)]
+    [InlineData("http://127.0.0.1:5173/path", false)]
+    [InlineData("http://localhost:5174/path", false)]
+    [InlineData("https://localhost:5173/path", false)]
+    [InlineData("http://user@localhost:5173/path", false)]
+    [InlineData("file:///c:/path", false)]
+    public void IsTrustedOriginRequiresExactSchemeHostAndPort(string candidate, bool expected)
+    {
+        NavigationPolicy.IsTrustedOrigin(candidate, new Uri("http://localhost:5173/")).Should().Be(expected);
+    }
 }

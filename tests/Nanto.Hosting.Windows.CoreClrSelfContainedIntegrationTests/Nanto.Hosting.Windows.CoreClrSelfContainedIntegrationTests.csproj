@@ -8,6 +8,7 @@
     <_NantoPackageDirectory>$(_NantoRepositoryRoot)\artifacts\phase1\packages\coreclr-self-contained</_NantoPackageDirectory>
     <_NantoEvidencePath>$(_NantoRepositoryRoot)\artifacts\phase1\evidence\deployment\coreclr-self-contained.json</_NantoEvidencePath>
     <_NantoTestAppOutputDirectory>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\bin\CoreClrSelfContained\Release\net10.0-windows10.0.19041.0\win-x64</_NantoTestAppOutputDirectory>
+    <_NantoAssetManifestPath>$(_NantoRepositoryRoot)\tests\Nanto.Hosting.Windows.TestApp\obj\CoreClrSelfContained\Release\net10.0-windows10.0.19041.0\win-x64\Nanto\Assets\nanto-assets.json</_NantoAssetManifestPath>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Nanto.Hosting.Windows.IntegrationTestKit/Nanto.Hosting.Windows.IntegrationTestKit.csproj" />
@@ -34,6 +35,10 @@
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>NantoEvidencePath</_Parameter1>
       <_Parameter2>$(_NantoEvidencePath)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NantoAssetManifestPath</_Parameter1>
+      <_Parameter2>$(_NantoAssetManifestPath)</_Parameter2>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>NantoSdkVersion</_Parameter1>

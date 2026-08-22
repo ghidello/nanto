@@ -78,8 +78,7 @@ public sealed class CoreClrSelfContainedDeploymentTests
             Architecture = deploymentIdentity.Architecture,
             DeploymentFiles = deployment.Files,
             TotalDeployedBytes = deployment.TotalBytes,
-            DeclaredEmbeddedAssetBytes = Phase1DeploymentInspector.ReadDeclaredAssetBytes(
-                Path.Combine(repositoryRoot, "tests", "Nanto.Hosting.Windows.TestApp", "WebAssets", "nanto-assets.json")),
+            DeclaredEmbeddedAssetBytes = Phase1DeploymentInspector.ReadDeclaredAssetBytes(GetAssemblyMetadata("NantoAssetManifestPath")),
             PackageRelativePath = Path.GetRelativePath(repositoryRoot, packagePath).Replace('\\', '/'),
             PackageLength = package.Length,
             PackageSha256 = package.Sha256,

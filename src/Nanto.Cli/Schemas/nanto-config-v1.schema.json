@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nanto.dev/schemas/config/v1.json",
+  "title": "Nanto configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "application", "frontend"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostProject"],
+      "properties": {
+        "hostProject": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "generatedClient", "dev", "build"],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedClient": {
+          "type": "string",
+          "minLength": 1
+        },
+        "install": {
+          "$ref": "#/$defs/command"
+        },
+        "dev": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "readyTimeoutSeconds"],
+          "properties": {
+            "file": { "type": "string", "minLength": 1 },
+            "arguments": { "$ref": "#/$defs/arguments" },
+            "url": { "type": "string", "format": "uri" },
+            "readyTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 600 }
+          }
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "arguments", "dist"],
+          "properties": {
+            "file": { "type": "string", "minLength": 1 },
+            "arguments": { "$ref": "#/$defs/arguments" },
+            "dist": { "type": "string", "minLength": 1 },
+            "entryAsset": { "type": "string", "minLength": 1, "default": "index.html" }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "enum": ["auto", "native-aot", "coreclr", "coreclr-framework-dependent"],
+          "default": "auto"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "arguments": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "arguments"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "arguments": { "$ref": "#/$defs/arguments" }
+      }
+    }
+  }
+}

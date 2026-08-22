@@ -32,6 +32,63 @@ test("generated application client performs a typed unary call", async () => {
   assert.deepEqual(transport.sent[1], { v: 1, type: "invoke", session: "opaque", id: 1, command: 3836943207, args: { projectId: 7 } });
 });
 
+test("optional trace hooks propagate bounded W3C fields and observe completion", async () => {
+  const transport = new FakeTransport();
+  const observed: object[] = [];
+  await using client = new NantoClient(transport, {
+    traceContextProvider: {
+      getTraceContext: () => ({
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        tracestate: "vendor=value",
+      }),
+    },
+    traceObserver: {
+      onCommandStart: event => observed.push({ type: "start", ...event }),
+      onCommandEnd: event => observed.push({ type: "end", ...event }),
+    },
+  });
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+
+  const pending = client.invoke<number>(7, {});
+  transport.receive({ type: "result", id: 1, value: 42 });
+
+  assert.equal(await pending, 42);
+  assert.deepEqual(transport.sent[1], {
+    v: 1,
+    type: "invoke",
+    session: "opaque",
+    id: 1,
+    command: 7,
+    args: {},
+    traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    tracestate: "vendor=value",
+  });
+  assert.equal((observed[0] as { type: string }).type, "start");
+  assert.deepEqual(observed[1], { type: "end", id: 1, command: 7, outcome: "ok" });
+});
+
+test("failing or oversized trace hooks cannot change command behavior", async () => {
+  const transport = new FakeTransport();
+  await using client = new NantoClient(transport, {
+    traceContextProvider: { getTraceContext: () => ({ traceparent: "x".repeat(129) }) },
+    traceObserver: {
+      onCommandStart: () => { throw new Error("observer failed"); },
+      onCommandEnd: () => { throw new Error("observer failed"); },
+    },
+  });
+  const connected = client.connect("manifest");
+  transport.receive({ type: "ready", session: "opaque" });
+  await connected;
+
+  const pending = client.invoke<number>(7, {});
+  transport.receive({ type: "result", id: 1, value: 42 });
+
+  assert.equal(await pending, 42);
+  assert.equal("traceparent" in transport.sent[1]!, false);
+});
+
 test("command failures expose only bounded symbolic error codes", async () => {
   const transport = new FakeTransport();
   await using client = new NantoClient(transport);

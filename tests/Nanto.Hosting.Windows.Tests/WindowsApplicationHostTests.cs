@@ -516,7 +516,7 @@ public sealed class WindowsApplicationHostTests
     private static NantoApplicationOptions CreateOptions(ShutdownMode shutdownMode = ShutdownMode.OnPrimaryWindowClosed) => new()
     {
         ApplicationId = "com.example.nanto-windows-tests",
-        Assets = new UnusedAssetProvider(),
+        Content = new NantoProductionContent { Assets = new UnusedAssetProvider() },
         PrimaryWindow = new WindowOptions
         {
             Title = "Nanto hidden application host window",

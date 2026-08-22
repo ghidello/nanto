@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <IsAotCompatible>true</IsAotCompatible>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <NantoSdkAssembly>$(MSBuildThisFileDirectory)..\..\..\src\Nanto.Sdk\bin\$(Configuration)\net10.0\Nanto.Sdk.dll</NantoSdkAssembly>
+    <NantoSdkToolBuildTarget>BuildNantoSdkTool</NantoSdkToolBuildTarget>
+    <NantoBrowserCoreSource>$(MSBuildThisFileDirectory)..\..\..\frontend\packages\core\src\index.ts</NantoBrowserCoreSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Nanto.Core/Nanto.Core.csproj" />
+    <ProjectReference Include="../../../src/Nanto.Hosting.Windows/Nanto.Hosting.Windows.csproj" />
+    <ProjectReference Include="../../../src/Nanto.Generators/Nanto.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+    <PackageReference Include="OpenTelemetry" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+  </ItemGroup>
+  <Target Name="BuildNantoSdkTool" BeforeTargets="GenerateNantoContracts">
+    <MSBuild Projects="../../../src/Nanto.Sdk/Nanto.Sdk.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+  </Target>
+  <Import Project="../../../src/Nanto.Sdk/buildTransitive/Nanto.Sdk.props" />
+  <Import Project="../../../src/Nanto.Hosting.Windows/buildTransitive/Nanto.Hosting.Windows.targets" />
+  <Import Project="../../../src/Nanto.Sdk/buildTransitive/Nanto.Sdk.targets" />
+</Project>

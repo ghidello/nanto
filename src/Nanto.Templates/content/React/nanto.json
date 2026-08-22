@@ -1,0 +1,30 @@
+{
+  "$schema": "https://nanto.dev/schemas/config/v1.json",
+  "schemaVersion": 1,
+  "application": {
+    "hostProject": "NantoTemplateApp.csproj"
+  },
+  "frontend": {
+    "directory": "Frontend",
+    "generatedClient": "src/generated/nanto/app",
+    "install": {
+      "file": "npm",
+      "arguments": ["ci"]
+    },
+    "dev": {
+      "file": "npm",
+      "arguments": ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5173", "--strictPort"],
+      "url": "http://127.0.0.1:5173",
+      "readyTimeoutSeconds": 60
+    },
+    "build": {
+      "file": "npm",
+      "arguments": ["run", "build"],
+      "dist": "dist",
+      "entryAsset": "index.html"
+    }
+  },
+  "build": {
+    "runtime": "auto"
+  }
+}

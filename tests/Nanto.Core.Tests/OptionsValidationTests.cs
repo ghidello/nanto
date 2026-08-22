@@ -39,7 +39,7 @@ public sealed class OptionsValidationTests
     {
         var options = CreateOptions() with
         {
-            PrimaryWindow = CreateOptions().PrimaryWindow with { InitialRoute = route },
+            Content = ((NantoProductionContent)CreateOptions().Content) with { InitialRoute = route },
         };
 
         var action = () => ValidatedApplicationOptions.Create(options);
@@ -73,10 +73,41 @@ public sealed class OptionsValidationTests
         action.Should().Throw<ArgumentOutOfRangeException>();
     }
 
+    [Fact]
+    public void CreateNormalizesDevelopmentContentOrigin()
+    {
+        var options = CreateOptions() with
+        {
+            Content = new NantoDevelopmentContent { StartUri = new Uri("http://LOCALHOST:5173/dashboard?mode=dev") },
+        };
+
+        var validated = ValidatedApplicationOptions.Create(options);
+
+        var content = validated.Content.Should().BeOfType<ValidatedDevelopmentContent>().Subject;
+        content.StartUri.Should().Be(new Uri("http://localhost:5173/dashboard?mode=dev"));
+        content.TrustedOrigin.Should().Be(new Uri("http://localhost:5173/"));
+    }
+
+    [Theory]
+    [InlineData("file:///c:/frontend/index.html")]
+    [InlineData("https://user@localhost:5173/")]
+    [InlineData("relative/path")]
+    public void CreateRejectsInvalidDevelopmentContent(string uri)
+    {
+        var options = CreateOptions() with
+        {
+            Content = new NantoDevelopmentContent { StartUri = new Uri(uri, UriKind.RelativeOrAbsolute) },
+        };
+
+        var action = () => ValidatedApplicationOptions.Create(options);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
     private static NantoApplicationOptions CreateOptions() => new()
     {
         ApplicationId = "com.example.nanto",
-        Assets = new StubAssetProvider(),
+        Content = new NantoProductionContent { Assets = new StubAssetProvider() },
         PrimaryWindow = new WindowOptions { Title = "Nanto" },
     };
 

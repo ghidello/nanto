@@ -6,39 +6,50 @@ internal static class NavigationPolicy
 {
     public const string ApplicationHostName = "app.nanto.invalid";
 
+    public static Uri ProductionOrigin { get; } = new($"https://{ApplicationHostName}/");
+
     private static readonly UTF8Encoding _strictUtf8 = new(false, true);
 
     public static bool IsAllowed(string candidate, IReadOnlySet<string> assetPaths)
+        => IsAllowed(candidate, ProductionOrigin, assetPaths, restrictToDeclaredAssets: true);
+
+    public static bool IsAllowed(string candidate, PreparedWindowsContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return IsAllowed(candidate, content.TrustedOrigin, content.AssetPaths, content.UsesVirtualHostMapping);
+    }
+
+    public static bool IsTrustedOrigin(string candidate, Uri trustedOrigin)
     {
         ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(trustedOrigin);
+        return IsWellFormedHttpUri(candidate, out Uri? parsedUri, out _) && HasSameOrigin(parsedUri, trustedOrigin);
+    }
+
+    private static bool IsAllowed(string candidate, Uri trustedOrigin, IReadOnlySet<string> assetPaths, bool restrictToDeclaredAssets)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(trustedOrigin);
         ArgumentNullException.ThrowIfNull(assetPaths);
-        if (!TrySplitAbsoluteUri(candidate, out var scheme, out _, out var escapedPath))
+        if (!IsWellFormedHttpUri(candidate, out Uri? parsedUri, out string escapedPath))
         {
             return false;
         }
 
-        if (!scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
-            && !scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        if (!HasSameOrigin(parsedUri, trustedOrigin))
         {
-            return false;
+            if (restrictToDeclaredAssets
+                && parsedUri.Host.TrimEnd('.').Equals(trustedOrigin.Host.TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
         }
 
-        if (candidate.Any(character => char.IsControl(character) || char.IsWhiteSpace(character))
-            || !HasValidEscapes(candidate)
-            || !Uri.TryCreate(candidate, UriKind.Absolute, out var parsedUri)
-            || !string.IsNullOrEmpty(parsedUri.UserInfo))
+        if (!restrictToDeclaredAssets)
         {
-            return false;
-        }
-
-        if (!parsedUri.Host.Equals(ApplicationHostName, StringComparison.OrdinalIgnoreCase))
-        {
-            return !parsedUri.Host.TrimEnd('.').Equals(ApplicationHostName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        if (!scheme.Equals("https", StringComparison.OrdinalIgnoreCase) || !parsedUri.IsDefaultPort)
-        {
-            return false;
+            return true;
         }
 
         return TryNormalizeApplicationPath(escapedPath, out var path) && assetPaths.Contains(path);
@@ -46,6 +57,34 @@ internal static class NavigationPolicy
 
     public static bool IsInitialRouteAllowed(string route, IReadOnlySet<string> assetPaths) =>
         IsAllowed($"https://{ApplicationHostName}{route}", assetPaths);
+
+    private static bool IsWellFormedHttpUri(string candidate, out Uri parsedUri, out string escapedPath)
+    {
+        parsedUri = null!;
+        escapedPath = string.Empty;
+        if (!TrySplitAbsoluteUri(candidate, out var scheme, out _, out escapedPath)
+            || !scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+            && !scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (candidate.Any(character => char.IsControl(character) || char.IsWhiteSpace(character))
+            || !HasValidEscapes(candidate)
+            || !Uri.TryCreate(candidate, UriKind.Absolute, out Uri? uri)
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return false;
+        }
+
+        parsedUri = uri;
+        return true;
+    }
+
+    private static bool HasSameOrigin(Uri candidate, Uri trustedOrigin) =>
+        string.Equals(candidate.Scheme, trustedOrigin.Scheme, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(candidate.IdnHost, trustedOrigin.IdnHost, StringComparison.OrdinalIgnoreCase)
+        && candidate.Port == trustedOrigin.Port;
 
     private static bool HasValidEscapes(string candidate)
     {

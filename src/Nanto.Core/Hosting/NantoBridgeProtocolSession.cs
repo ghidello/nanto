@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,8 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
     internal const int MaximumStreams = 32;
     internal const int MaximumEventSubscriptions = 32;
     internal const int EventBufferCapacity = 64;
+    internal const int MaximumTraceParentLength = 128;
+    internal const int MaximumTraceStateLength = 512;
 
     private readonly object _gate = new();
     private readonly Dictionary<uint, NantoGeneratedCommand> _commands;
@@ -236,6 +239,19 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         }
 
         var cancellationTransferred = false;
+        var outcome = "ok";
+        long startedAt = Stopwatch.GetTimestamp();
+        ActivityContext parentContext = TryReadTraceContext(root, out var parsedParent) ? parsedParent : default;
+        using Activity? activity = NantoTelemetry.ActivitySource.StartActivity(
+            "nanto.command.invoke",
+            ActivityKind.Server,
+            parentContext,
+            tags:
+            [
+                new("nanto.protocol.version", ProtocolVersion),
+                new("nanto.command.id", (long)command.Id),
+                new("nanto.command.kind", command.Kind == NantoGeneratedCommandKind.Unary ? "unary" : "stream"),
+            ]);
         try
         {
             var commandInvocation = await command.InvokeAsync(arguments, _context, invocation.Cancellation.Token).ConfigureAwait(false);
@@ -276,19 +292,36 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         }
         catch (OperationCanceledException) when (invocation.Cancellation.IsCancellationRequested)
         {
+            outcome = "cancelled";
             return Error(requestId, "cancelled");
         }
         catch (NantoGeneratedInvalidRequestException)
         {
+            outcome = "invalid_request";
             return Error(requestId, "invalidRequest");
         }
         catch (Exception exception)
         {
+            outcome = "internal";
             ReportUnexpectedFailure(requestId, "Invoke", exception);
             return Error(requestId, "internal");
         }
         finally
         {
+            TagList metricTags =
+            [
+                new("nanto.command.id", (long)command.Id),
+                new("nanto.command.kind", command.Kind == NantoGeneratedCommandKind.Unary ? "unary" : "stream"),
+                new("nanto.outcome", outcome),
+            ];
+            NantoTelemetry.CommandInvocations.Add(1, metricTags);
+            NantoTelemetry.CommandDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, metricTags);
+            activity?.SetTag("nanto.outcome", outcome);
+            if (outcome != "ok")
+            {
+                activity?.SetStatus(ActivityStatusCode.Error);
+            }
+
             if (!cancellationTransferred)
             {
                 invocation.Cancellation.Dispose();
@@ -592,6 +625,107 @@ internal sealed class NantoBridgeProtocolSession : IAsyncDisposable
         value = property.GetString()!;
         return true;
     }
+
+    private static bool TryReadTraceContext(JsonElement root, out ActivityContext context)
+    {
+        context = default;
+        if (!root.TryGetProperty("traceparent", out var traceParentProperty))
+        {
+            return false;
+        }
+
+        if (traceParentProperty.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        string traceParent = traceParentProperty.GetString()!;
+        if (traceParent.Length > MaximumTraceParentLength)
+        {
+            return false;
+        }
+
+        string? traceState = null;
+        if (root.TryGetProperty("tracestate", out var traceStateProperty))
+        {
+            if (traceStateProperty.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            traceState = traceStateProperty.GetString();
+            if (!IsValidTraceState(traceState))
+            {
+                return false;
+            }
+        }
+
+        return ActivityContext.TryParse(traceParent, traceState, isRemote: true, out context);
+    }
+
+    private static bool IsValidTraceState(string? traceState)
+    {
+        if (traceState is null || traceState.Length == 0 || traceState.Length > MaximumTraceStateLength || !traceState.All(static character => character <= 0x7f))
+        {
+            return false;
+        }
+
+        string[] members = traceState.Split(',');
+        if (members.Length > 32)
+        {
+            return false;
+        }
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string untrimmedMember in members)
+        {
+            string member = untrimmedMember.Trim(' ', '\t');
+            int equals = member.IndexOf('=');
+            if (equals <= 0 || equals == member.Length - 1)
+            {
+                return false;
+            }
+
+            string key = member[..equals];
+            string value = member[(equals + 1)..];
+            if (!keys.Add(key) || !IsValidTraceStateKey(key) || !IsValidTraceStateValue(value))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidTraceStateKey(string key)
+    {
+        int at = key.IndexOf('@');
+        if (at < 0)
+        {
+            return key.Length <= 256 && IsLowerAlpha(key[0]) && key.All(IsTraceStateKeyCharacter);
+        }
+
+        string tenant = key[..at];
+        string system = key[(at + 1)..];
+        return key.LastIndexOf('@') == at
+            && tenant.Length is > 0 and <= 241
+            && system.Length is > 0 and <= 14
+            && IsLowerAlphaNumeric(tenant[0])
+            && tenant.All(IsTraceStateKeyCharacter)
+            && IsLowerAlpha(system[0])
+            && system.All(IsTraceStateKeyCharacter);
+    }
+
+    private static bool IsValidTraceStateValue(string value) => value.Length <= 256
+        && value[0] != ' '
+        && value[^1] != ' '
+        && value.All(static character => character is >= (char)0x20 and <= (char)0x7e && character is not ',' and not '=');
+
+    private static bool IsTraceStateKeyCharacter(char character) => IsLowerAlphaNumeric(character) || character is '_' or '-' or '*' or '/';
+
+    private static bool IsLowerAlpha(char character) => character is >= 'a' and <= 'z';
+
+    private static bool IsLowerAlphaNumeric(char character) => IsLowerAlpha(character) || character is >= '0' and <= '9';
 
     private sealed class StreamState(NantoGeneratedSequence sequence, CancellationTokenSource cancellation) : IAsyncDisposable
     {

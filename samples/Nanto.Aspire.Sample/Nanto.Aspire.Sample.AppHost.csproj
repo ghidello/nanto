@@ -1,0 +1,15 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.2">
+  <PropertyGroup>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Hosting.Aspire/Nanto.Hosting.Aspire.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="App/**/*.cs;DependencyService/**/*.cs" />
+  </ItemGroup>
+</Project>

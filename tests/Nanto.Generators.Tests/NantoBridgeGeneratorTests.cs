@@ -12,6 +12,36 @@ namespace Nanto.Generators.Tests;
 
 public sealed class NantoBridgeGeneratorTests
 {
+    [Fact]
+    public void SdkAtomicWritePreservesTimestampWhenContentIsUnchangedAndRecoversTemporaryFile()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "nanto-sdk-write-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "generated", "index.ts");
+        try
+        {
+            Nanto.Sdk.Program.WriteFileAtomically(output, "first");
+            DateTime firstWrite = File.GetLastWriteTimeUtc(output);
+            File.WriteAllText(output + ".nanto.tmp", "stale");
+            Thread.Sleep(20);
+
+            Nanto.Sdk.Program.WriteFileAtomically(output, "first");
+
+            File.GetLastWriteTimeUtc(output).Should().Be(firstWrite);
+            File.Exists(output + ".nanto.tmp").Should().BeFalse();
+
+            Thread.Sleep(20);
+            Nanto.Sdk.Program.WriteFileAtomically(output, "second");
+            File.ReadAllText(output).Should().Be("second");
+            File.GetLastWriteTimeUtc(output).Should().BeAfter(firstWrite);
+            File.Exists(output + ".nanto.tmp").Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     public static TheoryData<string, string, string> UnsupportedDtoContracts => new()
     {
         { string.Empty, "object", "object and platform handle types" },
