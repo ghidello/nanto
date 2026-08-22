@@ -203,6 +203,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
             return "the method and its containing types must be accessible from generated code";
         }
 
+        if (command.MethodKind != MethodKind.Ordinary)
+        {
+            return "only ordinary methods are supported";
+        }
+
         if (command.IsStatic)
         {
             return "static methods are not supported";
@@ -211,11 +216,6 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
         if (command.IsGenericMethod || command.ContainingType.IsGenericType)
         {
             return "open or containing generic methods are not supported";
-        }
-
-        if (command.MethodKind != MethodKind.Ordinary)
-        {
-            return "only ordinary methods are supported";
         }
 
         if (command.Parameters.Any(static parameter => parameter.IsOptional || parameter.IsParams))
@@ -342,6 +342,11 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
                 return "object and platform handle types are not supported";
             }
 
+            if (type is INamedTypeSymbol handleType && InheritsFrom(handleType, "System.Runtime.InteropServices.SafeHandle"))
+            {
+                return "platform handle types are not supported";
+            }
+
             if (type.SpecialType is SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Decimal)
             {
                 return "64-bit integer and decimal values require a lossless wire representation and are not supported";
@@ -401,8 +406,7 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
                     return "binary values are deferred and byte memory is not supported in Phase 2";
                 }
 
-                if (namespaceName.StartsWith("System.Runtime.InteropServices", StringComparison.Ordinal)
-                    || InheritsFrom(named, "System.Runtime.InteropServices.SafeHandle"))
+                if (namespaceName.StartsWith("System.Runtime.InteropServices", StringComparison.Ordinal))
                 {
                     return "platform handle types are not supported";
                 }

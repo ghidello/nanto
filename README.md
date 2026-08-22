@@ -6,9 +6,9 @@ Nanto is an early-stage .NET framework for building small native applications wi
 
 ## Status
 
-Phase 1's Windows host and lifecycle-kernel implementation is complete. It established the portable lifecycle, raw-Win32 and WebView2 host, strict embedded asset manifests, content-addressed publication, concurrent shared leases, exact declared-asset navigation, DPI-aware behavior, native appearance, renderer recovery, structured diagnostics, isolated build modes, and CoreCLR/Native AOT deployment evidence. Phase 2 contract and IPC work is now the implementation priority.
+Phase 1's Windows host and lifecycle-kernel implementation and Phase 2's generated contract and IPC implementation are complete. The versioned bridge provides reflection-free C# registration and dispatch, generated JSON metadata and TypeScript bindings, default-deny capabilities, origin and session checks, cancellation, structured errors, streams, and events across CoreCLR and Native AOT. Phase 3 CLI, framework-neutral SPA integration, and development-loop work is now the implementation priority.
 
-Two Phase 1 acceptance follow-ups remain open without blocking Phase 2: complete the 550-process lifecycle/recovery soak, and pass the visible cross-monitor scenario on two active monitors with different effective DPI. The one-monitor `VisibleDesktop` scenario has passed, and a 45-minute soak attempt completed 397 clean processes before its former safety deadline. See the [Phase 1 gate record](docs/phase1-gate.md) for the exact status and retained evidence.
+Two Phase 1 acceptance follow-ups remain open without blocking Phase 3: complete the 550-process lifecycle/recovery soak, and pass the visible cross-monitor scenario on two active monitors with different effective DPI. The one-monitor `VisibleDesktop` scenario has passed, and a 45-minute soak attempt completed 397 clean processes before its former safety deadline. See the [Phase 1 gate record](docs/phase1-gate.md) for the exact status and retained evidence.
 
 Window sizes describe the WebView client area in device-independent pixels. Windows chooses the initial screen position in Phase 1, and Nanto uses Per-Monitor-V2 behavior so a user can move the window across displays with different scaling without exposing ambiguous global logical coordinates. Display and work-area changes preserve every partially visible placement; a wholly inaccessible window is moved, without resizing, to the nearest current work area.
 
@@ -25,6 +25,8 @@ Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](htt
 - [Architecture and roadmap](docs/Nanto-architecture-and-roadmap.md)
 - [Phase 1 implementation plan](docs/phase1-plan.md)
 - [Phase 1 gate record](docs/phase1-gate.md)
+- [Phase 2 implementation plan](docs/phase2-plan.md)
+- [Phase 2 gate record](docs/phase2-gate.md)
 - [Contributor and coding-agent guidance](AGENTS.md)
 
 ## Requirements

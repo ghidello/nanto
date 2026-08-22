@@ -1,6 +1,6 @@
 # Phase 2 plan — versioned IPC and generated contracts
 
-**Status:** In progress.
+**Status:** Implementation closed as of August 22, 2026. See [`phase2-gate.md`](phase2-gate.md).
 
 Phase 2 adds the versioned, generated frontend bridge without weakening the completed Phase 1 Windows host, lifecycle, asset, appearance, diagnostics, or deployment guarantees. The complete 550-process lifecycle/recovery soak and a visible mixed-DPI run on two suitable monitors remain open Phase 1 acceptance follow-ups; neither is waived or considered passed.
 
@@ -29,16 +29,16 @@ Phase 2 adds the versioned, generated frontend bridge without weakening the comp
 
 ## Implementation progress
 
-As of 21 August 2026, the portable contracts, protocol v1 session, generated registration and dispatch, source-generated JSON metadata,
+As of 22 August 2026, the portable contracts, protocol v1 session, generated registration and dispatch, source-generated JSON metadata,
 TypeScript emitter, XML-documentation and normalized source-location preservation, compiled ESM package, bounded streams and events, and the Windows WebView2 adapter are implemented. The real hidden WebView2
 suite exercises typed unary results, application failures, pull streams, hot events, caller cancellation, navigation session rotation, and close-time
 cancellation. It also rejects malformed requests, manifest mismatches, unauthorized commands, stale sessions, and wrong-origin iframe traffic through the
 real browser boundary. Generator coverage now pins representative C# and TypeScript golden fingerprints, syntax-tree ordering, unchanged-input incremental
-caching, and additional rejected command and event shapes. The latest unattended Release gate passed 438 tests across the fast, hidden WebView2,
+caching, every reachable rejected-contract category, invalid composed API roots, and generated identifier collisions. The closing unattended Release gate passed 454 tests across the fast, hidden WebView2,
 self-contained CoreCLR, and Native AOT projects;
 the manual visible and long-running projects did not execute their opted-in scenarios.
 
-Phase 2 remains in progress. The next closeout slice is an exhaustive audit of the remaining rejected-signature generator diagnostics and the Phase 2 exit record.
+All Phase 2 implementation and exit criteria are satisfied. Phase 3 may proceed; the evidence is recorded in [`phase2-gate.md`](phase2-gate.md).
 The complete 550-process soak and mixed-DPI visible run remain separately approved Phase 1 follow-ups.
 
 ## Acceptance

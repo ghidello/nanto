@@ -12,6 +12,24 @@ namespace Nanto.Generators.Tests;
 
 public sealed class NantoBridgeGeneratorTests
 {
+    public static TheoryData<string, string, string> UnsupportedDtoContracts => new()
+    {
+        { string.Empty, "object", "object and platform handle types" },
+        { string.Empty, "dynamic", "open, pointer, function-pointer, and dynamic types" },
+        { string.Empty, "System.IntPtr", "object and platform handle types" },
+        { string.Empty, "System.Runtime.InteropServices.GCHandle", "platform handle types" },
+        { "public interface Project { int Id { get; } }", "Project", "abstract, interface, inherited, and polymorphic DTOs" },
+        { "public abstract class Project { public int Id { get; init; } }", "Project", "abstract, interface, inherited, and polymorphic DTOs" },
+        { "public class Entity { } public sealed class Project : Entity { public int Id { get; init; } }", "Project", "abstract, interface, inherited, and polymorphic DTOs" },
+        { "[JsonPolymorphic] public class Project { public int Id { get; init; } }", "Project", "custom JSON serialization and polymorphic DTOs" },
+        { "public sealed class Project { [JsonPropertyName(\"project_id\")] public int Id { get; init; } }", "Project", "custom JSON serialization" },
+        {
+            "public sealed class ProjectHandle : SafeHandle { public ProjectHandle() : base(IntPtr.Zero, true) { } public override bool IsInvalid => true; protected override bool ReleaseHandle() => true; }",
+            "ProjectHandle",
+            "platform handle types"
+        },
+    };
+
     [Fact]
     public void GeneratesTypedCapabilitiesAndRegistrationForComposedApi()
     {
@@ -167,6 +185,67 @@ public sealed class NantoBridgeGeneratorTests
 
         result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
             && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsCommandOnGenericContainingType()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi<T>
+            {
+                [NantoCommand]
+                public Task OpenAsync() => Task.CompletedTask;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("open or containing generic methods", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsNonOrdinaryCommandMethod()
+    {
+        const string source = """
+            using Nanto;
+
+            public sealed class ProjectValue
+            {
+                [NantoCommand]
+                public static ProjectValue operator +(ProjectValue left, ProjectValue right) => left;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("only ordinary methods", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public unsafe Task OpenAsync(int* value) => Task.CompletedTask;")]
+    [InlineData("public unsafe Task OpenAsync(delegate*<void> callback) => Task.CompletedTask;")]
+    public void ReportsPointerCommandParameters(string declaration)
+    {
+        var source = $$"""
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                {{declaration}}
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("open, pointer, function-pointer, and dynamic types", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -410,6 +489,77 @@ public sealed class NantoBridgeGeneratorTests
 
         result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
             && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains("same camel-case JSON name", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [MemberData(nameof(UnsupportedDtoContracts))]
+    public void ReportsUnsupportedDtoContracts(string declaration, string type, string expectedMessage)
+    {
+        var source = $$"""
+            using System;
+            using System.Runtime.InteropServices;
+            using System.Text.Json.Serialization;
+            using System.Threading.Tasks;
+            using Nanto;
+
+            {{declaration}}
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<{{type}}> LoadAsync() => Task.FromResult(default({{type}})!);
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1002"
+            && diagnostic.GetMessage(CultureInfo.InvariantCulture).Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportsApiPartWhoseRootIsNotMarkedAsAnApi()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi;
+
+            [NantoApiPart<ProjectsApi>]
+            public sealed class ProjectBuilds
+            {
+                [NantoCommand]
+                public Task BuildAsync() => Task.CompletedTask;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1003");
+    }
+
+    [Fact]
+    public void ReportsGeneratedCommandIdentifierCollision()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task Command18236Async() => Task.CompletedTask;
+
+                [NantoCommand]
+                public Task Command55279Async() => Task.CompletedTask;
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO1004");
+        result.GeneratedTrees.Should().BeEmpty();
     }
 
     [Fact]
@@ -771,7 +921,10 @@ public sealed class NantoBridgeGeneratorTests
                 new CSharpParseOptions(LanguageVersion.Preview, documentationMode: DocumentationMode.Diagnose),
                 source.Path))],
             references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: true,
+                nullableContextOptions: NullableContextOptions.Enable));
     }
 
     private static string Fingerprint(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

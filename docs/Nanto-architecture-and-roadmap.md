@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1 implementation complete; Phase 2 is current. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
+**Status:** Phase 1 and Phase 2 implementation complete; Phase 3 is current. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
 
 **Date:** 10 August 2026
 
@@ -1268,6 +1268,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-061 | Derive private 32-bit member IDs from SHA-256 canonical signatures and bind protocol v1 sessions to a full SHA-256 manifest fingerprint. | Provides compact dispatch with deterministic collision detection and prevents mismatched clients from invoking the wrong contract. |
 | D-062 | Generate TypeScript as the frontend source of truth and compile JavaScript, declarations, and source maps mechanically with a pinned compiler. | Avoids two emitters drifting while supporting both TypeScript and JavaScript consumers. |
 | D-063 | Reject binary command and event types during JSON-only Phase 2. | Prevents `System.Text.Json` base64 strings from being exposed through a misleading `Uint8Array` frontend contract; binary projection waits for an explicit wire mapping. |
+| D-064 | Close Phase 2 implementation after the generated contract, protocol, frontend, real-WebView security, CoreCLR, and Native AOT gates pass. | The complete diagnostic matrix, deterministic golden and incremental fixtures, 15 frontend tests, 69 hidden WebView2 tests, and 454-test unattended Release gate satisfy the Phase 2 exit criteria without weakening the two open Phase 1 follow-ups. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1371,6 +1372,8 @@ Exit criteria:
 - no runtime command or DTO discovery is used;
 - all generated paths pass strict AOT publish;
 - cancellation and stream shutdown are race-tested.
+
+All implementation and exit criteria are satisfied. The closing evidence is recorded in [`phase2-gate.md`](phase2-gate.md). The two open Phase 1 acceptance follow-ups remain separate and do not block Phase 3.
 
 ### Phase 3 — CLI, framework-neutral SPA integration, and development loop
 
@@ -1547,11 +1550,11 @@ CI should cover:
 
 ## 17. Immediate next actions
 
-Continue Phase 2 from the implemented versioned protocol and generated vertical slice while preserving the completed Phase 1 host contracts:
+Begin Phase 3 from the closed generated-contract and protocol foundation while preserving the Phase 1 host and Phase 2 security guarantees:
 
-1. Complete the remaining rejected-signature diagnostic matrix; representative generator golden fingerprints, syntax-tree ordering, and unchanged-input caching are covered.
-2. Audit and record the Phase 2 exit criteria now that malformed, wrong-origin, unauthorized, stale-session, and manifest-mismatch traffic passes through the real hidden WebView2 boundary.
-3. Keep the generated registry and serializers identical across framework-dependent CoreCLR, self-contained CoreCLR, and Native AOT verification.
+1. Write the Phase 3 implementation plan and record measurable developer-loop baselines before adding orchestration machinery.
+2. Define the smallest framework-neutral CLI/build contract, including inspectable dry-run behavior and explicit frontend commands and URLs.
+3. Keep ordinary development independent from Aspire and telemetry collection while reserving standard OpenTelemetry and optional Aspire integration points.
 4. Continue to require separate approval for the two Phase 1 acceptance follow-ups and update [`phase1-gate.md`](phase1-gate.md) when either is collected.
 
 ---
