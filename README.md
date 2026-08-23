@@ -30,6 +30,7 @@ Nanto was renamed from Telaio after the feasibility work; commit [`90725e9`](htt
 - [Phase 3 implementation plan](docs/phase3-plan.md)
 - [Phase 3 developer-loop baselines](docs/phase3-baselines.md)
 - [Phase 3 gate record](docs/phase3-gate.md)
+- [Phase 4 implementation plan](docs/phase4-plan.md)
 - [Contributor and coding-agent guidance](AGENTS.md)
 
 ## Requirements
