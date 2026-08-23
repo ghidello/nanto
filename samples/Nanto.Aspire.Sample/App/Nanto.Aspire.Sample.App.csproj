@@ -24,7 +24,10 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
   </ItemGroup>
   <Target Name="BuildNantoSdkTool" BeforeTargets="GenerateNantoContracts">
-    <MSBuild Projects="../../../src/Nanto.Sdk/Nanto.Sdk.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="../../../src/Nanto.Sdk/Nanto.Sdk.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishAot;PublishSingleFile;TargetFramework;NantoBuildMode" />
   </Target>
   <Import Project="../../../src/Nanto.Sdk/buildTransitive/Nanto.Sdk.props" />
   <Import Project="../../../src/Nanto.Hosting.Windows/buildTransitive/Nanto.Hosting.Windows.targets" />

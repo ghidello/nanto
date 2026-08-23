@@ -24,7 +24,7 @@ public sealed class NantoAppResourceExtensionsTests
             Assert.Equal(projectDirectory, app.Resource.WorkingDirectory);
             WaitAnnotation wait = Assert.Single(app.Resource.Annotations.OfType<WaitAnnotation>());
             Assert.Same(frontend.Resource, wait.Resource);
-            Assert.Equal(3, app.Resource.Annotations.OfType<EnvironmentCallbackAnnotation>().Count());
+            Assert.Equal(4, app.Resource.Annotations.OfType<EnvironmentCallbackAnnotation>().Count());
             Assert.Contains(builder.Resources, resource => ReferenceEquals(resource, app.Resource));
         }
         finally

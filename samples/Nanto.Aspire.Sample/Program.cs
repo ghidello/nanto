@@ -1,6 +1,7 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var dependency = builder.AddProject("dependency", "./DependencyService/Nanto.Aspire.Sample.DependencyService.csproj")
+    .WithHttpEndpoint(name: "http")
     .WithHttpHealthCheck("/health");
 var frontend = builder.AddViteApp("frontend", "./Frontend")
     .WithNpm();

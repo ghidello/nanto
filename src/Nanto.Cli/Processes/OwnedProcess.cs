@@ -9,16 +9,16 @@ internal sealed class OwnedProcess : IAsyncDisposable
     private readonly BoundedLinePump _standardOutput;
     private readonly Task _standardErrorPump;
     private readonly Task _standardOutputPump;
-    private readonly Process _process;
+    private readonly WindowsProcessLauncher _process;
     private int _stopping;
     private bool _forcedTermination;
 
     public int Id => _process.Id;
 
-    public bool HasExited => _process.HasExited;
+    public bool HasExited => _process.Exit.IsCompleted;
 
     private OwnedProcess(
-        Process process,
+        WindowsProcessLauncher process,
         WindowsProcessJob job,
         BoundedLinePump standardOutput,
         BoundedLinePump standardError)
@@ -36,19 +36,12 @@ internal sealed class OwnedProcess : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(resource);
         ArgumentNullException.ThrowIfNull(output);
         ProcessStartInfo startInfo = CommandLauncher.Create(command);
-        var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        WindowsProcessLauncher? process = null;
         WindowsProcessJob? job = null;
-        bool started = false;
         try
         {
             job = WindowsProcessJob.CreateKillOnClose();
-            if (!process.Start())
-            {
-                throw new InvalidOperationException("The configured process did not start.");
-            }
-
-            started = true;
-            job.Assign(process);
+            process = WindowsProcessLauncher.Start(startInfo, job);
             TextWriter synchronizedOutput = TextWriter.Synchronized(output);
             return new OwnedProcess(
                 process,
@@ -58,20 +51,15 @@ internal sealed class OwnedProcess : IAsyncDisposable
         }
         catch
         {
-            if (started && !process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-
             job?.Dispose();
-            process.Dispose();
+            process?.Dispose();
             throw;
         }
     }
 
     internal async Task<ProcessRunResult> WaitAsync(CancellationToken cancellationToken = default)
     {
-        await _process.WaitForExitAsync(cancellationToken);
+        await _process.Exit.WaitAsync(cancellationToken);
         await Task.WhenAll(_standardOutputPump, _standardErrorPump);
         return CreateResult();
     }
@@ -79,25 +67,25 @@ internal sealed class OwnedProcess : IAsyncDisposable
     internal async Task<ProcessRunResult> StopAsync(TimeSpan gracefulTimeout, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(gracefulTimeout, TimeSpan.Zero);
-        if (Interlocked.Exchange(ref _stopping, 1) == 0 && !_process.HasExited)
+        if (Interlocked.Exchange(ref _stopping, 1) == 0 && !_process.Exit.IsCompleted)
         {
+            _process.TrySignalCtrlBreak();
             try
             {
                 _process.StandardInput.Close();
-                _process.CloseMainWindow();
             }
-            catch (InvalidOperationException)
+            catch (ObjectDisposedException)
             {
             }
         }
 
-        if (!_process.HasExited)
+        if (!_process.Exit.IsCompleted)
         {
             using var timeout = new CancellationTokenSource(gracefulTimeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             try
             {
-                await _process.WaitForExitAsync(linked.Token);
+                await _process.Exit.WaitAsync(linked.Token);
             }
             catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -106,14 +94,14 @@ internal sealed class OwnedProcess : IAsyncDisposable
             }
         }
 
-        await _process.WaitForExitAsync(cancellationToken);
+        await _process.Exit.WaitAsync(cancellationToken);
         await Task.WhenAll(_standardOutputPump, _standardErrorPump);
         return CreateResult();
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!_process.HasExited)
+        if (!_process.Exit.IsCompleted)
         {
             await StopAsync(TimeSpan.Zero);
         }
@@ -124,7 +112,7 @@ internal sealed class OwnedProcess : IAsyncDisposable
 
     private ProcessRunResult CreateResult() => new()
     {
-        ExitCode = _process.ExitCode,
+        ExitCode = _process.GetExitCode(),
         ForcedTermination = _forcedTermination,
         DiagnosticLines = [.. _standardOutput.Snapshot(), .. _standardError.Snapshot()],
     };

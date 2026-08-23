@@ -21,7 +21,7 @@ internal static class CommandLauncher
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
-            CreateNoWindow = true,
+            CreateNoWindow = !WindowsProcessLauncher.HasConsole,
         };
 
         if (resolved.LaunchAdapter == "windows-command-shim")

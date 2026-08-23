@@ -10,7 +10,7 @@ namespace Nanto.DevLoop.IntegrationTests;
 public sealed class ProcessSupervisorIntegrationTests
 {
     [Fact]
-    public async Task ForcedStopTerminatesGrandchildAndReleasesLockedFile()
+    public async Task ForcedStopTerminatesImmediateGrandchildAndReleasesLockedFile()
     {
         string root = CreateTemporaryDirectory();
         string processIdPath = Path.Combine(root, "child.pid");
@@ -52,6 +52,20 @@ public sealed class ProcessSupervisorIntegrationTests
         result.ExitCode.Should().Be(0);
         result.DiagnosticLines.Should().HaveCount(32);
         result.DiagnosticLines[^1].Should().EndWith("…[truncated]");
+    }
+
+    [Fact]
+    public async Task ImmediateExitIsObservedReliablyWithoutReopeningTheProcessById()
+    {
+        for (var index = 0; index < 20; index++)
+        {
+            await using OwnedProcess process = OwnedProcess.Start(FixtureCommand("exit", "0"), "fixture", TextWriter.Null);
+
+            ProcessRunResult result = await process.WaitAsync(TestContext.Current.CancellationToken);
+
+            result.ExitCode.Should().Be(0);
+            process.HasExited.Should().BeTrue();
+        }
     }
 
     private static ProcessCommand FixtureCommand(params string[] arguments) => new()

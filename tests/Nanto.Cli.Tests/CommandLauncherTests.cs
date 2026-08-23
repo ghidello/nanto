@@ -45,6 +45,27 @@ public sealed class CommandLauncherTests
         startInfo.ArgumentList.Should().BeEmpty();
         startInfo.Arguments.Should().Be($"/d /s /c \"\"{Path.GetFullPath(shim)}\" \"one\" \"two words\"\"");
         startInfo.UseShellExecute.Should().BeFalse();
+        startInfo.CreateNoWindow.Should().Be(!WindowsProcessLauncher.HasConsole);
+    }
+
+    [Fact]
+    public void NativeCommandLinePreservesEmptyQuotesBackslashesSpacesAndUnicode()
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = @"C:\Program Files\dotnet\dotnet.exe",
+        };
+        startInfo.ArgumentList.Add(string.Empty);
+        startInfo.ArgumentList.Add("plain");
+        startInfo.ArgumentList.Add("two words");
+        startInfo.ArgumentList.Add("quote\"inside");
+        startInfo.ArgumentList.Add(@"trailing\\");
+        startInfo.ArgumentList.Add("perché");
+
+        string commandLine = WindowsProcessLauncher.BuildCommandLine(startInfo);
+
+        commandLine.Should().Be(
+            "\"C:\\Program Files\\dotnet\\dotnet.exe\" \"\" plain \"two words\" \"quote\\\"inside\" trailing\\\\ perché");
     }
 
     [Fact]

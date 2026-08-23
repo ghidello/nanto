@@ -46,7 +46,6 @@ internal static class Program
             return 2;
         }
 
-        await Task.Delay(500);
         string assemblyPath = typeof(ProcessFixtureMarker).Assembly.Location;
         var startInfo = new ProcessStartInfo
         {

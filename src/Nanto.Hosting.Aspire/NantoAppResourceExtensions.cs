@@ -43,6 +43,7 @@ public static class NantoAppResourceExtensions
             .WithEnvironment("NANTO_DEVELOPMENT_URL", frontend.GetEndpoint(frontendEndpointName))
             .WithEnvironment("NantoFrontendOutputPath", Path.GetFullPath(generatedClientPath))
             .WithEnvironment("DOTNET_WATCH_RESTART_ON_RUDE_EDIT", "1")
+            .WithOtlpExporter()
             .WaitFor(builder.CreateResourceBuilder<IResource>(frontend.Resource));
     }
 }

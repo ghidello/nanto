@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using Microsoft.Win32.SafeHandles;
@@ -15,6 +14,8 @@ internal sealed class WindowsProcessJob : IDisposable
 
     private readonly SafeFileHandle _handle;
     private bool _disposed;
+
+    internal SafeFileHandle Handle => _handle;
 
     private WindowsProcessJob(SafeFileHandle handle)
     {
@@ -45,16 +46,6 @@ internal sealed class WindowsProcessJob : IDisposable
         {
             handle.Dispose();
             throw;
-        }
-    }
-
-    internal void Assign(Process process)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(process);
-        if (!PInvoke.AssignProcessToJobObject(_handle, process.SafeHandle))
-        {
-            throw CreateWin32Exception("AssignProcessToJobObject");
         }
     }
 

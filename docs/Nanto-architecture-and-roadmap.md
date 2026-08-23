@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1 and Phase 2 implementation complete; Phase 3 is current. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
+**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 is next. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
 
 **Date:** 10 August 2026
 
@@ -1412,6 +1412,8 @@ Exit criteria:
 - telemetry can be disabled and trimmed without changing runtime behavior;
 - no orphaned Node or .NET processes remain after exit;
 - spaces in paths, multiple package managers, and occupied dev ports are tested.
+
+All Phase 3 implementation and exit criteria are satisfied. The closing evidence and accepted developer-loop budgets are recorded in [`phase3-gate.md`](phase3-gate.md) and [`phase3-baselines.md`](phase3-baselines.md). The two open Phase 1 acceptance follow-ups remain separate and do not block Phase 4 planning.
 
 ### Phase 4 — Capabilities and plugin foundation
 

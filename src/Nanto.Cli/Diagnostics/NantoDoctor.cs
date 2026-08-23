@@ -156,7 +156,7 @@ internal static class NantoDoctor
 
     private static string? FindWebView2RuntimeVersion()
     {
-        const string clientPath = @"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1E7E9D0-3E4A-4F80-B4A3-41779A9E495D}";
+        const string clientPath = @"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
         foreach (RegistryHive hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
         {
             foreach (RegistryView view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
@@ -165,7 +165,7 @@ internal static class NantoDoctor
                 {
                     using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
                     using RegistryKey? clientKey = baseKey.OpenSubKey(clientPath);
-                    if (clientKey?.GetValue("pv") is string version && Version.TryParse(version, out _))
+                    if (clientKey?.GetValue("pv") is string version && IsInstalledWebView2Version(version))
                     {
                         return version;
                     }
@@ -179,4 +179,7 @@ internal static class NantoDoctor
 
         return null;
     }
+
+    internal static bool IsInstalledWebView2Version(string? value) =>
+        Version.TryParse(value, out Version? version) && version > new Version(0, 0, 0, 0);
 }

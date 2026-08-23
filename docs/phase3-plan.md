@@ -1,6 +1,6 @@
 # Phase 3 plan — CLI, framework-neutral SPA integration, and development loop
 
-**Status:** Implementation candidate. Slices 0–9 have working code and automated coverage; Slice 10 remains open for the live developer-loop, custom-SPA/pnpm, Aspire-runtime, and final repeated-measurement evidence listed in [`phase3-gate.md`](phase3-gate.md).
+**Status:** Complete. All slices and the closing evidence are recorded in [`phase3-gate.md`](phase3-gate.md).
 
 Phase 3 turns the completed Windows host and generated bridge into a usable development product. It adds project creation, inspectable build orchestration, a framework-neutral frontend development contract, predictable Hot Reload or restart behavior, standard telemetry, and optional Aspire orchestration.
 
@@ -720,23 +720,23 @@ Use at least one cold run and 30 warmed iterations; record median, p95, failures
 ## 21. Acceptance checklist
 
 - [x] `dotnet new nanto --frontend react` creates a buildable reference application.
-- [ ] `--frontend custom` attaches an arbitrary SPA through configuration without runtime changes.
-- [ ] `dotnet nanto dev` validates, restores, generates, starts, waits, watches, reports, and cleans up deterministically.
-- [ ] Frontend HMR/live reload occurs without restarting the native host.
-- [ ] Supported C# edits Hot Reload; incompatible edits restart with an honest reason category.
-- [ ] Contract edits atomically update `@nanto/app` and trigger frontend type checking.
+- [x] `--frontend custom` attaches an arbitrary SPA through configuration without runtime changes.
+- [x] `dotnet nanto dev` validates, restores, generates, starts, waits, watches, reports, and cleans up deterministically.
+- [x] Frontend HMR/live reload occurs without restarting the native host.
+- [x] Supported C# edits Hot Reload; incompatible edits restart with an honest reason category.
+- [x] Contract edits atomically update `@nanto/app` and trigger frontend type checking.
 - [x] `dotnet nanto build --plan` is deterministic, complete, redacted, and mutation-free.
-- [ ] Native AOT, self-contained CoreCLR, and framework-dependent CoreCLR builds remain isolated and use identical production contracts.
-- [ ] `dotnet nanto doctor` reports every required prerequisite with actionable repair guidance.
-- [ ] Exit, Ctrl+C, startup failure, child failure, and repeated interrupt leave no child processes or locked files.
-- [ ] Paths with spaces and Unicode, npm and pnpm, occupied ports, external dev servers, and two real frontend toolchains pass.
+- [x] Native AOT, self-contained CoreCLR, and framework-dependent CoreCLR builds remain isolated and use identical production contracts.
+- [x] `dotnet nanto doctor` reports every required prerequisite with actionable repair guidance.
+- [x] Exit, Ctrl+C, startup failure, child failure, and repeated interrupt leave no child processes or locked files.
+- [x] Paths with spaces and Unicode, npm and pnpm, occupied ports, external dev servers, and two real frontend toolchains pass.
 - [x] Development bridge authority is limited to the exact configured origin and rotates on navigation/restart.
 - [x] Activities, metrics, and logs are bounded, redacted, optional, and use standard .NET/OpenTelemetry concepts.
-- [ ] W3C context correlates frontend, native command, and dependent-service work.
+- [x] W3C context correlates frontend, native command, and dependent-service work.
 - [x] Strict Native AOT publish has no unexplained trimming or AOT warnings after instrumentation.
 - [x] Ordinary development requires neither Aspire nor an OTLP collector.
-- [ ] Optional Aspire orchestration exposes inspectable resources, readiness, logs, traces, metrics, and clean shutdown.
-- [ ] Final measured developer-loop and size evidence is recorded in the Phase 3 gate.
+- [x] Optional Aspire orchestration exposes inspectable resources, readiness, logs, traces, metrics, and clean shutdown.
+- [x] Final measured developer-loop and size evidence is recorded in the Phase 3 gate.
 
 ## 22. Decision checkpoints
 
