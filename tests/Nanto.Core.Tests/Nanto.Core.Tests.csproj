@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/Nanto.Core/Nanto.Core.csproj" />
+    <ProjectReference Include="../Nanto.Plugin.TestProtocol/Nanto.Plugin.TestProtocol.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="TestAssets/app.js" LogicalName="Nanto.Core.Tests.Assets.app.js" />

@@ -1,6 +1,6 @@
 # Phase 4 plan — capabilities and plugin foundation
 
-**Status:** Proposed implementation plan. Phase 1, Phase 2, and Phase 3 implementation are closed. The complete 550-process Phase 1 lifecycle/recovery soak passed on August 23, 2026. One separately approved Phase 1 follow-up remains open: the visible cross-monitor run on two active monitors with different effective DPI. Keep that item visible in the gate record and do not report it as passed.
+**Status:** In progress. Slice 0 is complete and its accepted baseline is recorded in [`phase4-baselines.md`](phase4-baselines.md). Phase 1, Phase 2, and Phase 3 implementation are closed. The complete 550-process Phase 1 lifecycle/recovery soak passed on August 23, 2026. One separately approved Phase 1 follow-up remains open: the visible cross-monitor run on two active monitors with different effective DPI. Keep that item visible in the gate record and do not report it as passed.
 
 Phase 4 turns the existing per-window list of generated command IDs into a compiled, inspectable authorization policy and establishes the static plugin composition and lifecycle model needed by the Windows MVP plugins in Phase 5. It does not ship the Phase 5 plugin catalogue.
 
@@ -80,12 +80,12 @@ The Phase 2/3 implementation already provides:
 
 Phase 4 replaces the author-facing `WindowOptions.Capabilities` list with compiled policy input. The low-level ID-set enforcement remains the final dispatch guard until the generated table can be passed directly to the session.
 
-Known design mismatches to resolve in Slice 0:
+Slice 0 resolved the starting design mismatches:
 
-- the roadmap's Phase 4 `auto` behavior differs intentionally from Phase 3's `auto == native-aot` rule;
-- recommended decision R-007 already has Phase 3 implementation proof and should move to the accepted register;
-- open decisions O-008 and O-011 are stale after the Phase 2 naming and ID decisions and should be closed by reference, not redesigned;
-- the architecture's capability JSON is explicitly provisional, so schema v1 below must be recorded as a new accepted decision before implementation is called complete.
+- R-003 records the proposed metadata-driven change from Phase 3's `auto == native-aot` rule and remains awaiting Slice 10 proof;
+- D-074 promotes R-007 using the completed Phase 3 implementation proof;
+- O-008 and O-011 are closed by reference to D-059/D-062 and D-061 respectively;
+- D-075 and D-076 record the capability document and exact-origin security boundaries; D-010 plus the refined R-002 retain static composition and NuGet-owned frontend modules as the Slice 9 proof target.
 
 ## 5. Capability vocabulary
 
@@ -383,9 +383,11 @@ Each slice ends with focused tests, `dotnet build`, and the default `dotnet test
 
 ### Slice 0 — baseline, decisions, and fixture protocol
 
+**Status:** Complete. The accepted counts, artifact shapes, diagnostic reservations, test protocol, and behavior-free package fixtures are recorded in [`phase4-baselines.md`](phase4-baselines.md).
+
 Deliver:
 
-- record capability schema, exact-origin, static composition, and `auto` selection decisions;
+- record capability-schema and exact-origin decisions, and refine static-composition and `auto` recommendations with explicit proof checkpoints;
 - close stale O-008/O-011 entries by reference to Phase 2 decisions;
 - promote R-007 using Phase 3 plan evidence;
 - define stable diagnostic ranges and test protocol additions;

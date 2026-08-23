@@ -32,6 +32,9 @@
     <Project Path="tests/Nanto.Cli.Tests/Nanto.Cli.Tests.csproj" />
     <Project Path="tests/Nanto.Cli.TestProtocol/Nanto.Cli.TestProtocol.csproj" />
     <Project Path="tests/Nanto.Cli.ProcessFixture/Nanto.Cli.ProcessFixture.csproj" />
+    <Project Path="tests/Nanto.Plugin.Fixture.CoreClrOnly/Nanto.Plugin.Fixture.CoreClrOnly.csproj" />
+    <Project Path="tests/Nanto.Plugin.Fixture.Filesystem/Nanto.Plugin.Fixture.Filesystem.csproj" />
+    <Project Path="tests/Nanto.Plugin.TestProtocol/Nanto.Plugin.TestProtocol.csproj" />
     <Project Path="tests/Nanto.Sdk.AssetFixture/Nanto.Sdk.AssetFixture.csproj" />
     <Project Path="tests/Nanto.DevLoop.IntegrationTests/Nanto.DevLoop.IntegrationTests.csproj" />
     <Project Path="tests/Nanto.Generators.Tests/Nanto.Generators.Tests.csproj" />

@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 is next. One Phase 1 mixed-DPI acceptance follow-up remains recorded in [`phase1-gate.md`](phase1-gate.md); the 550-process soak passed on August 23, 2026.
+**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 implementation is in progress and Slice 0 is complete. One Phase 1 mixed-DPI acceptance follow-up remains recorded in [`phase1-gate.md`](phase1-gate.md); the 550-process soak passed on August 23, 2026.
 
 **Date:** 10 August 2026
 
@@ -1278,15 +1278,17 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-071 | Resolve O-013 with a minimal optional `AddNantoApp<TFrontend>(...)` Aspire resource extension and no default `--aspire` template switch. | The adapter models the frontend dependency, generated-client path, endpoint, and managed watch process without coupling the CLI or runtime to Aspire. The standalone sample keeps orchestration discoverable without expanding the default project graph. |
 | D-072 | Resolve O-014 by deferring a Nanto-owned browser exporter, instrumentation bundle, sampling policy, and relay wire format. | Phase 3 supplies W3C propagation hooks and standard native OpenTelemetry integration. A packaged browser relay needs production origin, batching, limits, flushing, and interoperability evidence and remains under R-009. |
 | D-073 | Accept the Phase 1 lifecycle/recovery soak after one controlled 550-process run completes within the measured deadline. | Run `e342d4fdce69441595c25fced19c9fd6` passed 500 host-lifecycle and 50 renderer-recovery processes across ten blocks in 3,843,760 ms, recorded no first failure, and deleted the shared application root. The mixed-DPI visible follow-up remains open. |
+| D-074 | Accept an inspectable MSBuild execution plan and mutation-free CLI `--plan` from R-007. | Phase 3 proved deterministic human/JSON plans, explicit step inputs and outputs, package-consumer operation, and no plan-time restore, build, command execution, or filesystem mutation. Phase 4 extends the same surface with a fingerprinted restore-graph selection snapshot rather than introducing a second planner. |
+| D-075 | Compile strict versioned capability documents outside `nanto.json` into immutable exact window/origin authorization tables. | Keeps host/frontend orchestration separate from security authority, preserves default-deny behavior, and removes runtime JSON parsing and reflection from command/event authorization. Phase 4 exposes only the stable `main` window selector while retaining the window dimension for future expansion. |
+| D-076 | Permit explicit remote capability grants only for exact normalized HTTPS origins; reserve HTTP for a validated `local` development origin. | Exact matching prevents grant transfer between origins, while rejecting plaintext remote grants prevents network substitution from inheriting native capabilities. Local production and development content resolve through the already validated host content origin. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
 | ID | Recommendation | Proof required |
 | --- | --- | --- |
-| R-002 | Make NuGet the plugin source of truth and generate frontend plugin modules. | Package-consumer ergonomics and JS bundler compatibility. |
-| R-003 | Default `--runtime auto`, with strict `native-aot` for CI. | Ensure fallback is visible and never surprising. |
+| R-002 | Make the evaluated NuGet graph the plugin source of truth and generate matching frontend plugin modules. | Package-consumer ergonomics, restore-snapshot fidelity, and JS bundler compatibility. |
+| R-003 | Resolve `--runtime auto` to Native AOT unless verified static plugin metadata requires self-contained CoreCLR; keep explicit `native-aot` strict and never retry an unexpected AOT failure as CoreCLR. | Pre-publish selection, exact compatibility diagnostics, artifact evidence, and no-fallback failure coverage. |
 | R-005 | Use application/window/plugin lifetime scopes without a heavy mandatory DI dependency. | AOT size and ergonomics benchmark. |
-| R-007 | Provide an inspectable MSBuild execution plan and CLI dry-run. | Confirm the build remains customizable without exposing unstable internal targets. |
 | R-009 | Prefer a native OTLP relay for packaged WebView telemetry, while allowing direct OTLP/HTTP in development. | Prove batching, correlation, AOT size, origin checks, limits, shutdown flushing, and interoperability with Aspire Dashboard and a generic collector. |
 
 ### 13.3 Open decisions
@@ -1295,10 +1297,10 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | --- | --- | --- |
 | O-004 | macOS AppKit versus Mac Catalyst host | Before Apple host implementation |
 | O-005 | GTK major version and supported Linux distributions | Before Linux host implementation |
-| O-008 | Stable command/event naming and TypeScript mapping rules | Generator prototype review |
 | O-009 | Binary IPC transport | After JSON IPC MVP benchmark |
 | O-010 | Packaging, signing, updater, and Store scope | After Windows MVP |
-| O-011 | Numeric command-ID derivation and protocol compatibility strategy | Generator/IPC prototype benchmark |
+
+O-008 was closed by D-059 and D-062: generated symbolic command/event names and the TypeScript mapping are stable. O-011 was closed by D-061: private numeric IDs derive from canonical signatures and sessions bind to the full manifest fingerprint.
 
 ### 13.4 Work explicitly deferred from Phase 1
 

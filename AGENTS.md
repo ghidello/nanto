@@ -88,7 +88,7 @@ dotnet build
 dotnet test
 ```
 
-Both commands cover the two production assemblies, the offline WebView2 and WinRT-appearance interop generators, repository-local `Nanto.Testing` support, the three fast test projects, and the TestProtocol, TestApp, TestApp-only native interop, IntegrationTestKit, hidden WebView2 integration, interop-generation integration, self-contained CoreCLR deployment integration, Native AOT deployment integration, and visible integration projects. Only the three fast test projects execute tests by default.
+Both commands cover the production assemblies, the offline WebView2 and WinRT-appearance interop generators, repository-local `Nanto.Testing` and plugin test-protocol support, the behavior-free Phase 4 plugin fixture packages, the fast test projects, and the TestProtocol, TestApp, TestApp-only native interop, IntegrationTestKit, hidden WebView2 integration, interop-generation integration, self-contained CoreCLR deployment integration, Native AOT deployment integration, and visible integration projects. Only fast test projects execute tests by default.
 
 Test scope is independent from build configuration. Use:
 
