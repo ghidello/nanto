@@ -2,7 +2,7 @@
 
 **Status:** Implementation closed as of August 22, 2026. See [`phase2-gate.md`](phase2-gate.md).
 
-Phase 2 adds the versioned, generated frontend bridge without weakening the completed Phase 1 Windows host, lifecycle, asset, appearance, diagnostics, or deployment guarantees. The complete 550-process lifecycle/recovery soak and a visible mixed-DPI run on two suitable monitors remain open Phase 1 acceptance follow-ups; neither is waived or considered passed.
+Phase 2 adds the versioned, generated frontend bridge without weakening the completed Phase 1 Windows host, lifecycle, asset, appearance, diagnostics, or deployment guarantees. The complete 550-process lifecycle/recovery soak passed on August 23, 2026. A visible mixed-DPI run on two suitable monitors remains the sole open Phase 1 acceptance follow-up and is neither waived nor considered passed.
 
 ## Decisions
 
@@ -39,7 +39,7 @@ self-contained CoreCLR, and Native AOT projects;
 the manual visible and long-running projects did not execute their opted-in scenarios.
 
 All Phase 2 implementation and exit criteria are satisfied. Phase 3 may proceed; the evidence is recorded in [`phase2-gate.md`](phase2-gate.md).
-The complete 550-process soak and mixed-DPI visible run remain separately approved Phase 1 follow-ups.
+The complete 550-process soak passed on August 23, 2026. The mixed-DPI visible run remains a separately approved Phase 1 follow-up.
 
 ## Acceptance
 

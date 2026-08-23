@@ -4,7 +4,7 @@
 
 Phase 2 implementation is closed as of August 22, 2026. Phase 3 may proceed.
 
-The complete 550-process lifecycle/recovery soak and the visible mixed-DPI run on two suitable monitors remain open Phase 1 acceptance follow-ups. They are neither waived nor reported as passed; their exact status remains in [`phase1-gate.md`](phase1-gate.md).
+The complete 550-process lifecycle/recovery soak passed on August 23, 2026. The visible mixed-DPI run on two suitable monitors remains the sole open Phase 1 acceptance follow-up. It is neither waived nor reported as passed; its exact status remains in [`phase1-gate.md`](phase1-gate.md).
 
 ## Implemented surface
 

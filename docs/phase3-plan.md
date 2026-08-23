@@ -4,7 +4,7 @@
 
 Phase 3 turns the completed Windows host and generated bridge into a usable development product. It adds project creation, inspectable build orchestration, a framework-neutral frontend development contract, predictable Hot Reload or restart behavior, standard telemetry, and optional Aspire orchestration.
 
-The complete 550-process lifecycle/recovery soak and the visible mixed-DPI run on two suitable monitors remain open Phase 1 acceptance follow-ups. They do not block Phase 3, are not waived, and must not be reported as passed.
+The complete 550-process lifecycle/recovery soak passed on August 23, 2026. The visible mixed-DPI run on two suitable monitors remains the sole open Phase 1 acceptance follow-up. It does not block Phase 3, is not waived, and must not be reported as passed.
 
 ## 1. Outcomes
 
@@ -757,4 +757,4 @@ Every checkpoint updates the architecture decision register. A prototype may be 
 
 Phase 3 closes only when the React/Vite reference path and custom-SPA path pass the same generated bridge, authorization, lifecycle, process-cleanup, CoreCLR, and Native AOT contracts; the build graph is inspectable; telemetry is optional and correlated; and the recorded developer-loop budgets are met.
 
-The two open Phase 1 manual follow-ups remain visible in their own gate record throughout Phase 3. Completing Phase 3 neither waives nor implicitly passes them.
+The Phase 1 manual follow-ups remain visible in their own gate record throughout Phase 3. The 550-process soak passed separately on August 23, 2026; completing Phase 3 neither waived nor implicitly passed the remaining mixed-DPI run.

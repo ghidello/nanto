@@ -2,7 +2,7 @@
 
 **Status:** Closed on 2026-08-23. Implementation, automated validation, live developer-loop evidence, Aspire orchestration, and final repeated measurements pass.
 
-This record closes Phase 3 without waiving the Phase 1 550-process soak or mixed-DPI two-monitor follow-ups.
+This record closes Phase 3 without waiving the mixed-DPI two-monitor Phase 1 follow-up. The 550-process Phase 1 soak passed separately on August 23, 2026.
 
 ## Proven implementation
 
@@ -53,9 +53,9 @@ The Release gate includes the hidden WebView, self-contained CoreCLR, and Native
 
 The clean reference run recorded one cold and 30 warm bridge-ready launches with zero failures. Cold readiness was 46,608.1 ms; warm median was 59,578.8 ms and nearest-rank p95 was 74,984.4 ms. Shutdown median was 797.1 ms, p95 was 1,174.1 ms, and maximum was 1,331.6 ms. The accepted budgets are 90 seconds for end-to-end readiness, 2 seconds for shutdown, 2 seconds for frontend feedback, 5 seconds for managed Hot Reload, 30 seconds for incompatible-edit restart/re-handshake, and zero failures. Full environment and procedure details are in [`phase3-baselines.md`](phase3-baselines.md).
 
-## Related open Phase 1 follow-ups
+## Related Phase 1 acceptance evidence
 
-- Complete the separately approved 550-process lifecycle/recovery soak.
+- The separately approved 550-process lifecycle/recovery soak passed all 500 host-lifecycle and 50 renderer-recovery processes on August 23, 2026.
 - Pass the visible cross-monitor scenario on two active monitors with different effective DPI.
 
-Neither item is part of the unattended Phase 3 gate, and neither is reported as passed.
+The mixed-DPI item is not part of the unattended Phase 3 gate and is not reported as passed.

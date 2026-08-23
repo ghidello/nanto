@@ -4,12 +4,11 @@
 
 Phase 1 implementation is closed as of August 14, 2026. Phase 2 may proceed.
 
-Two acceptance follow-ups remain open:
+One acceptance follow-up remains open:
 
-1. Complete the manual 550-process lifecycle and renderer-recovery soak under the measured 75-minute safety deadline.
-2. Pass `VisibleCrossMonitorDpi` on two active monitors with different effective DPI.
+1. Pass `VisibleCrossMonitorDpi` on two active monitors with different effective DPI.
 
-These items are neither waived nor reported as passed. They qualify the strength of Phase 1 acceptance evidence, not the completeness of the implemented production surface.
+The complete 550-process lifecycle and renderer-recovery soak passed on August 23, 2026. The remaining mixed-DPI item is neither waived nor reported as passed. It qualifies the strength of Phase 1 acceptance evidence, not the completeness of the implemented production surface.
 
 ## Implementation and environment
 
@@ -58,7 +57,9 @@ dotnet test tests/Nanto.Hosting.Windows.LongRunningIntegrationTests/Nanto.Hostin
 
 The August 14 attempt used the former 45-minute deadline and completed 397 clean isolated processes: 362 `HostLifecycle` and 35 `RendererRecovery`, including seven complete blocks. It then stopped at the outer deadline, terminated containment, and successfully deleted the shared application root. No behavioral or resource failure was observed in a completed child. Retained summary: `artifacts/phase1/long-running/b220e05456914f60a2df7be2b979734b/summary.json`.
 
-The measured duration projects approximately 62–64 minutes, and the implemented deadline is now 75 minutes. A complete 500 lifecycle plus 50 recovery run remains pending and requires separate approval.
+The approved August 23 acceptance run `e342d4fdce69441595c25fced19c9fd6` completed all ten blocks and passed 500 `HostLifecycle` plus 50 `RendererRecovery` processes in 3,843,760 ms, within the 75-minute deadline. It recorded no first failure, deleted the shared application root, and completed every block with the expected 50/5 scenario split. Retained summary: `artifacts/phase1/long-running/e342d4fdce69441595c25fced19c9fd6/summary.json`.
+
+An earlier August 23 attempt reached 479 successful processes before one WebView activation exceeded the fixed timeout while the machine was under user-reported memory pressure. That attempt released every acquired resource and deleted its application root. The clean controlled rerun passed the exact prior failure point and all remaining processes; the failed attempt remains retained as interference evidence rather than acceptance evidence.
 
 ## Unsupported and deferred scope
 

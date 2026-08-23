@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 is next. Two Phase 1 acceptance follow-ups remain recorded in [`phase1-gate.md`](phase1-gate.md).
+**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 is next. One Phase 1 mixed-DPI acceptance follow-up remains recorded in [`phase1-gate.md`](phase1-gate.md); the 550-process soak passed on August 23, 2026.
 
 **Date:** 10 August 2026
 
@@ -1277,6 +1277,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-070 | Expose dependency-free trace-provider and observer hooks from `@nanto/core`, and validate optional W3C context natively. | Browser applications may integrate their chosen telemetry SDK without forcing one into every client. Invalid or over-limit trace metadata is ignored safely, while native activities and bounded metrics remain standard `ActivitySource`/`Meter` surfaces. |
 | D-071 | Resolve O-013 with a minimal optional `AddNantoApp<TFrontend>(...)` Aspire resource extension and no default `--aspire` template switch. | The adapter models the frontend dependency, generated-client path, endpoint, and managed watch process without coupling the CLI or runtime to Aspire. The standalone sample keeps orchestration discoverable without expanding the default project graph. |
 | D-072 | Resolve O-014 by deferring a Nanto-owned browser exporter, instrumentation bundle, sampling policy, and relay wire format. | Phase 3 supplies W3C propagation hooks and standard native OpenTelemetry integration. A packaged browser relay needs production origin, batching, limits, flushing, and interoperability evidence and remains under R-009. |
+| D-073 | Accept the Phase 1 lifecycle/recovery soak after one controlled 550-process run completes within the measured deadline. | Run `e342d4fdce69441595c25fced19c9fd6` passed 500 host-lifecycle and 50 renderer-recovery processes across ten blocks in 3,843,760 ms, recorded no first failure, and deleted the shared application root. The mixed-DPI visible follow-up remains open. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 
@@ -1354,7 +1355,7 @@ Exit criteria:
 - UI-thread violations fail clearly in development;
 - renderer failure produces a controlled lifecycle event rather than a process crash.
 
-All implementation exit criteria are satisfied. The complete 550-process soak and a passing mixed-DPI visible run remain acceptance follow-ups documented in [`phase1-gate.md`](phase1-gate.md); they do not block Phase 2 implementation and are not waived or reported as passed.
+All implementation exit criteria are satisfied. The complete 550-process soak passed on August 23, 2026. A passing mixed-DPI visible run remains the sole acceptance follow-up documented in [`phase1-gate.md`](phase1-gate.md); it does not block later phases and is not waived or reported as passed.
 
 ### Phase 2 — IPC and generated contracts
 
@@ -1378,7 +1379,7 @@ Exit criteria:
 - all generated paths pass strict AOT publish;
 - cancellation and stream shutdown are race-tested.
 
-All implementation and exit criteria are satisfied. The closing evidence is recorded in [`phase2-gate.md`](phase2-gate.md). The two open Phase 1 acceptance follow-ups remain separate and do not block Phase 3.
+All implementation and exit criteria are satisfied. The closing evidence is recorded in [`phase2-gate.md`](phase2-gate.md). The 550-process soak passed on August 23, 2026; the remaining mixed-DPI Phase 1 acceptance follow-up remains separate and does not block Phase 3.
 
 ### Phase 3 — CLI, framework-neutral SPA integration, and development loop
 
@@ -1413,7 +1414,7 @@ Exit criteria:
 - no orphaned Node or .NET processes remain after exit;
 - spaces in paths, multiple package managers, and occupied dev ports are tested.
 
-All Phase 3 implementation and exit criteria are satisfied. The closing evidence and accepted developer-loop budgets are recorded in [`phase3-gate.md`](phase3-gate.md) and [`phase3-baselines.md`](phase3-baselines.md). The two open Phase 1 acceptance follow-ups remain separate and do not block Phase 4 planning.
+All Phase 3 implementation and exit criteria are satisfied. The closing evidence and accepted developer-loop budgets are recorded in [`phase3-gate.md`](phase3-gate.md) and [`phase3-baselines.md`](phase3-baselines.md). The remaining mixed-DPI Phase 1 acceptance follow-up remains separate and does not block Phase 4 planning.
 
 ### Phase 4 — Capabilities and plugin foundation
 
