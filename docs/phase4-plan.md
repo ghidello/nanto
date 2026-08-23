@@ -1,6 +1,6 @@
 # Phase 4 plan — capabilities and plugin foundation
 
-**Status:** Proposed implementation plan. Phase 3 implementation is present, but its live developer-loop, pnpm/Unicode, Aspire, and process-assignment-race evidence remains open in [`phase3-gate.md`](phase3-gate.md). Those items do not block Phase 4 implementation and must not be reported as passed.
+**Status:** Proposed implementation plan. Phase 1, Phase 2, and Phase 3 implementation are closed. The complete 550-process Phase 1 lifecycle/recovery soak passed on August 23, 2026. One separately approved Phase 1 follow-up remains open: the visible cross-monitor run on two active monitors with different effective DPI. Keep that item visible in the gate record and do not report it as passed.
 
 Phase 4 turns the existing per-window list of generated command IDs into a compiled, inspectable authorization policy and establishes the static plugin composition and lifecycle model needed by the Windows MVP plugins in Phase 5. It does not ship the Phase 5 plugin catalogue.
 
@@ -140,9 +140,10 @@ Schema rules:
 - `schemaVersion` must equal `1`;
 - `identifier` is unique across the project, lowercase ASCII kebab-case, and diagnostic-only at runtime;
 - `windows` is a non-empty, duplicate-free list; Phase 4 accepts only `main`;
-- `origins` is a non-empty, duplicate-free list containing `local` or exact normalized HTTP(S) origins;
+- `origins` is a non-empty, duplicate-free list containing `local` or exact normalized HTTPS origins;
 - an exact origin contains scheme, IDN-normalized host, and effective port only; user info, path, query, fragment, wildcard, opaque URI, and non-HTTP(S) schemes are rejected;
 - `local` resolves after application content validation to the production application origin or configured development origin;
+- an explicit origin must use HTTPS; HTTP is accepted only through `local` when it resolves to the validated development origin, so a plaintext remote document can never receive native grants;
 - `permissions` is non-empty and duplicate-free after canonicalization;
 - a string grants an unscoped permission;
 - an object contains exactly `identifier` and `scope`;
@@ -255,7 +256,7 @@ The exact schema is finalized in Slice 1. Its invariants are fixed now:
 
 The evaluated restore graph is the selection authority: referencing a Nanto plugin package selects its manifest, registry adapter, compatibility metadata, and frontend module for that build. Transitive Nanto plugin dependencies are selected too. Plugin manifests declare their Nanto-plugin dependency edges; the SDK verifies those edges against the evaluated NuGet graph and rejects missing, extra, or cyclic plugin dependencies. The plugin may expose a generated typed configuration API, but configuration does not control whether the plugin is selected. Selection and configuration grant no frontend permission.
 
-Both the CLI and SDK consume the same selection snapshot that an SDK restore/evaluation target emits from the host project's current `obj/project.assets.json` plus package manifests. A snapshot records the host project, target framework, requested build configuration, relevant restore global properties, and hashes of the host project, central package file, and applicable `Directory.Build.*`/`Directory.Packages.*` inputs. `--plan` never restores or builds: it requires a snapshot matching those inputs and fails with an actionable `restore required` diagnostic when none exists. The executing build performs its normal restore/build first, then reloads the resulting selection snapshot before choosing a publish runtime. Plugin selection must not vary by `NantoBuildMode`; the SDK compares the contract-build and publish snapshots and fails on divergence. The snapshot fingerprint is carried into the generated registry and build evidence so a stale or different graph cannot be used silently.
+Both the CLI and SDK consume the same selection snapshot that an SDK restore/evaluation target emits from the host project's current `obj/project.assets.json` plus package manifests. A snapshot records the host project, target framework, requested build configuration, relevant restore global properties, the assets-file and package-manifest hashes, and the complete evaluated restore-input closure. That closure includes every imported project/props/targets file reported by MSBuild, applicable `NuGet.Config` and lock files, central package inputs, the selected SDK from `global.json`, and any other input that can change restore evaluation. `--plan` performs a mutation-free MSBuild evaluation, compares that closure and the assets-file fingerprint with the snapshot, and fails with an actionable `restore required` diagnostic when no exact match exists; it never restores or builds. The executing build performs its normal restore/build first, then reloads the resulting selection snapshot before choosing a publish runtime. Plugin selection must not vary by `NantoBuildMode`; the SDK compares the contract-build and publish snapshots and fails on divergence. The snapshot fingerprint is carried into the generated registry and build evidence so a stale or different graph cannot be used silently.
 
 ## 11. Static composition API
 
@@ -441,10 +442,10 @@ Deliver:
 - compare WebMessage event source with current WebView source;
 - rotate/dispose sessions on every navigation start and teardown;
 - resolve `local` against production and development origins;
-- allow explicitly granted remote origins without transferring local grants;
+- allow explicitly granted HTTPS remote origins without transferring local grants;
 - hidden WebView tests for local, remote, return navigation, stale messages, streams, events, malformed origins, and wrong WebView identity.
 
-Exit: remote navigation has zero local permissions by default and an explicit remote grant enables only its listed members.
+Exit: remote navigation has zero local permissions by default and an explicit HTTPS remote grant enables only its listed members.
 
 ### Slice 5 — typed scopes and native-boundary validation
 
@@ -564,7 +565,7 @@ Test dimensions:
 | Dimension | Required cases |
 | --- | --- |
 | Policy | empty, exact grant, partial grant, duplicate, unknown, malformed, deterministic merge |
-| Origin | production local, development local, explicit remote, ungranted remote, navigation away/back, stale source/session |
+| Origin | production local, development local, explicit HTTPS remote, rejected plaintext remote, ungranted remote, navigation away/back, stale source/session |
 | Bridge | unary, stream, event, cancel, subscribe/unsubscribe, manifest mismatch, wrong WebView identity |
 | Scope | absent, valid, malformed, alias escape, normalized target escape, plugin rejection |
 | Registry | zero, one, several, duplicate ID, direct/transitive selection, configured/unconfigured, selected but ungranted |
@@ -595,7 +596,7 @@ The gate sets accepted budgets from measured fixtures before declaring completio
 - [ ] Empty or absent grants expose no commands or events.
 - [ ] Implemented but ungranted commands cannot be invoked.
 - [ ] Navigating remotely removes local grants, cancels active work, and disposes subscriptions.
-- [ ] Explicit remote grants apply only to the exact normalized origin and listed members.
+- [ ] Explicit remote grants require HTTPS and apply only to the exact normalized origin and listed members; HTTP is available only through a validated `local` development origin.
 - [ ] The current WebView/window/origin/session identity is checked independently of member authorization.
 - [ ] Scope-aware fixture operations revalidate normalized native targets at their boundary.
 - [ ] Selecting or configuring a plugin never implicitly grants it.
@@ -612,7 +613,7 @@ The gate sets accepted budgets from measured fixtures before declaring completio
 - [ ] No unexplained `IL2026`, `IL3050`, `IL3052`, analyzer, trim, or AOT warnings remain.
 - [ ] No PDB enters a production publish directory; symbols remain separate.
 - [ ] Final size, build, authorization, startup, shutdown, and repeated-process evidence is recorded in `phase4-gate.md`.
-- [ ] Open Phase 1 and Phase 3 follow-ups remain visible and are not reported as passed.
+- [ ] The open mixed-DPI Phase 1 follow-up remains visible and is not reported as passed.
 
 ## 21. Decision checkpoints
 
@@ -631,4 +632,4 @@ Schema or public-lifecycle changes after their checkpoint require an explicit co
 
 Phase 4 closes only when capability documents compile to deterministic exact window/origin authorization, local grants are lost on remote navigation, scope-aware native operations cannot exceed compiled grants, plugin composition is static and selected from the evaluated restore graph, application/window lifecycle failure matrices prove reverse-dependency cleanup and safe lease revocation, NuGet-owned frontend modules pass both maintained frontend fixtures, and runtime selection is predictable and evidenced across strict Native AOT and CoreCLR.
 
-Phase 4 completion does not close the Phase 1 soak/mixed-DPI follow-ups or the open Phase 3 live-development evidence. Those remain separate gate records until actually executed.
+Phase 4 completion does not close the mixed-DPI Phase 1 follow-up. It remains a separate gate record until executed on two active monitors with different effective DPI.
