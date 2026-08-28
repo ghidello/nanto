@@ -104,8 +104,56 @@ public sealed class NantoBridgeGeneratorTests
         generated.Should().Contain("projects.open");
         generated.Should().Contain("projects.build");
         generated.Should().Contain("projects.changed");
+        generated.Should().Contain("public static class AppPermissions");
+        generated.Should().Contain("public const string Open = \"app:projects.open\"");
+        generated.Should().Contain("public const string Changed = \"app:projects.changed\"");
         generated.Should().Contain("Add(this global::Nanto.NantoBridgeConfiguration bridge, global::ProjectsApi api)");
         generated.Should().Contain("Add(this global::Nanto.NantoBridgeConfiguration bridge, global::ProjectBuilds api)");
+    }
+
+    [Fact]
+    public void ReportsApplicationPermissionCollisionAfterLowercaseNormalization()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            [NantoApi]
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<int> OpenURLAsync() => Task.FromResult(1);
+
+                [NantoCommand]
+                public Task<int> OpenUrlAsync() => Task.FromResult(2);
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO4201");
+        result.GeneratedTrees.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReportsApplicationMemberThatCannotProducePermissionIdentifier()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using Nanto;
+
+            [NantoApi]
+            public sealed class ProjectsApi
+            {
+                [NantoCommand]
+                public Task<int> _OpenAsync() => Task.FromResult(1);
+            }
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "NANTO4200");
+        result.GeneratedTrees.Should().BeEmpty();
     }
 
     [Fact]
@@ -814,7 +862,7 @@ public sealed class NantoBridgeGeneratorTests
         var generatedCSharp = Run(compilation).GeneratedTrees.Should().ContainSingle().Subject.ToString();
         var generatedTypeScript = Nanto.Sdk.Program.CreateTypeScript(Nanto.Sdk.Program.DiscoverFrontendMembers(compilation), string.Empty);
 
-        Fingerprint(generatedCSharp).Should().Be("4E41B6474A76DB20BEC9C2CF3A5D78C4D63B3DE18E0DC70266AD4506DB90F2EE");
+        Fingerprint(generatedCSharp).Should().Be("DE113B55B42E9C28402684223C852DD2D08D3FE1962E7882A58AA1BE9A4B39EC");
         Fingerprint(generatedTypeScript).Should().Be("183B43F9B098C5D246980AADF616590AC024C6498290076FC831FC602F235577");
     }
 

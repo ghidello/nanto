@@ -231,6 +231,7 @@ The package manifest has a versioned strict schema and includes:
 {
   "schemaVersion": 1,
   "id": "fixture.filesystem",
+  "catalogFingerprint": "9E4367F59B73CB958EA2C89B1590A937C2A1A16E7260E18C73D099EA380D230C",
   "runtimeCompatibility": "nativeAot",
   "dependencies": [],
   "permissions": [
@@ -240,11 +241,15 @@ The package manifest has a versioned strict schema and includes:
       "scopeSchema": "scopes/read-v1.schema.json"
     }
   ],
-  "frontendModule": "frontend/index.ts"
+  "frontendModule": "frontend/index.js"
 }
 ```
 
-The exact schema is finalized in Slice 1. Its invariants are fixed now:
+Slice 1 freezes this schema as `https://nanto.dev/schemas/plugin-manifest/v1.json`. A CoreCLR-only declaration replaces the
+`nativeAot` string with `{ "mode": "coreClr", "dependencyPackage": "...", "dependencyVersion": "...", "reason": "..." }`.
+The package must place the manifest at `nanto/plugin-manifest-v1.json`, expose it through a `buildTransitive` `NantoPluginManifest`
+item with exact `PackageId` metadata, and package referenced frontend/scope files at their declared package-root-relative paths.
+Its frozen invariants are:
 
 - one manifest per plugin package and one globally unique plugin ID;
 - no manifest scripts or executable discovery hooks;
@@ -253,6 +258,12 @@ The exact schema is finalized in Slice 1. Its invariants are fixed now:
 - permission/member mappings are complete and deterministic;
 - compatibility declarations include a bounded reason and exact package/dependency identity when CoreCLR is required;
 - the SDK verifies declared files and catalog fingerprints rather than trusting labels alone.
+
+Manifest JSON is UTF-8 without a BOM and at most 256 KiB. A scope schema is at most 256 KiB and a frontend module at most 4 MiB.
+The catalog fingerprint is uppercase SHA-256 over UTF-8 canonical permission records ordered by ordinal permission identifier: the
+identifier line, ordinal `member=<symbolic-name>` lines, and optional `scope=<package-path>|<content-sha256>` line. The merged catalog
+orders dependencies topologically and breaks unrelated-plugin ties by ordinal plugin ID. Its fingerprint includes exact package
+identity/version, compatibility evidence, manifest/catalog hashes, dependency edges, and frontend content hash.
 
 The evaluated restore graph is the selection authority: referencing a Nanto plugin package selects its manifest, registry adapter, compatibility metadata, and frontend module for that build. Transitive Nanto plugin dependencies are selected too. Plugin manifests declare their Nanto-plugin dependency edges; the SDK verifies those edges against the evaluated NuGet graph and rejects missing, extra, or cyclic plugin dependencies. The plugin may expose a generated typed configuration API, but configuration does not control whether the plugin is selected. Selection and configuration grant no frontend permission.
 

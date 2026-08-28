@@ -54,6 +54,22 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor _invalidApplicationPermission = new(
+        "NANTO4200",
+        "Invalid generated application permission",
+        "Bridge member '{0}' cannot produce a lowercase ASCII application permission identifier",
+        "Nanto.Generators",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor _applicationPermissionCollision = new(
+        "NANTO4201",
+        "Generated application permission collision",
+        "Bridge members '{0}' and '{1}' produce the same application permission '{2}'",
+        "Nanto.Generators",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var commands = context.SyntaxProvider.ForAttributeWithMetadataName(
@@ -180,6 +196,31 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
                     values[0].SymbolicName,
                     values[1].SymbolicName,
                     member.Id.ToString(CultureInfo.InvariantCulture)));
+            }
+        }
+
+        foreach (NantoContractMember member in members.Where(static member => !IsApplicationPermissionIdentifier(CreateApplicationPermission(member))))
+        {
+            hasModelErrors = true;
+            context.ReportDiagnostic(Diagnostic.Create(
+                _invalidApplicationPermission,
+                member.Symbol.Locations.FirstOrDefault(),
+                member.SymbolicName));
+        }
+
+        foreach (var collision in members.GroupBy(CreateApplicationPermission, StringComparer.Ordinal)
+            .Where(static group => group.Select(member => member.SymbolicName).Distinct(StringComparer.Ordinal).Count() > 1))
+        {
+            hasModelErrors = true;
+            NantoContractMember[] values = collision.OrderBy(static member => member.SymbolicName, StringComparer.Ordinal).ToArray();
+            foreach (NantoContractMember member in values)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    _applicationPermissionCollision,
+                    member.Symbol.Locations.FirstOrDefault(),
+                    values[0].SymbolicName,
+                    values[1].SymbolicName,
+                    collision.Key));
             }
         }
 
@@ -514,6 +555,23 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
         builder.AppendLine();
         builder.AppendLine("namespace Nanto.Generated;");
         builder.AppendLine();
+        builder.AppendLine("public static class AppPermissions");
+        builder.AppendLine("{");
+        foreach (var group in members.GroupBy(static member => member.GroupName).OrderBy(static group => group.Key, StringComparer.Ordinal))
+        {
+            builder.Append("    public static class ").Append(ToPascalCase(group.Key)).AppendLine();
+            builder.AppendLine("    {");
+            foreach (var member in group.OrderBy(static member => member.MemberName, StringComparer.Ordinal))
+            {
+                builder.Append("        public const string ").Append(ToPascalCase(member.MemberName)).Append(" = \"")
+                    .Append(CreateApplicationPermission(member)).AppendLine("\";");
+            }
+
+            builder.AppendLine("    }");
+        }
+
+        builder.AppendLine("}");
+        builder.AppendLine();
         builder.AppendLine("public static class AppCapabilities");
         builder.AppendLine("{");
         foreach (var group in members.GroupBy(static member => member.GroupName).OrderBy(static group => group.Key, StringComparer.Ordinal))
@@ -579,6 +637,17 @@ public sealed class NantoBridgeGenerator : IIncrementalGenerator
 
         builder.AppendLine("}");
         return builder.ToString();
+    }
+
+    private static string CreateApplicationPermission(NantoContractMember member) => "app:" + member.SymbolicName.ToLowerInvariant();
+
+    private static bool IsApplicationPermissionIdentifier(string value)
+    {
+        const string prefix = "app:";
+        return value.StartsWith(prefix, StringComparison.Ordinal)
+            && value.Substring(prefix.Length).Split('.').All(static segment => segment.Length > 0
+                && segment[0] is >= 'a' and <= 'z'
+                && segment.All(static character => character is >= 'a' and <= 'z' || character is >= '0' and <= '9'));
     }
 
     private static void EmitDescriptors(StringBuilder builder, IEnumerable<NantoContractMember> members, string propertyName, string apiName)

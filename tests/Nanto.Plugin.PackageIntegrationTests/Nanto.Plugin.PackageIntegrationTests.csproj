@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="NantoRepositoryRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))" />
+    <AssemblyMetadata Include="NantoConfiguration" Value="$(Configuration)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nanto.Sdk/Nanto.Sdk.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Plugin.Fixture.Filesystem/Nanto.Plugin.Fixture.Filesystem.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Plugin.Fixture.CoreClrOnly/Nanto.Plugin.Fixture.CoreClrOnly.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Plugin.Fixture.Collision/Nanto.Plugin.Fixture.Collision.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Nanto.Plugin.Fixture.Malformed/Nanto.Plugin.Fixture.Malformed.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

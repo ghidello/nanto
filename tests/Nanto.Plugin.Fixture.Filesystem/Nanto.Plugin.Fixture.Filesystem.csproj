@@ -7,5 +7,9 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="buildTransitive/Nanto.Plugin.Fixture.Filesystem.props" Pack="true" PackagePath="buildTransitive/Nanto.Plugin.Fixture.Filesystem.props" />
+    <None Include="nanto/plugin-manifest-v1.json" Pack="true" PackagePath="nanto/plugin-manifest-v1.json" />
+    <None Include="nanto/frontend/index.js" Pack="true" PackagePath="frontend/index.js" />
+    <None Include="nanto/scopes/read-v1.schema.json" Pack="true" PackagePath="scopes/read-v1.schema.json" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Nanto.Generators;
+using Nanto.Sdk.Plugins;
 
 namespace Nanto.Sdk;
 
@@ -29,6 +30,16 @@ internal static class Program
         {
             WriteFileAtomically(outputPath, File.ReadAllText(sourcePath));
             return 0;
+        }
+
+        if (args is ["plugins", "verify", var verificationResponsePath, var snapshotPath])
+        {
+            return VerifyPluginSelection(verificationResponsePath, snapshotPath);
+        }
+
+        if (args is ["plugins", var pluginResponsePath, var catalogOutputPath, var snapshotOutputPath])
+        {
+            return GeneratePluginCatalog(pluginResponsePath, catalogOutputPath, snapshotOutputPath);
         }
 
         if (args is not [var responsePath, var contextOutputPath, var typeScriptOutputPath])
@@ -88,6 +99,123 @@ internal static class Program
         WriteContext(contextOutputPath, CreateJsonContext(compilation));
         WriteTypeScript(typeScriptOutputPath, DiscoverFrontendMembers(compilation), projectDirectory);
         return 0;
+    }
+
+    private static int GeneratePluginCatalog(string responsePath, string catalogOutputPath, string snapshotOutputPath)
+    {
+        try
+        {
+            PluginSelectionCompilation compilation = CompilePluginSelection(responsePath);
+            using var outputLock = AcquireOutputLock(Path.Combine(Path.GetDirectoryName(snapshotOutputPath)!, ".nanto-plugins.lock"));
+            WriteFileAtomically(catalogOutputPath, NantoPluginManifestCompiler.Serialize(compilation.Catalog));
+            WriteFileAtomically(snapshotOutputPath, NantoPluginSelectionSnapshotCompiler.Serialize(compilation.Snapshot));
+            return 0;
+        }
+        catch (NantoPluginManifestException exception)
+        {
+            Console.Error.WriteLine(exception);
+            return 8;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            _ = exception;
+            Console.Error.WriteLine("NANTO4114: plugin-catalog($): Plugin catalog inputs could not be processed.");
+            return 8;
+        }
+    }
+
+    private static int VerifyPluginSelection(string responsePath, string snapshotPath)
+    {
+        try
+        {
+            PluginSelectionCompilation compilation = CompilePluginSelection(responsePath);
+            NantoPluginSelectionSnapshotCompiler.EnsureFresh(snapshotPath, compilation.Snapshot);
+            return 0;
+        }
+        catch (NantoPluginManifestException exception)
+        {
+            Console.Error.WriteLine(exception);
+            return 8;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException)
+        {
+            _ = exception;
+            Console.Error.WriteLine("NANTO4114: plugin-catalog($): Plugin catalog inputs could not be processed.");
+            return 8;
+        }
+    }
+
+    private static PluginSelectionCompilation CompilePluginSelection(string responsePath)
+    {
+        string? assetsFile = null;
+        string? targetFramework = null;
+        string? projectFile = null;
+        string? configuration = null;
+        var references = new List<NantoPluginManifestReference>();
+        var restoreProperties = new List<KeyValuePair<string, string>>();
+        var restoreInputs = new List<string>();
+        foreach (string line in File.ReadLines(responsePath))
+        {
+            if (line.StartsWith("assetsfile=", StringComparison.Ordinal))
+            {
+                assetsFile = line[11..];
+            }
+            else if (line.StartsWith("targetframework=", StringComparison.Ordinal))
+            {
+                targetFramework = line[16..];
+            }
+            else if (line.StartsWith("projectfile=", StringComparison.Ordinal))
+            {
+                projectFile = line[12..];
+            }
+            else if (line.StartsWith("configuration=", StringComparison.Ordinal))
+            {
+                configuration = line[14..];
+            }
+            else if (line.StartsWith("restoreproperty=", StringComparison.Ordinal))
+            {
+                string value = line[16..];
+                int separator = value.IndexOf('|');
+                if (separator <= 0)
+                {
+                    throw new InvalidDataException("Plugin restore-property response entry is malformed.");
+                }
+
+                restoreProperties.Add(new KeyValuePair<string, string>(value[..separator], value[(separator + 1)..]));
+            }
+            else if (line.StartsWith("restoreinput=", StringComparison.Ordinal))
+            {
+                restoreInputs.Add(line[13..]);
+            }
+            else if (line.StartsWith("manifest=", StringComparison.Ordinal))
+            {
+                string value = line[9..];
+                int separator = value.LastIndexOf('|');
+                if (separator <= 0 || separator == value.Length - 1)
+                {
+                    throw new InvalidDataException("Plugin manifest response entry is malformed.");
+                }
+
+                references.Add(new NantoPluginManifestReference(value[..separator], value[(separator + 1)..]));
+            }
+        }
+
+        if (assetsFile is null || targetFramework is null || projectFile is null || configuration is null)
+        {
+            throw new InvalidDataException("Plugin manifest response is missing restore-graph inputs.");
+        }
+
+        NantoPluginManifestInput[] inputs = NantoPluginSelectionReader.Read(assetsFile, targetFramework, references);
+        NantoPluginCatalogDocument catalog = NantoPluginManifestCompiler.Compile(inputs);
+        NantoPluginSelectionSnapshotDocument snapshot = NantoPluginSelectionSnapshotCompiler.Create(
+            assetsFile,
+            projectFile,
+            targetFramework,
+            configuration,
+            catalog,
+            restoreProperties,
+            restoreInputs);
+        return new PluginSelectionCompilation(catalog, snapshot);
     }
 
     private static int GenerateAssetManifest(string distributionRoot, string manifestOutputPath, string resourcePrefix)
@@ -668,6 +796,8 @@ internal static class Program
         var line = location.GetLineSpan().StartLinePosition.Line + 1;
         return relativePath.Replace('\\', '/') + ":" + line.ToString(CultureInfo.InvariantCulture);
     }
+
+    private sealed record PluginSelectionCompilation(NantoPluginCatalogDocument Catalog, NantoPluginSelectionSnapshotDocument Snapshot);
 
     internal sealed class TypeScriptEmitter
     {

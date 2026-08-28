@@ -1,0 +1,7 @@
+<Project>
+  <ItemGroup>
+    <NantoPluginManifest Include="$(MSBuildThisFileDirectory)..\nanto\plugin-manifest-v1.json">
+      <PackageId>Nanto.Plugin.Fixture.Malformed</PackageId>
+    </NantoPluginManifest>
+  </ItemGroup>
+</Project>

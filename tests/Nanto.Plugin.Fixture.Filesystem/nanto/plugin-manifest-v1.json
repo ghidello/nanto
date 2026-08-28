@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture.filesystem",
+  "catalogFingerprint": "9E4367F59B73CB958EA2C89B1590A937C2A1A16E7260E18C73D099EA380D230C",
+  "runtimeCompatibility": "nativeAot",
+  "dependencies": [],
+  "permissions": [
+    {
+      "identifier": "fixture.filesystem:read",
+      "members": [
+        "fixtureFilesystem.read"
+      ],
+      "scopeSchema": "scopes/read-v1.schema.json"
+    }
+  ],
+  "frontendModule": "frontend/index.js"
+}

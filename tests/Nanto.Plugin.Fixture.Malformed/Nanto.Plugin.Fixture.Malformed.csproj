@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>true</IsPackable>
-    <PackageId>Nanto.Plugin.Fixture.CoreClrOnly</PackageId>
-    <Description>Behavior-free CoreCLR compatibility fixture for Nanto Phase 4 tests.</Description>
+    <PackageId>Nanto.Plugin.Fixture.Malformed</PackageId>
+    <Description>Malformed plugin-manifest package fixture for Nanto Phase 4 tests.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
-    <None Include="buildTransitive/Nanto.Plugin.Fixture.CoreClrOnly.props" Pack="true" PackagePath="buildTransitive/Nanto.Plugin.Fixture.CoreClrOnly.props" />
+    <None Include="buildTransitive/Nanto.Plugin.Fixture.Malformed.props" Pack="true" PackagePath="buildTransitive/Nanto.Plugin.Fixture.Malformed.props" />
     <None Include="nanto/plugin-manifest-v1.json" Pack="true" PackagePath="nanto/plugin-manifest-v1.json" />
   </ItemGroup>
 </Project>

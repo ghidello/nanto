@@ -5,9 +5,76 @@
     <NantoAssetManifestResourceName Condition="'$(NantoAssetManifestResourceName)' == ''">Nanto.AppAssets.Manifest</NantoAssetManifestResourceName>
     <NantoSdkToolBuildTarget Condition="'$(NantoSdkToolBuildTarget)' == ''"></NantoSdkToolBuildTarget>
     <NantoBrowserCoreSource Condition="'$(NantoBrowserCoreSource)' == ''">$(MSBuildThisFileDirectory)..\browser\core\index.ts</NantoBrowserCoreSource>
+    <_NantoSdkTargetsFile>$(MSBuildThisFileFullPath)</_NantoSdkTargetsFile>
   </PropertyGroup>
 
-  <Target Name="GenerateNantoContracts" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences">
+  <Target Name="GenerateNantoPluginCatalog" BeforeTargets="CoreCompile" DependsOnTargets="$(NantoSdkToolBuildTarget);ResolvePackageAssets">
+    <PropertyGroup>
+      <NantoPluginIntermediateDirectory Condition="'$(NantoPluginIntermediateDirectory)' == ''">$(IntermediateOutputPath)Nanto\Plugins</NantoPluginIntermediateDirectory>
+      <NantoPluginCatalogOutputPath Condition="'$(NantoPluginCatalogOutputPath)' == ''">$(NantoPluginIntermediateDirectory)\nanto-plugin-catalog-v1.json</NantoPluginCatalogOutputPath>
+      <NantoPluginSelectionSnapshotOutputPath Condition="'$(NantoPluginSelectionSnapshotOutputPath)' == ''">$(NantoPluginIntermediateDirectory)\nanto-plugin-selection-v1.json</NantoPluginSelectionSnapshotOutputPath>
+      <_NantoPluginResponseFile>$(NantoPluginIntermediateDirectory)\plugin-inputs.rsp</_NantoPluginResponseFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NantoPluginRestoreInput Include="$(MSBuildAllProjects)" />
+      <_NantoPluginRestoreInput Remove="$(_NantoSdkTargetsFile)" />
+      <_NantoPluginRestoreInput Include="$(_NantoSdkTargetsFile)" />
+      <_NantoPluginRestoreInput Include="$(RestoreConfigFile)" Condition="'$(RestoreConfigFile)' != ''" />
+      <_NantoPluginRestoreInput Include="$(NuGetLockFilePath)" Condition="'$(NuGetLockFilePath)' != ''" />
+      <_NantoPluginRestoreInput Include="@(NantoPluginManifest->'%(DefiningProjectFullPath)')" />
+      <_NantoPluginRestoreProperty Include="CentralPackageTransitivePinningEnabled">
+        <Value>$(CentralPackageTransitivePinningEnabled)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="ManagePackageVersionsCentrally">
+        <Value>$(ManagePackageVersionsCentrally)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestoreAdditionalProjectSources">
+        <Value>$(RestoreAdditionalProjectSources)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestoreConfigFile">
+        <Value>$(RestoreConfigFile)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestoreLockedMode">
+        <Value>$(RestoreLockedMode)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestorePackagesPath">
+        <Value>$(RestorePackagesPath)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestorePackagesWithLockFile">
+        <Value>$(RestorePackagesWithLockFile)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RestoreSources">
+        <Value>$(RestoreSources)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RuntimeIdentifier">
+        <Value>$(RuntimeIdentifier)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="RuntimeIdentifiers">
+        <Value>$(RuntimeIdentifiers)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="TargetFramework">
+        <Value>$(TargetFramework)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginRestoreProperty Include="TargetFrameworks">
+        <Value>$(TargetFrameworks)</Value>
+      </_NantoPluginRestoreProperty>
+      <_NantoPluginSdkInput Include="assetsfile=$(ProjectAssetsFile)" />
+      <_NantoPluginSdkInput Include="targetframework=$(TargetFramework)" />
+      <_NantoPluginSdkInput Include="projectfile=$(MSBuildProjectFullPath)" />
+      <_NantoPluginSdkInput Include="configuration=$(Configuration)" />
+      <_NantoPluginSdkInput Include="@(_NantoPluginRestoreProperty->'restoreproperty=%(Identity)|%(Value)')" />
+      <_NantoPluginSdkInput Include="@(_NantoPluginRestoreInput->'restoreinput=%(FullPath)')" />
+      <_NantoPluginSdkInput Include="@(NantoPluginManifest->'manifest=%(FullPath)|%(PackageId)')" />
+    </ItemGroup>
+    <MakeDir Directories="$(NantoPluginIntermediateDirectory)" />
+    <WriteLinesToFile File="$(_NantoPluginResponseFile)" Lines="@(_NantoPluginSdkInput)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <Exec Command="dotnet &quot;$(NantoSdkAssembly)&quot; plugins &quot;$(_NantoPluginResponseFile)&quot; &quot;$(NantoPluginCatalogOutputPath)&quot; &quot;$(NantoPluginSelectionSnapshotOutputPath)&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(_NantoPluginResponseFile);$(NantoPluginCatalogOutputPath);$(NantoPluginSelectionSnapshotOutputPath)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="GenerateNantoContracts" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences;GenerateNantoPluginCatalog">
     <PropertyGroup>
       <NantoFrontendIntermediateDirectory Condition="'$(NantoFrontendIntermediateDirectory)' == ''">$(IntermediateOutputPath)Nanto\Frontend</NantoFrontendIntermediateDirectory>
       <NantoFrontendOutputPath Condition="'$(NantoFrontendOutputPath)' == ''">$(NantoFrontendIntermediateDirectory)\@nanto\app</NantoFrontendOutputPath>
