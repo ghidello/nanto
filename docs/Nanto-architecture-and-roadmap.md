@@ -4,7 +4,7 @@
 
 ## Product description, architecture decisions, and implementation roadmap
 
-**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 implementation is in progress and Slice 0 is complete. One Phase 1 mixed-DPI acceptance follow-up remains recorded in [`phase1-gate.md`](phase1-gate.md); the 550-process soak passed on August 23, 2026.
+**Status:** Phase 1, Phase 2, and Phase 3 implementation complete; Phase 4 implementation is in progress and Slice 0 through Slice 2 are complete. One Phase 1 mixed-DPI acceptance follow-up remains recorded in [`phase1-gate.md`](phase1-gate.md); the 550-process soak passed on August 23, 2026.
 
 **Date:** 10 August 2026
 
@@ -1282,6 +1282,7 @@ Each platform host later owns its native packaging requirements while the CLI pr
 | D-075 | Compile strict versioned capability documents outside `nanto.json` into immutable exact window/origin authorization tables. | Keeps host/frontend orchestration separate from security authority, preserves default-deny behavior, and removes runtime JSON parsing and reflection from command/event authorization. Phase 4 exposes only the stable `main` window selector while retaining the window dimension for future expansion. |
 | D-076 | Permit explicit remote capability grants only for exact normalized HTTPS origins; reserve HTTP for a validated `local` development origin. | Exact matching prevents grant transfer between origins, while rejecting plaintext remote grants prevents network substitution from inheriting native capabilities. Local production and development content resolve through the already validated host content origin. |
 | D-077 | Freeze plugin manifest schema v1, lowercase exact permission identifiers, package-root asset layout, and SHA-256 catalog canonicalization after isolated package-consumer proof. | Build-transitive manifests selected from the evaluated NuGet graph now produce deterministic bounded catalogs and freshness-checked selection snapshots; malformed metadata, undeclared assets, ownership collisions, graph mismatches, cycles, and unsupported compatibility evidence fail before runtime activation. R-002 and R-003 remain awaiting their later frontend/runtime evidence. |
+| D-078 | Freeze capability schema v1 with `local` plus exact normalized HTTPS origins and reject duplicate grants rather than merging them. | Strict bounded documents now compile against the application/plugin permission catalog into deterministic source and a redacted fingerprinted inspection artifact. `local` remains a symbolic selector for the already validated application content origin; runtime resolution and authorization integration remain Slice 3 work. |
 
 ### 13.2 Recommended decisions awaiting implementation proof
 

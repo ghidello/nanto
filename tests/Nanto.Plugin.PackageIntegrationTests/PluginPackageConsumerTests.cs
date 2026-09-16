@@ -41,6 +41,7 @@ public sealed class PluginPackageConsumerTests
             filesystem.GetProperty("permissions")[0].GetProperty("identifier").GetString().Should().Be("fixture.filesystem:read");
             filesystem.GetProperty("permissions")[0].GetProperty("members")[0].GetString().Should().Be("fixtureFilesystem.read");
             filesystem.GetProperty("frontendModuleSha256").GetString().Should().MatchRegex("^[A-F0-9]{64}$");
+            await AssertCapabilityPolicyBuildBehaviorAsync(root);
             string[] restoreInputIdentities = snapshot.RootElement.GetProperty("restoreInputs").EnumerateArray()
                 .Select(static input => input.GetProperty("identity").GetString()!)
                 .ToArray();
@@ -119,10 +120,72 @@ public sealed class PluginPackageConsumerTests
             </configuration>
             """,
             TestContext.Current.CancellationToken);
+        if (name == "valid")
+        {
+            string capabilityDirectory = Path.Combine(projectDirectory, "Capabilities");
+            Directory.CreateDirectory(capabilityDirectory);
+            await File.WriteAllTextAsync(
+                Path.Combine(capabilityDirectory, "main.nanto-capability.json"),
+                """
+                {
+                  "$schema": "https://nanto.dev/schemas/capability/v1.json",
+                  "schemaVersion": 1,
+                  "identifier": "main-window",
+                  "windows": ["main"],
+                  "origins": ["local"],
+                  "permissions": [
+                    {
+                      "identifier": "fixture.filesystem:read",
+                      "scope": {
+                        "root": "$APPDATA/projects"
+                      }
+                    }
+                  ]
+                }
+                """,
+                TestContext.Current.CancellationToken);
+        }
 
         ProcessResult restore = await RunAsync(projectDirectory, "restore", projectPath, "--configfile", configPath, "--no-cache");
         restore.ExitCode.Should().Be(0, restore.Output);
         return await RunAsync(projectDirectory, "build", projectPath, "--no-restore");
+    }
+
+    private static async Task AssertCapabilityPolicyBuildBehaviorAsync(string root)
+    {
+        string projectDirectory = Path.Combine(root, "valid");
+        string projectPath = Path.Combine(projectDirectory, "Consumer.csproj");
+        string policyDirectory = Path.Combine(projectDirectory, "obj", "Debug", "net10.0", "Nanto", "Frontend");
+        string policySourcePath = Path.Combine(policyDirectory, "NantoGeneratedCapabilityPolicy.g.cs");
+        string inspectionPath = Path.Combine(policyDirectory, "nanto-capability-policy-v1.json");
+        byte[] policySource = await File.ReadAllBytesAsync(policySourcePath, TestContext.Current.CancellationToken);
+        byte[] inspection = await File.ReadAllBytesAsync(inspectionPath, TestContext.Current.CancellationToken);
+        using (JsonDocument document = JsonDocument.Parse(inspection))
+        {
+            document.RootElement.GetProperty("entries").GetArrayLength().Should().Be(1);
+            document.RootElement.GetProperty("entries")[0].GetProperty("permission").GetString().Should().Be("fixture.filesystem:read");
+            document.RootElement.GetRawText().Should().NotContain("$APPDATA");
+        }
+
+        DateTime sourceWriteTime = File.GetLastWriteTimeUtc(policySourcePath);
+        DateTime inspectionWriteTime = File.GetLastWriteTimeUtc(inspectionPath);
+        ProcessResult noOp = await RunAsync(projectDirectory, "build", projectPath, "--no-restore");
+        noOp.ExitCode.Should().Be(0, noOp.Output);
+        File.GetLastWriteTimeUtc(policySourcePath).Should().Be(sourceWriteTime);
+        File.GetLastWriteTimeUtc(inspectionPath).Should().Be(inspectionWriteTime);
+
+        ProcessResult clean = await RunAsync(projectDirectory, "clean", projectPath);
+        clean.ExitCode.Should().Be(0, clean.Output);
+        ProcessResult rebuilt = await RunAsync(projectDirectory, "build", projectPath, "--no-restore");
+        rebuilt.ExitCode.Should().Be(0, rebuilt.Output);
+        (await File.ReadAllBytesAsync(policySourcePath, TestContext.Current.CancellationToken)).Should().Equal(policySource);
+        (await File.ReadAllBytesAsync(inspectionPath, TestContext.Current.CancellationToken)).Should().Equal(inspection);
+
+        File.Delete(Path.Combine(projectDirectory, "Capabilities", "main.nanto-capability.json"));
+        ProcessResult removed = await RunAsync(projectDirectory, "build", projectPath, "--no-restore");
+        removed.ExitCode.Should().Be(0, removed.Output);
+        using JsonDocument emptyPolicy = JsonDocument.Parse(await File.ReadAllBytesAsync(inspectionPath, TestContext.Current.CancellationToken));
+        emptyPolicy.RootElement.GetProperty("entries").GetArrayLength().Should().Be(0);
     }
 
     private static async Task AssertChangedSelectionInputRequiresRestoreAsync(string root)

@@ -77,6 +77,16 @@ public sealed class NantoPluginManifestCompilerTests : IDisposable
     }
 
     [Fact]
+    public void CompileRejectsReservedApplicationPluginIdentifier()
+    {
+        NantoPluginManifestInput input = WriteManifest("Nanto.Plugin.Invalid", "1.0.0", "app", "[]");
+
+        var action = () => NantoPluginManifestCompiler.Compile([input]);
+
+        action.Should().Throw<NantoPluginManifestException>().Which.Code.Should().Be("NANTO4103");
+    }
+
+    [Fact]
     public void CompileRejectsPluginDependencyMissingFromNuGetGraph()
     {
         NantoPluginManifestInput dependency = WriteManifest("Nanto.Plugin.Dependency", "1.0.0", "fixture.dependency", "[]");

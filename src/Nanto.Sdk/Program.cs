@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Nanto.Generators;
+using Nanto.Sdk.Capabilities;
 using Nanto.Sdk.Plugins;
 
 namespace Nanto.Sdk;
@@ -42,63 +43,107 @@ internal static class Program
             return GeneratePluginCatalog(pluginResponsePath, catalogOutputPath, snapshotOutputPath);
         }
 
-        if (args is not [var responsePath, var contextOutputPath, var typeScriptOutputPath])
+        if (args is not [var responsePath, var contextOutputPath, var typeScriptOutputPath, var policyOutputPath, var policyInspectionOutputPath])
         {
-            Console.Error.WriteLine("Usage: Nanto.Sdk <response-file> <context-output-file> <typescript-output-file>");
+            Console.Error.WriteLine(
+                "Usage: Nanto.Sdk <response-file> <context-output-file> <typescript-output-file> <policy-output-file> <policy-inspection-file>");
             return 2;
         }
 
-        var sources = new List<string>();
-        var references = new List<string>();
-        var defines = Array.Empty<string>();
-        var languageVersion = LanguageVersion.Latest;
-        var nullableContext = NullableContextOptions.Disable;
-        var projectDirectory = Directory.GetCurrentDirectory();
-        foreach (var line in File.ReadLines(responsePath))
+        try
         {
-            if (line.StartsWith("define=", StringComparison.Ordinal))
+            var sources = new List<string>();
+            var references = new List<string>();
+            var capabilityPaths = new List<string>();
+            var defines = Array.Empty<string>();
+            var languageVersion = LanguageVersion.Latest;
+            var nullableContext = NullableContextOptions.Disable;
+            var projectDirectory = Directory.GetCurrentDirectory();
+            string? contractPluginResponsePath = null;
+            foreach (var line in File.ReadLines(responsePath))
             {
-                defines = line[7..].Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (line.StartsWith("define=", StringComparison.Ordinal))
+                {
+                    defines = line[7..].Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                }
+                else if (line.StartsWith("langversion=", StringComparison.Ordinal)
+                    && LanguageVersionFacts.TryParse(line[12..], out var parsedLanguageVersion))
+                {
+                    languageVersion = parsedLanguageVersion;
+                }
+                else if (line.StartsWith("nullable=", StringComparison.Ordinal))
+                {
+                    nullableContext = ParseNullableContext(line[9..]);
+                }
+                else if (line.StartsWith("projectdir=", StringComparison.Ordinal))
+                {
+                    projectDirectory = line[11..];
+                }
+                else if (line.StartsWith("pluginresponse=", StringComparison.Ordinal))
+                {
+                    contractPluginResponsePath = line[15..];
+                }
+                else if (line.StartsWith("capability=", StringComparison.Ordinal))
+                {
+                    capabilityPaths.Add(line[11..]);
+                }
+                else if (line.StartsWith("source=", StringComparison.Ordinal))
+                {
+                    sources.Add(line[7..]);
+                }
+                else if (line.StartsWith("reference=", StringComparison.Ordinal))
+                {
+                    references.Add(line[10..]);
+                }
             }
-            else if (line.StartsWith("langversion=", StringComparison.Ordinal)
-                && LanguageVersionFacts.TryParse(line[12..], out var parsedLanguageVersion))
-            {
-                languageVersion = parsedLanguageVersion;
-            }
-            else if (line.StartsWith("nullable=", StringComparison.Ordinal))
-            {
-                nullableContext = ParseNullableContext(line[9..]);
-            }
-            else if (line.StartsWith("projectdir=", StringComparison.Ordinal))
-            {
-                projectDirectory = line[11..];
-            }
-            else if (line.StartsWith("source=", StringComparison.Ordinal))
-            {
-                sources.Add(line[7..]);
-            }
-            else if (line.StartsWith("reference=", StringComparison.Ordinal))
-            {
-                references.Add(line[10..]);
-            }
-        }
 
-        var syntaxTrees = sources
-            .Where(File.Exists)
-            .Where(path => !Path.GetFullPath(path).Equals(Path.GetFullPath(contextOutputPath), StringComparison.OrdinalIgnoreCase))
-            .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), new CSharpParseOptions(languageVersion, preprocessorSymbols: defines), path))
-            .ToImmutableArray();
-        var metadataReferences = references.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(static path => MetadataReference.CreateFromFile(path));
-        var compilation = CSharpCompilation.Create(
-            "Nanto.Sdk.ContractModel",
-            syntaxTrees,
-            metadataReferences,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: nullableContext));
-        using var outputLock = AcquireOutputLock(Path.Combine(Path.GetDirectoryName(responsePath)!, ".nanto-contracts.lock"));
-        WriteContext(contextOutputPath, CreateJsonContext(compilation));
-        WriteTypeScript(typeScriptOutputPath, DiscoverFrontendMembers(compilation), projectDirectory);
-        return 0;
+            var generatedOutputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                Path.GetFullPath(contextOutputPath),
+                Path.GetFullPath(policyOutputPath),
+            };
+            var syntaxTrees = sources
+                .Where(File.Exists)
+                .Where(path => !generatedOutputs.Contains(Path.GetFullPath(path)))
+                .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), new CSharpParseOptions(languageVersion, preprocessorSymbols: defines), path))
+                .ToImmutableArray();
+            var metadataReferences = references.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(static path => MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "Nanto.Sdk.ContractModel",
+                syntaxTrees,
+                metadataReferences,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: nullableContext));
+            NantoContractMember[] members = DiscoverFrontendMembers(compilation);
+            PluginSelectionCompilation pluginSelection = contractPluginResponsePath is null
+                ? throw new InvalidDataException("Contract response is missing the plugin selection response path.")
+                : CompilePluginSelection(contractPluginResponsePath);
+            NantoCompiledCapabilityPolicy policy = NantoCapabilityCompiler.Compile(
+                capabilityPaths.Select(path => new NantoCapabilityInput(path, CreateProjectRelativePath(path, projectDirectory))),
+                CreatePermissionCatalog(members, pluginSelection));
+            using var outputLock = AcquireOutputLock(Path.Combine(Path.GetDirectoryName(responsePath)!, ".nanto-contracts.lock"));
+            WriteFileAtomically(contextOutputPath, CreateJsonContext(compilation));
+            WriteFileAtomically(typeScriptOutputPath, CreateTypeScript(members, projectDirectory));
+            WriteFileAtomically(policyOutputPath, NantoCapabilityCompiler.EmitSource(policy));
+            WriteFileAtomically(policyInspectionOutputPath, NantoCapabilityCompiler.SerializeInspection(policy));
+            return 0;
+        }
+        catch (NantoCapabilityException exception)
+        {
+            Console.Error.WriteLine(exception);
+            return 8;
+        }
+        catch (NantoPluginManifestException exception)
+        {
+            Console.Error.WriteLine(exception);
+            return 8;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            _ = exception;
+            Console.Error.WriteLine("NANTO4010: capability-policy($): Capability compiler inputs could not be processed.");
+            return 8;
+        }
     }
 
     private static int GeneratePluginCatalog(string responsePath, string catalogOutputPath, string snapshotOutputPath)
@@ -215,7 +260,52 @@ internal static class Program
             catalog,
             restoreProperties,
             restoreInputs);
-        return new PluginSelectionCompilation(catalog, snapshot);
+        return new PluginSelectionCompilation(catalog, snapshot, inputs);
+    }
+
+    private static NantoCapabilityPermissionCatalogEntry[] CreatePermissionCatalog(
+        IEnumerable<NantoContractMember> members,
+        PluginSelectionCompilation pluginSelection)
+    {
+        var permissions = members.Select(static member => new NantoCapabilityPermissionCatalogEntry(
+            "app:" + member.SymbolicName.ToLowerInvariant(),
+            [member.SymbolicName],
+            [member.Id],
+            null,
+            null)).ToList();
+        var inputsByPackage = pluginSelection.Inputs.ToDictionary(static input => input.PackageId, StringComparer.OrdinalIgnoreCase);
+        foreach (NantoPluginCatalogEntry plugin in pluginSelection.Catalog.Plugins)
+        {
+            NantoPluginManifestInput input = inputsByPackage[plugin.PackageId];
+            foreach (NantoPluginPermissionEntry permission in plugin.Permissions)
+            {
+                string? scopeSchemaPath = permission.ScopeSchema is null
+                    ? null
+                    : Path.Combine(input.PackageRoot, permission.ScopeSchema.Replace('/', Path.DirectorySeparatorChar));
+                permissions.Add(new NantoCapabilityPermissionCatalogEntry(
+                    permission.Identifier,
+                    permission.Members,
+                    [],
+                    scopeSchemaPath,
+                    permission.ScopeSchemaSha256));
+            }
+        }
+
+        if (permissions.GroupBy(static permission => permission.Identifier, StringComparer.Ordinal)
+            .FirstOrDefault(static group => group.Count() > 1) is not null)
+        {
+            throw new NantoCapabilityException("NANTO4006", "permission-catalog", "$", "Permission identifier has more than one owner.");
+        }
+
+        return [.. permissions.OrderBy(static permission => permission.Identifier, StringComparer.Ordinal)];
+    }
+
+    private static string CreateProjectRelativePath(string path, string projectDirectory)
+    {
+        string relative = Path.GetRelativePath(projectDirectory, path).Replace('\\', '/');
+        return Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith("../", StringComparison.Ordinal)
+            ? Path.GetFileName(path)
+            : relative;
     }
 
     private static int GenerateAssetManifest(string distributionRoot, string manifestOutputPath, string resourcePrefix)
@@ -797,7 +887,10 @@ internal static class Program
         return relativePath.Replace('\\', '/') + ":" + line.ToString(CultureInfo.InvariantCulture);
     }
 
-    private sealed record PluginSelectionCompilation(NantoPluginCatalogDocument Catalog, NantoPluginSelectionSnapshotDocument Snapshot);
+    private sealed record PluginSelectionCompilation(
+        NantoPluginCatalogDocument Catalog,
+        NantoPluginSelectionSnapshotDocument Snapshot,
+        NantoPluginManifestInput[] Inputs);
 
     internal sealed class TypeScriptEmitter
     {

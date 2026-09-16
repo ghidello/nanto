@@ -1,6 +1,6 @@
 # Phase 4 plan — capabilities and plugin foundation
 
-**Status:** In progress. Slice 0 is complete and its accepted baseline is recorded in [`phase4-baselines.md`](phase4-baselines.md). Phase 1, Phase 2, and Phase 3 implementation are closed. The complete 550-process Phase 1 lifecycle/recovery soak passed on August 23, 2026. One separately approved Phase 1 follow-up remains open: the visible cross-monitor run on two active monitors with different effective DPI. Keep that item visible in the gate record and do not report it as passed.
+**Status:** In progress. Slice 0, Slice 1, and Slice 2 are complete, and their accepted evidence is recorded in [`phase4-baselines.md`](phase4-baselines.md). Phase 1, Phase 2, and Phase 3 implementation are closed. The complete 550-process Phase 1 lifecycle/recovery soak passed on August 23, 2026. One separately approved Phase 1 follow-up remains open: the visible cross-monitor run on two active monitors with different effective DPI. Keep that item visible in the gate record and do not report it as passed.
 
 Phase 4 turns the existing per-window list of generated command IDs into a compiled, inspectable authorization policy and establishes the static plugin composition and lifecycle model needed by the Windows MVP plugins in Phase 5. It does not ship the Phase 5 plugin catalogue.
 
@@ -100,7 +100,7 @@ The following terms are distinct:
 - **plugin selection** — a plugin package present in the evaluated NuGet restore graph and therefore included in the static registry;
 - **plugin registration** — the generated runtime adapter and factory contributed by a selected plugin package.
 
-Permission identifiers use lowercase ASCII and the form `<namespace>:<name>`. The application namespace is `app`; plugin namespaces are their declared short IDs. Names consist of dot-separated lowercase ASCII segments. Identifiers are ordinal and case-sensitive after validation.
+Permission identifiers use lowercase ASCII and the form `<namespace>:<name>`. The application namespace `app` is reserved; plugin namespaces are their declared short IDs. Names consist of dot-separated lowercase ASCII segments. Identifiers are ordinal and case-sensitive after validation.
 
 Each application bridge member receives a generated exact permission:
 
@@ -409,6 +409,8 @@ Exit: documentation and empty fixtures build without changing runtime behavior.
 
 ### Slice 1 — plugin manifest and permission catalog
 
+**Status:** Complete. Schema v1, package layout, catalog canonicalization, restore-graph selection, and isolated package-consumer evidence are frozen by D-077 and recorded in [`phase4-baselines.md`](phase4-baselines.md).
+
 Deliver:
 
 - strict plugin manifest schema v1;
@@ -422,6 +424,8 @@ Deliver:
 Exit: every catalog entry has one owner and exact member mapping; selected plugins and dependency order are reproducible from the current restore graph without runtime activation.
 
 ### Slice 2 — capability schema and compiler
+
+**Status:** Complete. Capability schema v1, `local` and exact-HTTPS origin semantics, duplicate-grant rejection, deterministic generated policy output, and redacted inspection evidence are frozen by D-078 and recorded in [`phase4-baselines.md`](phase4-baselines.md).
 
 Deliver:
 

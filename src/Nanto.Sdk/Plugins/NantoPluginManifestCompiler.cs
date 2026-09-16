@@ -86,9 +86,9 @@ internal static class NantoPluginManifestCompiler
             RequireObject(root, input.DisplayPath, "$", ["schemaVersion", "id", "catalogFingerprint", "runtimeCompatibility", "dependencies", "permissions"], ["frontendModule"]);
             RequireInteger(root, "schemaVersion", input.DisplayPath, "$", 1);
             string id = RequireString(root, "id", input.DisplayPath, "$", MaximumIdentifierLength);
-            if (!IsPluginIdentifier(id))
+            if (!IsPluginIdentifier(id) || id == "app")
             {
-                throw Error("NANTO4103", input.DisplayPath, "$.id", "Plugin identifier must contain lowercase ASCII dot-separated segments.");
+                throw Error("NANTO4103", input.DisplayPath, "$.id", "Plugin identifier must contain lowercase ASCII dot-separated segments and must not use the reserved 'app' namespace.");
             }
 
             string claimedFingerprint = RequireHash(root, "catalogFingerprint", input.DisplayPath, "$");

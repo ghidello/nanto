@@ -1,6 +1,6 @@
 # Phase 4 capability and plugin baselines
 
-**Status:** Slice 0 baseline accepted on 2026-08-23.
+**Status:** Slice 0 baseline and Slice 1–2 checkpoints accepted through 2026-08-28.
 
 Phase 4 measures capability compilation, static plugin composition, authorization lookup, lifecycle coordination, frontend module materialization, and runtime-selection costs against the completed Phase 3 product. Fixture packages are test-only build inputs and do not add production behavior during Slice 0.
 
@@ -46,6 +46,34 @@ The Release gate executed neither manual test body. Its Native AOT deployment pr
 parallel attempt exposed unrelated telemetry-listener interference and a transient WebView storage-lock cleanup failure; the
 listener assertion was isolated to its own bounded tag set, package test builds were removed from the test body, and the complete
 parallel lane then passed.
+
+## Slice 2 capability compiler checkpoint
+
+**Status:** schema and compiler contract accepted on 2026-08-28.
+
+- `Nanto.Sdk` packages capability schema v1 and discovers `Capabilities/**/*.nanto-capability.json` by default while retaining
+  explicit `NantoCapability` item control.
+- The bounded strict-UTF-8 compiler validates document identity, stable `main` window selection, `local` or exact normalized HTTPS
+  origins, permission ownership, duplicate grants, and plugin-owned scope schemas before emitting policy source.
+- Generated policy entries and fingerprints are ordinal and deterministic. The inspection artifact exposes symbolic permissions,
+  resolved application member IDs, and scope hashes without source paths or scope values.
+- Contract generation writes policy outputs atomically and only when content changes. Isolated consumer evidence proves no-op
+  timestamp stability, clean-build byte identity, and stale capability removal returning to an empty default-deny policy.
+- Runtime origin resolution and bridge authorization remain Slice 3 work; this checkpoint adds no runtime JSON parsing or grants.
+
+This checkpoint freezes capability schema v1, `local` semantics, exact-origin normalization, and duplicate-grant rejection under
+D-078. Later changes to those contracts require an explicit compatibility decision.
+
+| Slice 2 verification | Result |
+| --- | ---: |
+| Canonical Debug solution build | Passed, 0 warnings |
+| Canonical Debug default test scope | 478 passed, 0 failed; 14.712s |
+| Release `TestScope=All` | 566 passed, 0 failed; 1m 31.624s |
+| Focused generator/capability suite | 96 passed, 0 failed |
+| Isolated package-consumer suite | 1 passed, 0 failed; deterministic, no-op, redaction, and stale-removal paths |
+
+The Release gate executed neither manual test body. The Phase 1 mixed-DPI visible follow-up remains open and is not claimed by this
+checkpoint.
 
 ## Reproduction
 

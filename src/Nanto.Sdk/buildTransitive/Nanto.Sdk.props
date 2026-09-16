@@ -1,4 +1,8 @@
 <Project>
+  <ItemGroup>
+    <NantoCapability Include="$(MSBuildProjectDirectory)\Capabilities\**\*.nanto-capability.json" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(NantoBuildMode)' == 'CoreClrFrameworkDependent'">
     <PublishAot>false</PublishAot>
     <PublishTrimmed>false</PublishTrimmed>

@@ -19,6 +19,7 @@
     <None Update="buildTransitive/Nanto.Sdk.targets" Pack="true" PackagePath="buildTransitive/Nanto.Sdk.targets" />
     <None Include="../../frontend/packages/core/src/index.ts" Pack="true" PackagePath="browser/core/index.ts" />
     <None Include="Schemas/nanto-plugin-manifest-v1.schema.json" Pack="true" PackagePath="schemas/nanto-plugin-manifest-v1.schema.json" />
+    <None Include="Schemas/nanto-capability-v1.schema.json" Pack="true" PackagePath="schemas/nanto-capability-v1.schema.json" />
   </ItemGroup>
   <Target Name="AddNantoSdkToolsToPackage">
     <ItemGroup>
